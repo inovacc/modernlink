@@ -1,7 +1,4 @@
 .git
 target
 build
-Cargo.lock
-Cargo.toml
-crates
 docs

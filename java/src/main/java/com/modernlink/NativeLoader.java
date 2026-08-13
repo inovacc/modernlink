@@ -19,6 +19,9 @@ final class NativeLoader {
         if (os.indexOf("win") >= 0 && (arch.equals("amd64") || arch.equals("x86_64"))) {
             resource = "/native/windows-x86_64/modernlink.dll";
             filename = "modernlink.dll";
+        } else if (os.indexOf("linux") >= 0 && (arch.equals("amd64") || arch.equals("x86_64"))) {
+            resource = "/native/linux-x86_64/libmodernlink.so";
+            filename = "libmodernlink.so";
         } else {
             throw new LegacyHttpException("unsupported native platform: " + os + "/" + arch);
         }
