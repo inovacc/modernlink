@@ -12,6 +12,9 @@ public final class LegacyHttpResponseStructuredTest {
         if (!"application/octet-stream".equals(response.getHeader("content-type"))) {
             throw new AssertionError("response header was not retained");
         }
+        if (!"application/octet-stream".equals(response.getHeader("Content-Type"))) {
+            throw new AssertionError("response header lookup is not case-insensitive");
+        }
         if (response.getBody()[0] != 0 || response.getBody()[2] != 2) {
             throw new AssertionError("binary response body was not retained");
         }

@@ -1,0 +1,32 @@
+changelog:
+  categories:
+    - title: '🔥 Breaking Changes'
+      labels:
+        - 'breaking'
+    - title: '👋 Deprecated'
+      labels:
+        - 'deprecation'
+    - title: '🚀 Features'
+      labels:
+        - 'feature'
+        - 'enhancement'
+    - title: '🐛 Bug Fixes'
+      labels:
+        - 'bug'
+    - title: '🔗 Dependency Updates'
+      labels:
+        - 'library-update'
+        - 'dependencies'
+    - title: '🛠  Internal Updates'
+      labels:
+        - 'internal'
+        - 'kaizen'
+        - 'test-library-update'
+        - 'sbt-plugin-update'
+    - title: '📚 Docs'
+      labels:
+        - 'doc'
+    - title: Other Changes
+      labels:
+        - "*"
+

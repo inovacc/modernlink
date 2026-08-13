@@ -22,7 +22,15 @@ public final class LegacyHttpResponse {
     public int getStatus() { return status; }
     public String getFinalUrl() { return finalUrl; }
     public Map<String, String> getHeaders() { return headers; }
-    public String getHeader(String name) { return headers.get(name); }
+    public String getHeader(String name) {
+        if (name == null) return null;
+        String exact = headers.get(name);
+        if (exact != null) return exact;
+        for (Map.Entry<String, String> entry : headers.entrySet()) {
+            if (name.equalsIgnoreCase(entry.getKey())) return entry.getValue();
+        }
+        return null;
+    }
     public byte[] getBody() { return body.clone(); }
     public LegacyTlsInfo getTlsInfo() { return tlsInfo; }
 }

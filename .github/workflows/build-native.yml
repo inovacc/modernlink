@@ -1,0 +1,48 @@
+name: Build Native
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/main/resources/org/xerial/snappy/VERSION'
+      - 'Makefile'
+      - 'Makefile.common'
+      - '**/*.h'
+      - '**/*.cpp'
+      - .github/workflows/build-native.yml
+  pull_request:
+    paths:
+      - 'src/main/resources/org/xerial/snappy/VERSION'
+      - 'Makefile'
+      - 'Makefile.common'
+      - '**/*.h'
+      - '**/*.cpp'
+
+jobs:
+  build:
+    permissions:
+      contents: write
+      pull-requests: write
+    name: Build native libraries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup cmake
+        uses: jwlawson/actions-setup-cmake@v2.0
+        with:
+          cmake-version: '3.16.x'
+      - name: Build native libraries
+        run: make clean-native native-all
+        env:
+          OCI_EXE: docker
+      - name: Create Pull Request
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: peter-evans/create-pull-request@v8
+        with:
+          title: Update native libraries
+          commit-message: Update native libraries for ${{ github.sha }}
+          branch: update-native-libs
+          labels: library-update
+
