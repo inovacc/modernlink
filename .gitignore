@@ -1,4 +1,5 @@
 /target/
+/target-main-pulsar/
 /build/
 /crates/core/.git-generated-backup/
 /docs/.project/
