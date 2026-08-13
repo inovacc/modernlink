@@ -46,6 +46,7 @@ The current JAR contains Linux x86_64 and Linux ARM64 native resources:
 
 - `native/linux-x86_64/libmodernlink.so`
 - `native/linux-aarch64/libmodernlink.so`
+- `native/windows-x86_64/modernlink.dll`
 
 TLS policy defaults to a minimum of TLS 1.2. Java callers may select `LegacyHttpRequest.TLS_1_2` or `LegacyHttpRequest.TLS_1_3` with `minimumTlsVersion(...)`; unsupported protocol values are rejected before the native request is started.
 

@@ -7,9 +7,10 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends python3-pip \
     && pip3 install --break-system-packages --no-cache-dir ziglang \
     && cargo install cargo-zigbuild \
-    && rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
+    && rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-pc-windows-gnu
 RUN cargo zigbuild -p jni@0.1.0 --release --target x86_64-unknown-linux-gnu.2.13 \
-    && cargo zigbuild -p jni@0.1.0 --release --target aarch64-unknown-linux-gnu.2.17
+    && cargo zigbuild -p jni@0.1.0 --release --target aarch64-unknown-linux-gnu.2.17 \
+    && cargo zigbuild -p jni@0.1.0 --release --target x86_64-pc-windows-gnu
 
 FROM java:6b38-jdk
 
@@ -18,8 +19,9 @@ WORKDIR /workspace
 COPY java/src /workspace/java/src
 COPY --from=native-builder /native/target/x86_64-unknown-linux-gnu/release/libmodernlink.so /workspace/java/src/main/resources/native/linux-x86_64/libmodernlink.so
 COPY --from=native-builder /native/target/aarch64-unknown-linux-gnu/release/libmodernlink.so /workspace/java/src/main/resources/native/linux-aarch64/libmodernlink.so
+COPY --from=native-builder /native/target/x86_64-pc-windows-gnu/release/modernlink.dll /workspace/java/src/main/resources/native/windows-x86_64/modernlink.dll
 
-RUN mkdir -p /workspace/build/classes /workspace/build/classes/native/linux-x86_64 /workspace/build/classes/native/linux-aarch64 \
+RUN mkdir -p /workspace/build/classes /workspace/build/classes/native/linux-x86_64 /workspace/build/classes/native/linux-aarch64 /workspace/build/classes/native/windows-x86_64 \
     && find /workspace/java/src/main/java -name '*.java' -print0 \
        | xargs -0 javac -source 1.6 -target 1.6 -d /workspace/build/classes \
     && find /workspace/java/src/test/java -name '*.java' -print0 \
@@ -30,6 +32,8 @@ RUN mkdir -p /workspace/build/classes /workspace/build/classes/native/linux-x86_
        /workspace/build/classes/native/linux-x86_64/libmodernlink.so \
     && cp /workspace/java/src/main/resources/native/linux-aarch64/libmodernlink.so \
        /workspace/build/classes/native/linux-aarch64/libmodernlink.so \
+    && cp /workspace/java/src/main/resources/native/windows-x86_64/modernlink.dll \
+       /workspace/build/classes/native/windows-x86_64/modernlink.dll \
     && jar cf /workspace/modernlink.jar -C /workspace/build/classes .
 
 CMD ["java", "-version"]
