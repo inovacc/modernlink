@@ -22,6 +22,9 @@ final class NativeLoader {
         } else if (os.indexOf("linux") >= 0 && (arch.equals("amd64") || arch.equals("x86_64"))) {
             resource = "/native/linux-x86_64/libmodernlink.so";
             filename = "libmodernlink.so";
+        } else if (os.indexOf("linux") >= 0 && (arch.equals("aarch64") || arch.equals("arm64"))) {
+            resource = "/native/linux-aarch64/libmodernlink.so";
+            filename = "libmodernlink.so";
         } else {
             throw new LegacyHttpException("unsupported native platform: " + os + "/" + arch);
         }
