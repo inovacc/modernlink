@@ -1123,6 +1123,14 @@ pub struct DispatchResult {
 }
 
 impl RouteConfig {
+    /// Evaluate a route without publishing or requiring a provider transport.
+    ///
+    /// A denied rule is returned as a decision so callers can explain a
+    /// dry-run result; `dispatch` continues to reject denied routes.
+    pub fn dry_run(&self, message: &MessageEnvelope) -> Result<RouteDecision, DomainError> {
+        self.decide(message)
+    }
+
     pub fn decide(&self, message: &MessageEnvelope) -> Result<RouteDecision, DomainError> {
         let (mode, provider, rule_id, allowed) = self
             .rules
@@ -1320,5 +1328,30 @@ mod tests {
         assert!(denied
             .dispatch(message(), &InMemoryTransport::new(Provider::Nats))
             .is_err());
+    }
+
+    #[test]
+    fn dry_run_returns_denied_decision_without_publishing() {
+        let config = RouteConfig {
+            default_mode: Mode::Transparent,
+            default_provider: Provider::LegacyJms,
+            rules: vec![RouteRule {
+                id: "hold-orders".to_string(),
+                destination: Some("orders.created".to_string()),
+                destination_prefix: None,
+                tenant: None,
+                header_name: None,
+                header_value: None,
+                mode: Mode::Redirect,
+                provider: Provider::Nats,
+                allowed: false,
+            }],
+        };
+
+        let decision = config.dry_run(&message()).unwrap();
+        assert_eq!(decision.rule_id.as_deref(), Some("hold-orders"));
+        assert_eq!(decision.mode, Mode::Redirect);
+        assert_eq!(decision.provider, Provider::Nats);
+        assert!(!decision.allowed);
     }
 }
