@@ -11,4 +11,5 @@ jni = "0.21"
 base64 = "0.22"
 
 [lib]
+name = "modernlink"
 crate-type = ["cdylib"]
