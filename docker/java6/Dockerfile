@@ -5,10 +5,12 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY hacks/messaging-demo ./hacks/messaging-demo
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3-pip \
+    && apt-get install -y --no-install-recommends cmake libcurl4-openssl-dev python3-pip \
     && pip3 install --break-system-packages --no-cache-dir ziglang \
     && cargo install cargo-zigbuild \
     && rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-pc-windows-gnu
+ENV CFLAGS="-idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include -UWITH_OAUTHBEARER_OIDC" \
+    CXXFLAGS="-UWITH_OAUTHBEARER_OIDC"
 RUN cargo zigbuild -p jni@0.1.0 --release --target x86_64-unknown-linux-gnu.2.13 \
     && cargo zigbuild -p jni@0.1.0 --release --target aarch64-unknown-linux-gnu.2.17 \
     && cargo zigbuild -p jni@0.1.0 --release --target x86_64-pc-windows-gnu
