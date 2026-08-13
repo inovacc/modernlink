@@ -14,8 +14,13 @@ public final class LegacyHttpsTest {
             || response.getTlsInfo().getPeerCertificateChain().length == 0) {
             throw new AssertionError("peer certificate chain is unavailable");
         }
+        if (response.getTlsInfo().getProtocol() == null || response.getTlsInfo().getCipherSuite() == null) {
+            throw new AssertionError("negotiated TLS metadata is unavailable");
+        }
         System.out.println("status=" + response.getStatus());
         System.out.println("body-bytes=" + response.getBody().length);
         System.out.println("peer-certs=" + response.getTlsInfo().getPeerCertificateChain().length);
+        System.out.println("tls-protocol=" + response.getTlsInfo().getProtocol());
+        System.out.println("tls-cipher=" + response.getTlsInfo().getCipherSuite());
     }
 }

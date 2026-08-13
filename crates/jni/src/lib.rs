@@ -119,6 +119,30 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeTlsCertificate
     array.into_raw()
 }
 
+fn tls_string(handle: jlong, protocol: bool) -> Option<String> {
+    unsafe { response(handle).and_then(|value| value.0.tls.as_ref()).and_then(|info| if protocol { info.protocol.clone() } else { info.cipher_suite.clone() }) }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeTlsProtocol(
+    env: JNIEnv, _class: JClass, handle: jlong,
+) -> jni::sys::jstring {
+    match tls_string(handle, true).and_then(|value| env.new_string(value).ok()) {
+        Some(value) => value.into_raw(),
+        None => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeTlsCipherSuite(
+    env: JNIEnv, _class: JClass, handle: jlong,
+) -> jni::sys::jstring {
+    match tls_string(handle, false).and_then(|value| env.new_string(value).ok()) {
+        Some(value) => value.into_raw(),
+        None => std::ptr::null_mut(),
+    }
+}
+
 #[no_mangle]
 pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeRelease(_env: JNIEnv, _class: JClass, handle: jlong) {
     if handle != 0 { unsafe { drop(Box::from_raw(handle as *mut NativeResponse)); } }

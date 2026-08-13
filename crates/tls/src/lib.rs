@@ -1,4 +1,5 @@
-use std::time::Duration;
+use std::sync::Arc;
+use rustls::{ClientConfig, RootCertStore};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TlsVersion {
@@ -21,33 +22,20 @@ impl TlsConfig {
     }
 }
 
-pub fn build_client(
-    config: TlsConfig,
-    connect_timeout: Option<Duration>,
-    read_timeout: Option<Duration>,
-) -> Result<reqwest::blocking::Client, reqwest::Error> {
-    let mut builder = reqwest::blocking::Client::builder()
-        .tls_info(true)
-        .min_tls_version(match config.minimum_version {
-            TlsVersion::Tls12 => reqwest::tls::Version::TLS_1_2,
-            TlsVersion::Tls13 => reqwest::tls::Version::TLS_1_3,
-        });
-    if let Some(timeout) = connect_timeout {
-        builder = builder.connect_timeout(timeout);
-    }
-    if let Some(timeout) = read_timeout {
-        builder = builder.timeout(timeout);
-    }
-    builder.build()
-}
-
-pub fn peer_certificates(response: &reqwest::blocking::Response) -> Vec<Vec<u8>> {
-    response
-        .extensions()
-        .get::<reqwest::tls::TlsInfo>()
-        .and_then(|info| info.peer_certificate())
-        .map(|certificate| vec![certificate.to_vec()])
-        .unwrap_or_default()
+pub fn client_config(config: TlsConfig) -> Arc<ClientConfig> {
+    let roots = RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let versions: &[&'static rustls::SupportedProtocolVersion] = match config.minimum_version {
+        TlsVersion::Tls12 => &[&rustls::version::TLS13, &rustls::version::TLS12],
+        TlsVersion::Tls13 => &[&rustls::version::TLS13],
+    };
+    Arc::new(
+        ClientConfig::builder_with_provider(provider)
+            .with_protocol_versions(versions)
+            .expect("ModernLink TLS versions are supported")
+            .with_root_certificates(roots)
+            .with_no_client_auth(),
+    )
 }
 
 #[cfg(test)]
@@ -60,7 +48,7 @@ mod tests {
     }
 
     #[test]
-    fn secure_default_client_can_be_constructed() {
-        assert!(build_client(TlsConfig::secure_default(), None, None).is_ok());
+    fn secure_default_client_config_can_be_constructed() {
+        let _ = client_config(TlsConfig::secure_default());
     }
 }

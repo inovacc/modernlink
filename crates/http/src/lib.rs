@@ -1,37 +1,85 @@
-use core::{Error, Request, Response};
+use bytes::Bytes;
+use core::{Error, Request, Response, TlsInfo};
+use http_body_util::{BodyExt, Full};
+use hyper::body::Incoming;
+use hyper::client::conn::http1;
+use hyper::{Method, Request as HyperRequest, Uri};
+use hyper::header::{HeaderName, HeaderValue};
+use hyper_util::rt::TokioIo;
+use std::net::ToSocketAddrs;
+use std::time::Duration;
+use tokio::net::TcpStream;
+use tokio::time::timeout;
+use tokio_rustls::TlsConnector;
 
 pub fn execute(request: &Request) -> Result<Response, Error> {
-    let client = tls::build_client(tls::TlsConfig::secure_default(), request.connect_timeout, request.read_timeout)
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
         .map_err(|error| Error::Transport(error.to_string()))?;
-    let method = request
-        .method
-        .parse()
-        .map_err(|error| Error::InvalidRequest(format!("invalid method: {error}")))?;
-    let mut call = client.request(method, &request.url);
+    runtime.block_on(execute_async(request))
+}
+
+async fn execute_async(request: &Request) -> Result<Response, Error> {
+    let parsed = url::Url::parse(&request.url).map_err(|error| Error::InvalidRequest(error.to_string()))?;
+    let host = parsed.host_str().ok_or_else(|| Error::InvalidRequest("URL has no host".to_string()))?;
+    let port = parsed.port_or_known_default().ok_or_else(|| Error::InvalidRequest("URL has no port".to_string()))?;
+    let address = format!("{}:{}", host, port)
+        .to_socket_addrs()
+        .map_err(|error| Error::Transport(error.to_string()))?
+        .next()
+        .ok_or_else(|| Error::Transport("host has no addresses".to_string()))?;
+    let connect = TcpStream::connect(address);
+    let tcp = if let Some(duration) = request.connect_timeout {
+        timeout(duration, connect).await.map_err(|_| Error::Transport("connection timeout".to_string()))?
+    } else {
+        connect.await
+    }.map_err(|error| Error::Transport(error.to_string()))?;
+    let server_name = rustls::pki_types::ServerName::try_from(host.to_string())
+        .map_err(|error| Error::Tls(error.to_string()))?;
+    let connector = TlsConnector::from(tls::client_config(tls::TlsConfig::secure_default()));
+    let tls_stream = connector.connect(server_name, tcp).await.map_err(|error| Error::Tls(error.to_string()))?;
+    let (_, session) = tls_stream.get_ref();
+    let tls_info = TlsInfo {
+        protocol: session.protocol_version().map(|value| format!("{:?}", value)),
+        cipher_suite: session.negotiated_cipher_suite().map(|value| format!("{:?}", value.suite())),
+        peer_certificates_der: session.peer_certificates().map(|values| values.iter().map(|value| value.as_ref().to_vec()).collect()).unwrap_or_default(),
+    };
+    let io = TokioIo::new(tls_stream);
+    let (mut sender, connection) = http1::handshake::<_, Full<Bytes>>(io).await.map_err(|error| Error::Transport(error.to_string()))?;
+    tokio::spawn(async move { let _ = connection.await; });
+    let method = request.method.parse::<Method>().map_err(|error| Error::InvalidRequest(error.to_string()))?;
+    let path = match (parsed.path(), parsed.query()) {
+        (path, Some(query)) => format!("{}?{}", path, query),
+        (path, None) => if path.is_empty() { "/".to_string() } else { path.to_string() },
+    };
+    let uri: Uri = path.parse::<Uri>().map_err(|error| Error::InvalidRequest(error.to_string()))?;
+    let mut builder = HyperRequest::builder().method(method).uri(uri);
+    let headers = builder.headers_mut().ok_or_else(|| Error::InvalidRequest("request headers unavailable".to_string()))?;
+    headers.insert("host", host.parse::<HeaderValue>().map_err(|error| Error::InvalidRequest(error.to_string()))?);
     for (name, value) in &request.headers {
-        call = call.header(name, value);
+        let name = name.parse::<HeaderName>().map_err(|error| Error::InvalidRequest(error.to_string()))?;
+        let value = value.parse::<HeaderValue>().map_err(|error| Error::InvalidRequest(error.to_string()))?;
+        headers.insert(name, value);
     }
-    if !request.body.is_empty() {
-        call = call.body(request.body.clone());
-    }
-    let response = call
-        .send()
-        .map_err(|error| Error::Transport(error.to_string()))?;
-    let peer_certificates_der = tls::peer_certificates(&response);
+    let outgoing = builder.body(Full::new(Bytes::from(request.body.clone()))).map_err(|error| Error::InvalidRequest(error.to_string()))?;
+    let response = if let Some(duration) = request.read_timeout {
+        timeout(duration, sender.send_request(outgoing)).await.map_err(|_| Error::Transport("read timeout".to_string()))?
+    } else {
+        sender.send_request(outgoing).await
+    }.map_err(|error| Error::Transport(error.to_string()))?;
+    collect_response(response, tls_info, request.read_timeout).await
+}
+
+async fn collect_response(response: hyper::Response<Incoming>, tls: TlsInfo, read_timeout: Option<Duration>) -> Result<Response, Error> {
     let status = response.status().as_u16();
     let mut headers = std::collections::BTreeMap::new();
     for (name, value) in response.headers() {
-        if let Ok(value) = value.to_str() {
-            headers.insert(name.to_string(), value.to_string());
-        }
+        if let Ok(value) = value.to_str() { headers.insert(name.to_string(), value.to_string()); }
     }
-    let body = response
-        .bytes()
-        .map_err(|error| Error::Transport(error.to_string()))?
-        .to_vec();
-    Ok(Response { status, headers, body, tls: if peer_certificates_der.is_empty() { None } else { Some(core::TlsInfo {
-        protocol: None,
-        cipher_suite: None,
-        peer_certificates_der,
-    }) } })
+    let body = if let Some(duration) = read_timeout {
+        timeout(duration, response.collect()).await.map_err(|_| Error::Transport("read timeout".to_string()))?
+    } else { response.collect().await }.map_err(|error| Error::Transport(error.to_string()))?.to_bytes().to_vec();
+    Ok(Response { status, headers, body, tls: Some(tls) })
 }
