@@ -10,7 +10,12 @@ public final class LegacyHttpsTest {
         if (response.getBody().length == 0) {
             throw new AssertionError("HTTPS response body is empty");
         }
+        if (response.getTlsInfo().getPeerCertificateChain() == null
+            || response.getTlsInfo().getPeerCertificateChain().length == 0) {
+            throw new AssertionError("peer certificate chain is unavailable");
+        }
         System.out.println("status=" + response.getStatus());
         System.out.println("body-bytes=" + response.getBody().length);
+        System.out.println("peer-certs=" + response.getTlsInfo().getPeerCertificateChain().length);
     }
 }

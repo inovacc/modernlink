@@ -100,6 +100,26 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeBody(env: JNIE
 }
 
 #[no_mangle]
+pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeTlsCertificates(
+    mut env: JNIEnv, _class: JClass, handle: jlong,
+) -> jobjectArray {
+    let certificates = match unsafe { response(handle) } {
+        Some(value) => match &value.0.tls { Some(info) => &info.peer_certificates_der, None => return std::ptr::null_mut() },
+        None => return std::ptr::null_mut(),
+    };
+    let byte_array_class = match env.find_class("[B") { Ok(value) => value, Err(_) => return std::ptr::null_mut() };
+    let array = match env.new_object_array(certificates.len() as i32, byte_array_class, JByteArray::default()) {
+        Ok(value) => value,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    for (index, certificate) in certificates.iter().enumerate() {
+        let value = match env.byte_array_from_slice(certificate) { Ok(value) => value, Err(_) => return std::ptr::null_mut() };
+        if env.set_object_array_element(&array, index as i32, value).is_err() { return std::ptr::null_mut(); }
+    }
+    array.into_raw()
+}
+
+#[no_mangle]
 pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeRelease(_env: JNIEnv, _class: JClass, handle: jlong) {
     if handle != 0 { unsafe { drop(Box::from_raw(handle as *mut NativeResponse)); } }
 }

@@ -26,6 +26,7 @@ public final class LegacyHttpClient {
     private static native int nativeStatus(long handle);
     private static native String[] nativeHeaders(long handle);
     private static native byte[] nativeBody(long handle);
+    private static native byte[][] nativeTlsCertificates(long handle);
     private static native void nativeRelease(long handle);
 
     private String[] flattenHeaders(Map<String, String> headers) {
@@ -51,6 +52,7 @@ public final class LegacyHttpClient {
         }
         byte[] body = nativeBody(handle);
         if (body == null) throw new LegacyHttpException("native response body unavailable");
-        return new LegacyHttpResponse(status, headers, body, new LegacyTlsInfo(null, null));
+        return new LegacyHttpResponse(status, headers, body,
+            new LegacyTlsInfo(null, null, nativeTlsCertificates(handle)));
     }
 }

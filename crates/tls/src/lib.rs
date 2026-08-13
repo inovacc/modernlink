@@ -27,6 +27,7 @@ pub fn build_client(
     read_timeout: Option<Duration>,
 ) -> Result<reqwest::blocking::Client, reqwest::Error> {
     let mut builder = reqwest::blocking::Client::builder()
+        .tls_info(true)
         .min_tls_version(match config.minimum_version {
             TlsVersion::Tls12 => reqwest::tls::Version::TLS_1_2,
             TlsVersion::Tls13 => reqwest::tls::Version::TLS_1_3,
@@ -38,6 +39,15 @@ pub fn build_client(
         builder = builder.timeout(timeout);
     }
     builder.build()
+}
+
+pub fn peer_certificates(response: &reqwest::blocking::Response) -> Vec<Vec<u8>> {
+    response
+        .extensions()
+        .get::<reqwest::tls::TlsInfo>()
+        .and_then(|info| info.peer_certificate())
+        .map(|certificate| vec![certificate.to_vec()])
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

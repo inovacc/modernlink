@@ -17,6 +17,7 @@ pub fn execute(request: &Request) -> Result<Response, Error> {
     let response = call
         .send()
         .map_err(|error| Error::Transport(error.to_string()))?;
+    let peer_certificates_der = tls::peer_certificates(&response);
     let status = response.status().as_u16();
     let mut headers = std::collections::BTreeMap::new();
     for (name, value) in response.headers() {
@@ -28,5 +29,9 @@ pub fn execute(request: &Request) -> Result<Response, Error> {
         .bytes()
         .map_err(|error| Error::Transport(error.to_string()))?
         .to_vec();
-    Ok(Response { status, headers, body, tls: None })
+    Ok(Response { status, headers, body, tls: if peer_certificates_der.is_empty() { None } else { Some(core::TlsInfo {
+        protocol: None,
+        cipher_suite: None,
+        peer_certificates_der,
+    }) } })
 }
