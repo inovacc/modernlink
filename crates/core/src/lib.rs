@@ -1,7 +1,7 @@
+use base64::Engine;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::time::Duration;
-use base64::Engine;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
@@ -49,7 +49,9 @@ impl Request {
             return Err(Error::InvalidRequest("URL must not be empty".to_string()));
         }
         if !url.starts_with("https://") {
-            return Err(Error::InvalidRequest("only https:// URLs are supported".to_string()));
+            return Err(Error::InvalidRequest(
+                "only https:// URLs are supported".to_string(),
+            ));
         }
         Ok(Self {
             url: url.to_string(),
@@ -78,29 +80,38 @@ pub fn base64_encode(value: &[u8]) -> String {
 }
 
 pub fn base64_decode(value: &str) -> Result<Vec<u8>, Error> {
-    base64::engine::general_purpose::STANDARD.decode(value)
+    base64::engine::general_purpose::STANDARD
+        .decode(value)
         .map_err(|error| Error::InvalidRequest(error.to_string()))
 }
 
 pub fn json_object(fields: &[String]) -> Result<String, Error> {
     if fields.len() % 2 != 0 {
-        return Err(Error::InvalidRequest("JSON object fields must be name/value pairs".to_string()));
+        return Err(Error::InvalidRequest(
+            "JSON object fields must be name/value pairs".to_string(),
+        ));
     }
     let mut object = serde_json::Map::new();
     for pair in fields.chunks(2) {
         object.insert(pair[0].clone(), serde_json::Value::String(pair[1].clone()));
     }
-    serde_json::to_string(&serde_json::Value::Object(object)).map_err(|error| Error::Native(error.to_string()))
-}
-
-pub fn json_array(values: &[String]) -> Result<String, Error> {
-    serde_json::to_string(&values.iter().map(|value| serde_json::Value::String(value.clone())).collect::<Vec<_>>())
+    serde_json::to_string(&serde_json::Value::Object(object))
         .map_err(|error| Error::Native(error.to_string()))
 }
 
+pub fn json_array(values: &[String]) -> Result<String, Error> {
+    serde_json::to_string(
+        &values
+            .iter()
+            .map(|value| serde_json::Value::String(value.clone()))
+            .collect::<Vec<_>>(),
+    )
+    .map_err(|error| Error::Native(error.to_string()))
+}
+
 pub fn json_decode(value: &str) -> Result<String, Error> {
-    let parsed: serde_json::Value = serde_json::from_str(value)
-        .map_err(|error| Error::InvalidRequest(error.to_string()))?;
+    let parsed: serde_json::Value =
+        serde_json::from_str(value).map_err(|error| Error::InvalidRequest(error.to_string()))?;
     serde_json::to_string(&parsed).map_err(|error| Error::Native(error.to_string()))
 }
 
@@ -158,6 +169,9 @@ mod tests {
     fn base64_and_json_helpers_encode_data() {
         assert_eq!(base64_encode(b"modernlink"), "bW9kZXJubGluaw==");
         assert_eq!(base64_decode("bW9kZXJubGluaw==").unwrap(), b"modernlink");
-        assert_eq!(json_decode("{ \"message\": \"hello\" }").unwrap(), "{\"message\":\"hello\"}");
+        assert_eq!(
+            json_decode("{ \"message\": \"hello\" }").unwrap(),
+            "{\"message\":\"hello\"}"
+        );
     }
 }

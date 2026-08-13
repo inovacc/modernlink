@@ -1,6 +1,6 @@
-use std::sync::Arc;
-use rustls::{ClientConfig, RootCertStore};
 pub use core::TlsVersion;
+use rustls::{ClientConfig, RootCertStore};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy)]
 pub struct TlsConfig {
@@ -9,7 +9,9 @@ pub struct TlsConfig {
 
 impl TlsConfig {
     pub fn secure_default() -> Self {
-        Self { minimum_version: TlsVersion::Tls12 }
+        Self {
+            minimum_version: TlsVersion::Tls12,
+        }
     }
 
     pub fn minimum_version(&self) -> TlsVersion {
@@ -43,7 +45,10 @@ mod tests {
 
     #[test]
     fn secure_default_requires_tls_12() {
-        assert_eq!(TlsConfig::secure_default().minimum_version(), TlsVersion::Tls12);
+        assert_eq!(
+            TlsConfig::secure_default().minimum_version(),
+            TlsVersion::Tls12
+        );
     }
 
     #[test]

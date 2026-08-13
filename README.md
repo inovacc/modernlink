@@ -36,13 +36,15 @@ Rust native library
 
 The JAR should expose a small, stable API to Java 6 code. Modern implementation details are encapsulated in Rust, and platform-specific native binaries are distributed alongside the JAR.
 
+The messaging compatibility backlog is documented in [`docs/BACKLOG.md`](docs/BACKLOG.md). It separates the JMS application contract from JMX management and defines transparent pass-through, transform, and redirect modes for legacy infrastructure and modern providers.
+
 ## Java 6 HTTPS adapter
 
-The packaged JAR also provides `com.modernlink.ModernHttpsURLConnection`, a Java 6-compatible `HttpsURLConnection`-style facade over the ModernLink request API. It supports request methods and properties, connect/read timeouts, buffered request output, response streams, status and headers, redirect policy inherited from `LegacyHttpRequest`, and TLS cipher/certificate access.
+The packaged JAR also provides `com.modernlink.ModernHttpsURLConnection`, a Java 6-compatible `HttpsURLConnection`-style facade over the ModernLink request API. It supports request methods and properties, connect/read timeouts covering TCP connection and TLS handshake, buffered request output, response streams, status and headers, redirect policy inherited from `LegacyHttpRequest`, and TLS cipher/certificate access.
 
 The adapter is created explicitly with `new ModernHttpsURLConnection(new URL("https://..."))`; it does not register a global URL handler. The Docker build produces the distributable artifact at `/workspace/modernlink.jar`, with the platform native library embedded under the JAR's native resource path.
 
-The response model preserves the HTTP status reason phrase, exposed as `LegacyHttpResponse.getStatusMessage()` and `ModernHttpsURLConnection.getResponseMessage()`. The adapter also exposes indexed headers and typed content metadata through `getHeaderField(int)`, `getHeaderFieldKey(int)`, `getContentType()`, and `getContentLength()`.
+The response model preserves the HTTP status reason phrase, exposed as `LegacyHttpResponse.getStatusMessage()` and `ModernHttpsURLConnection.getResponseMessage()`. The adapter also exposes indexed headers and typed content metadata through `getHeaderField(int)`, `getHeaderFieldKey(int)`, `getContentType()`, and `getContentLength()`. Header access lazily connects and exposes the HTTP status line at indexed header `0`, matching the Java URL-connection convention.
 
 `LegacyHttpClient.getCapabilities()` provides a stable bitmask for feature discovery before requests. The current bits identify HTTPS, TLS 1.2, TLS 1.3, redirects, and peer-certificate access.
 

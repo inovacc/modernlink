@@ -30,6 +30,9 @@ public final class ModernHttpsURLConnectionTest {
         if (!verifierRejected) throw new AssertionError("custom hostname verifier was silently accepted");
         connection.setRequestProperty("X-ModernLink-Test", "adapter");
         if (!"GET".equals(connection.getRequestMethod())) throw new AssertionError("default method is not GET");
+        if (connection.getHeaderField("content-type") == null) {
+            throw new AssertionError("lazy header access did not connect");
+        }
         InputStream input = connection.getInputStream();
         int bytes = 0;
         byte[] buffer = new byte[256];
