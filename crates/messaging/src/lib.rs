@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
@@ -25,6 +25,24 @@ pub enum Provider {
 pub enum DeliveryMode {
     NonPersistent,
     Persistent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AcknowledgementMode {
+    Auto,
+    Client,
+    DuplicateOk,
+    Transacted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DeliveryState {
+    Published,
+    Received,
+    Acknowledged,
+    Rejected,
+    Retried,
+    DeadLettered,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -94,6 +112,7 @@ pub struct MessageEnvelope {
     pub expiration_millis: Option<i64>,
     pub priority: u8,
     pub delivery_mode: DeliveryMode,
+    pub acknowledgement_mode: AcknowledgementMode,
     pub destination: String,
     pub source: Option<String>,
     pub tenant: Option<String>,
@@ -124,6 +143,7 @@ impl MessageEnvelope {
             expiration_millis: None,
             priority: 4,
             delivery_mode: DeliveryMode::Persistent,
+            acknowledgement_mode: AcknowledgementMode::Auto,
             destination: destination.to_string(),
             source: None,
             tenant: None,
@@ -164,14 +184,30 @@ impl std::error::Error for DomainError {}
 
 pub trait MessageTransport: Send + Sync {
     fn provider(&self) -> Provider;
-    fn publish(&self, message: MessageEnvelope) -> Result<(), DomainError>;
-    fn receive(&self) -> Result<Option<MessageEnvelope>, DomainError>;
+    fn publish(&self, message: MessageEnvelope) -> Result<DeliveryReceipt, DomainError>;
+    fn receive(&self) -> Result<Option<ReceivedMessage>, DomainError>;
+    fn acknowledge(&self, receipt: &DeliveryReceipt) -> Result<DeliveryReceipt, DomainError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeliveryReceipt {
+    pub message_id: String,
+    pub provider: Provider,
+    pub state: DeliveryState,
+    pub trace_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReceivedMessage {
+    pub message: MessageEnvelope,
+    pub receipt: DeliveryReceipt,
 }
 
 #[derive(Clone)]
 pub struct InMemoryTransport {
     provider: Provider,
     queue: Arc<Mutex<VecDeque<MessageEnvelope>>>,
+    acknowledged: Arc<Mutex<BTreeSet<String>>>,
 }
 
 impl InMemoryTransport {
@@ -179,6 +215,7 @@ impl InMemoryTransport {
         Self {
             provider,
             queue: Arc::new(Mutex::new(VecDeque::new())),
+            acknowledged: Arc::new(Mutex::new(BTreeSet::new())),
         }
     }
 }
@@ -188,20 +225,53 @@ impl MessageTransport for InMemoryTransport {
         self.provider
     }
 
-    fn publish(&self, message: MessageEnvelope) -> Result<(), DomainError> {
+    fn publish(&self, message: MessageEnvelope) -> Result<DeliveryReceipt, DomainError> {
+        let receipt = DeliveryReceipt {
+            message_id: message.message_id.clone(),
+            provider: self.provider,
+            state: DeliveryState::Published,
+            trace_id: message.tracing.trace_id.clone(),
+        };
         self.queue
             .lock()
             .map_err(|_| DomainError::Transport("transport queue is unavailable".to_string()))?
             .push_back(message);
-        Ok(())
+        Ok(receipt)
     }
 
-    fn receive(&self) -> Result<Option<MessageEnvelope>, DomainError> {
-        Ok(self
+    fn receive(&self) -> Result<Option<ReceivedMessage>, DomainError> {
+        let message = self
             .queue
             .lock()
             .map_err(|_| DomainError::Transport("transport queue is unavailable".to_string()))?
-            .pop_front())
+            .pop_front();
+        Ok(message.map(|message| ReceivedMessage {
+            receipt: DeliveryReceipt {
+                message_id: message.message_id.clone(),
+                provider: self.provider,
+                state: DeliveryState::Received,
+                trace_id: message.tracing.trace_id.clone(),
+            },
+            message,
+        }))
+    }
+
+    fn acknowledge(&self, receipt: &DeliveryReceipt) -> Result<DeliveryReceipt, DomainError> {
+        if receipt.provider != self.provider {
+            return Err(DomainError::Transport(
+                "receipt provider does not match transport".to_string(),
+            ));
+        }
+        self.acknowledged
+            .lock()
+            .map_err(|_| {
+                DomainError::Transport("acknowledgement store is unavailable".to_string())
+            })?
+            .insert(receipt.message_id.clone());
+        Ok(DeliveryReceipt {
+            state: DeliveryState::Acknowledged,
+            ..receipt.clone()
+        })
     }
 }
 
@@ -296,8 +366,8 @@ impl RouteConfig {
 #[cfg(test)]
 mod tests {
     use super::{
-        DeliveryMode, InMemoryTransport, MessageEnvelope, MessageTransport, Mode, Payload,
-        Provider, RouteConfig, RouteRule,
+        AcknowledgementMode, DeliveryMode, DeliveryState, InMemoryTransport, MessageEnvelope,
+        MessageTransport, Mode, Payload, Provider, RouteConfig, RouteRule,
     };
 
     fn message() -> MessageEnvelope {
@@ -321,6 +391,7 @@ mod tests {
         assert_eq!(message.message_id.len(), 36);
         assert_eq!(&message.message_id[14..15], "7");
         assert_eq!(message.delivery_mode, DeliveryMode::Persistent);
+        assert_eq!(message.acknowledgement_mode, AcknowledgementMode::Auto);
         assert_eq!(message.tracing.trace_id.len(), 32);
         assert_eq!(message.tracing.span_id.len(), 16);
     }
@@ -370,8 +441,12 @@ mod tests {
         let transport = InMemoryTransport::new(Provider::Kafka);
         let message = message();
         let message_id = message.message_id.clone();
-        transport.publish(message).unwrap();
+        let published = transport.publish(message).unwrap();
         assert_eq!(transport.provider(), Provider::Kafka);
-        assert_eq!(transport.receive().unwrap().unwrap().message_id, message_id);
+        assert_eq!(published.state, DeliveryState::Published);
+        let received = transport.receive().unwrap().unwrap();
+        assert_eq!(received.message.message_id, message_id);
+        let acknowledged = transport.acknowledge(&received.receipt).unwrap();
+        assert_eq!(acknowledged.state, DeliveryState::Acknowledged);
     }
 }

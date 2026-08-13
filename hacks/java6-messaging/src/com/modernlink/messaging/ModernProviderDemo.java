@@ -19,7 +19,8 @@ public final class ModernProviderDemo {
             throw new IllegalArgumentException("invalid trace context");
         }
         System.out.println("provider=" + provider + " mode=" + mode + " destination=" + message.getDestination()
-            + " message-id=" + message.getMessageId() + " trace-id=" + message.getTracing().getTraceId());
+            + " message-id=" + message.getMessageId() + " trace-id=" + message.getTracing().getTraceId()
+            + " acknowledgement=" + message.getAcknowledgementMode());
     }
 
     private static String readLine() throws Exception {

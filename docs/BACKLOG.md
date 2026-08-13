@@ -111,6 +111,8 @@ Acceptance criteria:
 - mappings to JMS, Kafka, Pulsar, NATS, and RabbitMQ are documented;
 - unsupported mappings fail explicitly rather than being silently dropped.
 - trace context is preserved as a typed envelope field across all modes.
+- acknowledgement mode and typed delivery receipts are preserved across the
+  uniform transport boundary.
 
 ### M1 — Maintain cross-application contract fixtures
 

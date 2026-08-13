@@ -21,8 +21,11 @@ cargo run --manifest-path hacks/messaging-demo/Cargo.toml --bin legacy-jms-app -
     cargo run --manifest-path hacks/messaging-demo/Cargo.toml --bin modern-provider-app -- nats
 ```
 
-The output reports the selected mode, provider, destination, message ID, and
-payload kind. The envelope includes first-class tracing fields.
+The output reports the selected mode, provider, destination, message ID,
+payload kind, acknowledgement mode, and first-class tracing fields. The
+provider-neutral domain also exposes typed publish/receive/acknowledge
+receipts; the current in-memory transport is a contract fixture, not an
+external broker adapter.
 
 ## Java 6 fixture
 
