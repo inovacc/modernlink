@@ -125,7 +125,7 @@ public final class ModernHttpsURLConnection extends HttpsURLConnection {
 
     public String getResponseMessage() throws IOException {
         connect();
-        return null;
+        return response.getStatusMessage();
     }
 
     public String getHeaderField(String name) {

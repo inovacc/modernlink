@@ -28,6 +28,7 @@ public final class ModernHttpsURLConnectionTest {
         while ((read = input.read(buffer)) != -1) bytes += read;
         input.close();
         if (connection.getResponseCode() != 200) throw new AssertionError("unexpected response code");
+        if (!"OK".equals(connection.getResponseMessage())) throw new AssertionError("response message is unavailable");
         if (bytes == 0) throw new AssertionError("response body is empty");
         if (connection.getCipherSuite() == null) throw new AssertionError("cipher suite is unavailable");
         if (connection.getMinimumTlsVersion() != LegacyHttpRequest.TLS_1_3) throw new AssertionError("TLS policy was not retained");

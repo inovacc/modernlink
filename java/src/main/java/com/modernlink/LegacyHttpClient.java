@@ -26,6 +26,7 @@ public final class LegacyHttpClient {
         int minimumTlsVersion);
     private static native String nativeLastError();
     private static native int nativeStatus(long handle);
+    private static native String nativeStatusMessage(long handle);
     private static native String[] nativeHeaders(long handle);
     private static native byte[] nativeBody(long handle);
     private static native byte[][] nativeTlsCertificates(long handle);
@@ -57,7 +58,7 @@ public final class LegacyHttpClient {
         }
         byte[] body = nativeBody(handle);
         if (body == null) throw new LegacyHttpException("native response body unavailable");
-        return new LegacyHttpResponse(nativeFinalUrl(handle), status, headers, body,
+        return new LegacyHttpResponse(nativeFinalUrl(handle), status, nativeStatusMessage(handle), headers, body,
             new LegacyTlsInfo(nativeTlsProtocol(handle), nativeTlsCipherSuite(handle), nativeTlsCertificates(handle)));
     }
 }

@@ -90,6 +90,17 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeStatus(_env: J
 }
 
 #[no_mangle]
+pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeStatusMessage(
+    env: JNIEnv, _class: JClass, handle: jlong,
+) -> jni::sys::jstring {
+    match unsafe { response(handle).map(|value| value.0.status_message.clone()) }
+        .and_then(|value| env.new_string(value).ok()) {
+        Some(value) => value.into_raw(),
+        None => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
 pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeHeaders(
     mut env: JNIEnv, _class: JClass, handle: jlong,
 ) -> jobjectArray {

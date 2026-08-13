@@ -68,6 +68,7 @@ impl Request {
 pub struct Response {
     pub final_url: String,
     pub status: u16,
+    pub status_message: String,
     pub headers: BTreeMap<String, String>,
     pub body: Vec<u8>,
     pub tls: Option<TlsInfo>,

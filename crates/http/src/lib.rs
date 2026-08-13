@@ -112,6 +112,7 @@ async fn execute_once_async(request: &Request) -> Result<Response, Error> {
 
 async fn collect_response(response: hyper::Response<Incoming>, tls: TlsInfo, read_timeout: Option<Duration>, final_url: String) -> Result<Response, Error> {
     let status = response.status().as_u16();
+    let status_message = response.status().canonical_reason().unwrap_or("").to_string();
     let mut headers = std::collections::BTreeMap::new();
     for (name, value) in response.headers() {
         if let Ok(value) = value.to_str() { headers.insert(name.to_string(), value.to_string()); }
@@ -119,7 +120,7 @@ async fn collect_response(response: hyper::Response<Incoming>, tls: TlsInfo, rea
     let body = if let Some(duration) = read_timeout {
         timeout(duration, response.collect()).await.map_err(|_| Error::Transport("read timeout".to_string()))?
     } else { response.collect().await }.map_err(|error| Error::Transport(error.to_string()))?.to_bytes().to_vec();
-    Ok(Response { final_url, status, headers, body, tls: Some(tls) })
+    Ok(Response { final_url, status, status_message, headers, body, tls: Some(tls) })
 }
 
 #[cfg(test)]

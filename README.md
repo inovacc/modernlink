@@ -42,6 +42,8 @@ The packaged JAR also provides `com.modernlink.ModernHttpsURLConnection`, a Java
 
 The adapter is created explicitly with `new ModernHttpsURLConnection(new URL("https://..."))`; it does not register a global URL handler. The Docker build produces the distributable artifact at `/workspace/modernlink.jar`, with the platform native library embedded under the JAR's native resource path.
 
+The response model preserves the HTTP status reason phrase, exposed as `LegacyHttpResponse.getStatusMessage()` and `ModernHttpsURLConnection.getResponseMessage()`.
+
 The current JAR contains Linux x86_64 and Linux ARM64 native resources:
 
 - `native/linux-x86_64/libmodernlink.so`
