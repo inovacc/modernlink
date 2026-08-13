@@ -113,6 +113,8 @@ Acceptance criteria:
 - trace context is preserved as a typed envelope field across all modes.
 - acknowledgement mode and typed delivery receipts are preserved across the
   uniform transport boundary.
+- routing dispatch applies policy, rejects provider mismatches, and returns an
+  auditable publish receipt.
 
 ### M1 — Maintain cross-application contract fixtures
 

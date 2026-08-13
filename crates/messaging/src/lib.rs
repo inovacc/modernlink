@@ -329,6 +329,12 @@ pub struct RouteDecision {
     pub allowed: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DispatchResult {
+    pub decision: RouteDecision,
+    pub receipt: DeliveryReceipt,
+}
+
 impl RouteConfig {
     pub fn decide(&self, message: &MessageEnvelope) -> Result<RouteDecision, DomainError> {
         let (mode, provider, rule_id, allowed) = self
@@ -360,6 +366,36 @@ impl RouteConfig {
             rule_id,
             allowed,
         })
+    }
+
+    pub fn dispatch<T: MessageTransport>(
+        &self,
+        mut message: MessageEnvelope,
+        transport: &T,
+    ) -> Result<DispatchResult, DomainError> {
+        let decision = self.decide(&message)?;
+        if !decision.allowed {
+            return Err(DomainError::InvalidRoute(
+                "message route is denied by policy".to_string(),
+            ));
+        }
+        if transport.provider() != decision.provider {
+            return Err(DomainError::Transport(
+                "transport provider does not match route decision".to_string(),
+            ));
+        }
+        if decision.mode != Mode::Transparent {
+            message.properties.insert(
+                "modernlink.mode".to_string(),
+                format!("{:?}", decision.mode),
+            );
+            message.properties.insert(
+                "modernlink.provider".to_string(),
+                format!("{:?}", decision.provider),
+            );
+        }
+        let receipt = transport.publish(message)?;
+        Ok(DispatchResult { decision, receipt })
     }
 }
 
@@ -448,5 +484,54 @@ mod tests {
         assert_eq!(received.message.message_id, message_id);
         let acknowledged = transport.acknowledge(&received.receipt).unwrap();
         assert_eq!(acknowledged.state, DeliveryState::Acknowledged);
+    }
+
+    #[test]
+    fn dispatch_applies_transform_metadata_and_returns_receipt() {
+        let config = RouteConfig {
+            default_mode: Mode::Transform,
+            default_provider: Provider::Kafka,
+            rules: Vec::new(),
+        };
+        let transport = InMemoryTransport::new(Provider::Kafka);
+        let result = config.dispatch(message(), &transport).unwrap();
+        assert_eq!(result.decision.mode, Mode::Transform);
+        assert_eq!(result.receipt.state, DeliveryState::Published);
+        let received = transport.receive().unwrap().unwrap();
+        assert_eq!(
+            received.message.properties.get("modernlink.mode"),
+            Some(&"Transform".to_string())
+        );
+    }
+
+    #[test]
+    fn dispatch_rejects_provider_mismatch_and_denied_routes() {
+        let mismatch = RouteConfig {
+            default_mode: Mode::Redirect,
+            default_provider: Provider::Nats,
+            rules: Vec::new(),
+        };
+        assert!(mismatch
+            .dispatch(message(), &InMemoryTransport::new(Provider::Kafka))
+            .is_err());
+
+        let denied = RouteConfig {
+            default_mode: Mode::Redirect,
+            default_provider: Provider::Nats,
+            rules: vec![RouteRule {
+                id: "deny-orders".to_string(),
+                destination: Some("orders.created".to_string()),
+                destination_prefix: None,
+                tenant: None,
+                header_name: None,
+                header_value: None,
+                mode: Mode::Redirect,
+                provider: Provider::Nats,
+                allowed: false,
+            }],
+        };
+        assert!(denied
+            .dispatch(message(), &InMemoryTransport::new(Provider::Nats))
+            .is_err());
     }
 }

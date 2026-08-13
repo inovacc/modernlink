@@ -1,4 +1,6 @@
-use messaging::{MessageEnvelope, Mode, Payload, Provider, RouteConfig};
+use messaging::{
+    InMemoryTransport, MessageEnvelope, MessageTransport, Mode, Payload, Provider, RouteConfig,
+};
 use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -53,18 +55,26 @@ fn run() -> Result<(), String> {
     message
         .headers
         .insert("x-demo-mode".to_string(), mode_name.to_string());
-    let route = RouteConfig {
+    let config = RouteConfig {
         default_mode: selected_mode,
         default_provider: selected_provider,
         rules: Vec::new(),
-    }
-    .decide(&message)
-    .map_err(|error| error.to_string())?;
+    };
+    let transport = InMemoryTransport::new(selected_provider);
+    let dispatched = config
+        .dispatch(message, &transport)
+        .map_err(|error| error.to_string())?;
+    let routed_message = transport
+        .receive()
+        .map_err(|error| error.to_string())?
+        .ok_or("dispatched message was not available")?
+        .message;
     let frame = json!({
         "source": "jms",
         "jmx": { "mode": mode_name, "provider": provider_name, "published": 1 },
-        "route": route,
-        "message": message,
+        "route": dispatched.decision,
+        "receipt": dispatched.receipt,
+        "message": routed_message,
     });
     println!(
         "{}",

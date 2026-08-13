@@ -24,8 +24,9 @@ cargo run --manifest-path hacks/messaging-demo/Cargo.toml --bin legacy-jms-app -
 The output reports the selected mode, provider, destination, message ID,
 payload kind, acknowledgement mode, and first-class tracing fields. The
 provider-neutral domain also exposes typed publish/receive/acknowledge
-receipts; the current in-memory transport is a contract fixture, not an
-external broker adapter.
+receipts; the fixtures validate that the publish receipt matches the routed
+message and provider. The current in-memory transport is a contract fixture,
+not an external broker adapter.
 
 ## Java 6 fixture
 

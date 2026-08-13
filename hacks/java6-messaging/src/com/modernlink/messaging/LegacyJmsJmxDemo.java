@@ -7,6 +7,7 @@ import javax.management.StandardMBean;
 
 import com.modernlink.LegacyHttpException;
 import com.modernlink.ModernUuid;
+import com.modernlink.ModernBase64;
 
 /**
  * Java 6 demo publisher: JMS-shaped message creation plus a real local JMX
@@ -33,7 +34,10 @@ public final class LegacyJmsJmxDemo {
         server.registerMBean(new StandardMBean(metrics, ModernMessagingMetricsMBean.class),
             new ObjectName("com.modernlink.messaging:type=Metrics,role=Publisher"));
         metrics.published = 1;
-        System.out.println(mode + "|" + provider + "|" + message.encode());
+        ModernDeliveryReceipt receipt = new ModernDeliveryReceipt(message.getMessageId(),
+            ModernMessagingProvider.valueOf(provider), ModernDeliveryState.PUBLISHED,
+            message.getTracing().getTraceId());
+        System.out.println(mode + "|" + provider + "|" + ModernBase64.encode(message.encode().getBytes("UTF-8")) + "|" + receipt.encode());
     }
 
     public static final class DemoMetrics implements ModernMessagingMetricsMBean {
