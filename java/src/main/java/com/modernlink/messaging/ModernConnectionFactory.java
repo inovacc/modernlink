@@ -21,6 +21,12 @@ public final class ModernConnectionFactory {
     }
 
     public ModernConnection createConnection() throws LegacyHttpException {
-        return new ModernConnection(new ModernMessagingClient(url, subject, mode, provider), mode, provider);
+        ModernMessagingClient client = new ModernMessagingClient(url, subject, mode, provider);
+        try {
+            return new ModernConnection(client, mode, provider);
+        } catch (RuntimeException error) {
+            client.close();
+            throw error;
+        }
     }
 }
