@@ -38,7 +38,7 @@ The JAR should expose a small, stable API to Java 6 code. Modern implementation 
 
 The messaging compatibility backlog is documented in [`docs/BACKLOG.md`](docs/BACKLOG.md). It separates the JMS application contract from JMX management and defines transparent pass-through, transform, and redirect modes for legacy infrastructure and modern providers.
 
-Executable cross-application contract fixtures live under [`hacks/`](hacks/README.md). They include a JMS/JMX-shaped publisher and a provider-neutral consumer, with first-class trace ID and span ID propagation. They exercise the message domain locally; they do not claim connection to external brokers.
+Executable cross-application contract fixtures live under [`hacks/`](hacks/README.md). They include a JMS/JMX-shaped publisher, a provider-neutral consumer, and a native NATS broker probe, with first-class trace ID and span ID propagation. The NATS probe is the only external-broker path currently implemented.
 
 ## Java 6 HTTPS adapter
 

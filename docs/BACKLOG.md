@@ -97,6 +97,13 @@ The Java facade should remain Java 6-compatible. Provider clients and modern
 protocol libraries belong behind Rust/Cargo-backed adapters or isolated native
 components so the legacy class path does not need modern Java dependencies.
 
+Current implementation slice: the Java facade now exposes a JMS-shaped
+`ConnectionFactory`/`Connection`/`Session`/`MessageProducer`/`MessageConsumer`
+surface backed by the native NATS adapter. It preserves message identity,
+acknowledgement receipts, and trace context, and exposes read-only counters via
+`ModernMessagingMetricsMBean`. This is a concrete NATS path, not completion of
+the provider-neutral compatibility scope below.
+
 ## Backlog items
 
 ### M1 — Define the canonical message domain

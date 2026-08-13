@@ -1,8 +1,8 @@
 # ModernLink hacks
 
 This directory contains executable compatibility fixtures. They are not part
-of the distributable JAR and do not claim interoperability with an external
-Kafka, Pulsar, NATS, RabbitMQ, or JMS broker.
+of the distributable JAR. The NATS fixtures exercise a real external NATS
+broker; Kafka, Pulsar, RabbitMQ, and JMS broker interoperability remain open.
 
 ## Rust cross-application fixture
 
@@ -56,6 +56,18 @@ java -cp hacks/java6-messaging/classes com.modernlink.messaging.NativeNatsApp
 trace identities across publish, receive, and acknowledgement. The current
 fixture has a Windows x86_64 native probe; Java 6 Docker compilation and the
 Linux packaged-JAR probe remain separate checks.
+
+`JmsFacadeNatsApp` exercises the JMS-shaped layer (`ConnectionFactory`,
+`Connection`, `Session`, `MessageProducer`, and `MessageConsumer`) and registers
+the shared `ModernMessagingMetricsMBean`:
+
+```powershell
+java -cp hacks/java6-messaging/classes com.modernlink.messaging.JmsFacadeNatsApp
+```
+
+The facade currently supports the NATS provider path. Other provider adapters,
+JNDI lookup, transactions, selectors, and durable acknowledgements remain
+explicit capability gaps.
 
 ## Java 6 fixture
 

@@ -55,6 +55,8 @@ public final class LegacyJmsJmxDemo {
         public String getMode() { return mode; }
         public String getProvider() { return provider; }
         public long getPublished() { return published; }
+        public long getReceived() { return 0; }
+        public long getAcknowledged() { return 0; }
         public String getLastTraceId() { return traceId; }
     }
 }
