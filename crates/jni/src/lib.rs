@@ -4,6 +4,12 @@ use jni::sys::jstring;
 use jni::JNIEnv;
 use core::Request;
 
+#[cfg(target_os = "linux")]
+#[no_mangle]
+pub extern "C" fn getauxval(_kind: usize) -> usize {
+    0
+}
+
 #[no_mangle]
 pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeGet(
     mut env: JNIEnv,
