@@ -28,6 +28,22 @@ receipts; the fixtures validate that the publish receipt matches the routed
 message and provider. The current in-memory transport is a contract fixture,
 not an external broker adapter.
 
+## NATS broker fixture
+
+The main messaging crate includes a Cargo-backed `NatsTransport`. Run a local
+NATS server and then the dedicated fixture:
+
+```powershell
+docker run --rm -d --name modernlink-nats -p 4222:4222 nats:2.10-alpine
+cargo run --manifest-path hacks/messaging-demo/Cargo.toml --bin nats-app
+docker rm -f modernlink-nats
+```
+
+The NATS core transport reports publish, receive, and local acknowledgement
+receipts. Core NATS does not provide durable broker acknowledgements; durable
+acknowledgement semantics require a JetStream adapter and remain separate
+work.
+
 ## Java 6 fixture
 
 `java6-messaging/src` contains the Java 6 publisher and modern-provider

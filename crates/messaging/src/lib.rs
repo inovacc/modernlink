@@ -1,3 +1,4 @@
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
@@ -266,6 +267,147 @@ impl MessageTransport for InMemoryTransport {
             .lock()
             .map_err(|_| {
                 DomainError::Transport("acknowledgement store is unavailable".to_string())
+            })?
+            .insert(receipt.message_id.clone());
+        Ok(DeliveryReceipt {
+            state: DeliveryState::Acknowledged,
+            ..receipt.clone()
+        })
+    }
+}
+
+pub struct NatsTransport {
+    client: Option<async_nats::Client>,
+    subject: String,
+    subscription: Mutex<Option<async_nats::Subscriber>>,
+    acknowledged: Mutex<BTreeSet<String>>,
+    runtime: Option<tokio::runtime::Runtime>,
+}
+
+impl NatsTransport {
+    pub fn connect(url: &str, subject: &str) -> Result<Self, DomainError> {
+        if subject.trim().is_empty() {
+            return Err(DomainError::InvalidEnvelope(
+                "NATS subject must not be empty".to_string(),
+            ));
+        }
+        let runtime = tokio::runtime::Runtime::new()
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        let (client, subscription) = runtime.block_on(async {
+            let client = async_nats::connect(url)
+                .await
+                .map_err(|error| DomainError::Transport(error.to_string()))?;
+            let subscription = client
+                .subscribe(subject.to_string())
+                .await
+                .map_err(|error| DomainError::Transport(error.to_string()))?;
+            Ok::<_, DomainError>((client, subscription))
+        })?;
+        Ok(Self {
+            client: Some(client),
+            subject: subject.to_string(),
+            subscription: Mutex::new(Some(subscription)),
+            acknowledged: Mutex::new(BTreeSet::new()),
+            runtime: Some(runtime),
+        })
+    }
+}
+
+impl Drop for NatsTransport {
+    fn drop(&mut self) {
+        let subscription = self
+            .subscription
+            .lock()
+            .ok()
+            .and_then(|mut subscription| subscription.take());
+        let client = self.client.take();
+
+        if let Some(runtime) = self.runtime.take() {
+            runtime.block_on(async move {
+                drop(subscription);
+                drop(client);
+            });
+        }
+    }
+}
+
+impl MessageTransport for NatsTransport {
+    fn provider(&self) -> Provider {
+        Provider::Nats
+    }
+
+    fn publish(&self, message: MessageEnvelope) -> Result<DeliveryReceipt, DomainError> {
+        let message_id = message.message_id.clone();
+        let trace_id = message.tracing.trace_id.clone();
+        let payload = serde_json::to_vec(&message)
+            .map_err(|error| DomainError::Serialization(error.to_string()))?;
+        let runtime = self
+            .runtime
+            .as_ref()
+            .ok_or_else(|| DomainError::Transport("NATS runtime is unavailable".to_string()))?;
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| DomainError::Transport("NATS client is unavailable".to_string()))?;
+        runtime
+            .block_on(client.publish(self.subject.clone(), payload.into()))
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        runtime
+            .block_on(client.flush())
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        Ok(DeliveryReceipt {
+            message_id,
+            provider: Provider::Nats,
+            state: DeliveryState::Published,
+            trace_id,
+        })
+    }
+
+    fn receive(&self) -> Result<Option<ReceivedMessage>, DomainError> {
+        let mut subscription = self
+            .subscription
+            .lock()
+            .map_err(|_| DomainError::Transport("NATS subscription is unavailable".to_string()))?
+            .take()
+            .ok_or_else(|| {
+                DomainError::Transport("NATS subscription is unavailable".to_string())
+            })?;
+        let runtime = self
+            .runtime
+            .as_ref()
+            .ok_or_else(|| DomainError::Transport("NATS runtime is unavailable".to_string()))?;
+        let message = runtime.block_on(async {
+            subscription
+                .next()
+                .await
+                .ok_or_else(|| DomainError::Transport("NATS subscription ended".to_string()))
+        });
+        self.subscription
+            .lock()
+            .map_err(|_| DomainError::Transport("NATS subscription is unavailable".to_string()))?
+            .replace(subscription);
+        let message = message?;
+        let message: MessageEnvelope = serde_json::from_slice(&message.payload)
+            .map_err(|error| DomainError::Serialization(error.to_string()))?;
+        let receipt = DeliveryReceipt {
+            message_id: message.message_id.clone(),
+            provider: Provider::Nats,
+            state: DeliveryState::Received,
+            trace_id: message.tracing.trace_id.clone(),
+        };
+        Ok(Some(ReceivedMessage { message, receipt }))
+    }
+
+    fn acknowledge(&self, receipt: &DeliveryReceipt) -> Result<DeliveryReceipt, DomainError> {
+        if receipt.provider != Provider::Nats {
+            return Err(DomainError::Transport(
+                "receipt provider does not match NATS".to_string(),
+            ));
+        }
+        self.acknowledged
+            .lock()
+            .map_err(|_| {
+                DomainError::Transport("NATS acknowledgement state is unavailable".to_string())
             })?
             .insert(receipt.message_id.clone());
         Ok(DeliveryReceipt {
