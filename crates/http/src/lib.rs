@@ -38,14 +38,3 @@ pub fn execute(request: &Request) -> Result<Response, Error> {
         .to_vec();
     Ok(Response { status, headers, body, tls: None })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}

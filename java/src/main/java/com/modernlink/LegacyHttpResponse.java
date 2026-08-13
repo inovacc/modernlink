@@ -19,6 +19,7 @@ public final class LegacyHttpResponse {
 
     public int getStatus() { return status; }
     public Map<String, String> getHeaders() { return headers; }
+    public String getHeader(String name) { return headers.get(name); }
     public byte[] getBody() { return body.clone(); }
     public LegacyTlsInfo getTlsInfo() { return tlsInfo; }
 }
