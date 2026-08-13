@@ -18,7 +18,7 @@ public final class ModernMessagingClient {
         this.mode = mode;
         this.provider = provider;
         this.handle = nativeOpen(url, subject, mode.name(), provider.name());
-        if (this.handle == 0) throw new LegacyHttpException("native messaging client unavailable");
+        if (this.handle == 0) throw nativeError("native messaging client unavailable");
     }
 
     public ModernMessagingMode getMode() { return mode; }
