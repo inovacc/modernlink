@@ -46,7 +46,7 @@ The response model preserves the HTTP status reason phrase, exposed as `LegacyHt
 
 `LegacyHttpClient.getCapabilities()` provides a stable bitmask for feature discovery before requests. The current bits identify HTTPS, TLS 1.2, TLS 1.3, redirects, and peer-certificate access.
 
-The Java facade also exposes Cargo-backed native utilities: `newUuidV7()`, `base64Encode(byte[])`, and `requestJson(LegacyHttpRequest)`. Request JSON includes method, URL, headers, redirect policy, minimum TLS version, and a Base64-encoded body.
+The Java facade also exposes independent Cargo-backed utilities: `ModernUuid.v4()`, `ModernUuid.v7()`, `ModernBase64.encode(byte[])`, `ModernBase64.decode(String)`, `ModernJson.object(...)`, `ModernJson.array(...)`, and `ModernJson.decode(String)`. JSON decode returns normalized JSON text because Java 6 has no standard JSON object model.
 
 The current JAR contains Linux x86_64 and Linux ARM64 native resources:
 

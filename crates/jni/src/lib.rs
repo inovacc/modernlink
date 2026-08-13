@@ -92,7 +92,7 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeCapabilities(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeUuidV7(
+pub extern "system" fn Java_com_modernlink_ModernUuid_nativeV7(
     env: JNIEnv, _class: JClass,
 ) -> jni::sys::jstring {
     match env.new_string(core::uuid_v7()) {
@@ -102,7 +102,17 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeUuidV7(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeBase64Encode(
+pub extern "system" fn Java_com_modernlink_ModernUuid_nativeV4(
+    env: JNIEnv, _class: JClass,
+) -> jni::sys::jstring {
+    match env.new_string(core::uuid_v4()) {
+        Ok(value) => value.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_modernlink_ModernBase64_nativeEncode(
     env: JNIEnv, _class: JClass, value: JByteArray,
 ) -> jni::sys::jstring {
     let value = match env.convert_byte_array(&value) {
@@ -116,51 +126,69 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeBase64Encode(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeRequestJson(
-    mut env: JNIEnv,
-    _class: JClass,
-    url: JString,
-    method: JString,
-    headers: JObjectArray,
-    body: JByteArray,
-) -> jni::sys::jstring {
-    let url = match env.get_string(&url).ok().and_then(|value| value.to_str().ok().map(str::to_owned)) {
+pub extern "system" fn Java_com_modernlink_ModernBase64_nativeDecode(
+    mut env: JNIEnv, _class: JClass, value: JString,
+) -> jni::sys::jbyteArray {
+    let value = match env.get_string(&value).ok().and_then(|text| text.to_str().ok().map(str::to_owned)) {
         Some(value) => value,
         None => return std::ptr::null_mut(),
     };
-    let method = match env.get_string(&method).ok().and_then(|value| value.to_str().ok().map(str::to_owned)) {
-        Some(value) => value,
-        None => return std::ptr::null_mut(),
-    };
-    let mut request = match Request::new(&url) {
-        Ok(value) => value,
-        Err(_) => return std::ptr::null_mut(),
-    };
-    request.method = method;
-    let count = match env.get_array_length(&headers) {
-        Ok(value) if value % 2 == 0 => value,
-        _ => return std::ptr::null_mut(),
-    };
-    for index in (0..count).step_by(2) {
-        let name = match env.get_object_array_element(&headers, index).ok()
-            .and_then(|value| env.get_string(&JString::from(value)).ok().and_then(|text| text.to_str().ok().map(str::to_owned))) {
-            Some(value) => value,
-            None => return std::ptr::null_mut(),
-        };
-        let value = match env.get_object_array_element(&headers, index + 1).ok()
-            .and_then(|value| env.get_string(&JString::from(value)).ok().and_then(|text| text.to_str().ok().map(str::to_owned))) {
-            Some(value) => value,
-            None => return std::ptr::null_mut(),
-        };
-        request.headers.insert(name, value);
+    match core::base64_decode(&value).ok().and_then(|bytes| env.byte_array_from_slice(&bytes).ok()) {
+        Some(bytes) => bytes.into_raw(),
+        None => std::ptr::null_mut(),
     }
-    request.body = match env.convert_byte_array(&body) {
-        Ok(value) => value,
-        Err(_) => return std::ptr::null_mut(),
+}
+
+fn java_string_array(env: &mut JNIEnv, values: &JObjectArray) -> Option<Vec<String>> {
+    let length = env.get_array_length(values).ok()?;
+    let mut result = Vec::with_capacity(length as usize);
+    for index in 0..length {
+        let value = env.get_object_array_element(values, index).ok()?;
+        let value = env.get_string(&JString::from(value)).ok()?.to_str().ok()?.to_owned();
+        result.push(value);
+    }
+    Some(result)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_modernlink_ModernJson_nativeObject(
+    mut env: JNIEnv, _class: JClass, fields: JObjectArray,
+) -> jni::sys::jstring {
+    let fields = match java_string_array(&mut env, &fields) {
+        Some(value) => value,
+        None => return std::ptr::null_mut(),
     };
-    match env.new_string(core::request_json(&request)) {
-        Ok(value) => value.into_raw(),
-        Err(_) => std::ptr::null_mut(),
+    match core::json_object(&fields).ok().and_then(|value| env.new_string(value).ok()) {
+        Some(value) => value.into_raw(),
+        None => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_modernlink_ModernJson_nativeArray(
+    mut env: JNIEnv, _class: JClass, values: JObjectArray,
+) -> jni::sys::jstring {
+    let values = match java_string_array(&mut env, &values) {
+        Some(value) => value,
+        None => return std::ptr::null_mut(),
+    };
+    match core::json_array(&values).ok().and_then(|value| env.new_string(value).ok()) {
+        Some(value) => value.into_raw(),
+        None => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_modernlink_ModernJson_nativeDecode(
+    mut env: JNIEnv, _class: JClass, json: JString,
+) -> jni::sys::jstring {
+    let json = match env.get_string(&json).ok().and_then(|text| text.to_str().ok().map(str::to_owned)) {
+        Some(value) => value,
+        None => return std::ptr::null_mut(),
+    };
+    match core::json_decode(&json).ok().and_then(|value| env.new_string(value).ok()) {
+        Some(value) => value.into_raw(),
+        None => std::ptr::null_mut(),
     }
 }
 

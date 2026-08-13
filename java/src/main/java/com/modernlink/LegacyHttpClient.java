@@ -31,9 +31,6 @@ public final class LegacyHttpClient {
         int minimumTlsVersion);
     private static native String nativeLastError();
     private static native long nativeCapabilities();
-    private static native String nativeUuidV7();
-    private static native String nativeBase64Encode(byte[] value);
-    private static native String nativeRequestJson(String url, String method, String[] headers, byte[] body);
     private static native int nativeStatus(long handle);
     private static native String nativeStatusMessage(long handle);
     private static native String[] nativeHeaders(long handle);
@@ -49,29 +46,6 @@ public final class LegacyHttpClient {
         long capabilities = nativeCapabilities();
         if (capabilities == 0L) throw new LegacyHttpException("native capabilities unavailable");
         return capabilities;
-    }
-
-    public String newUuidV7() throws LegacyHttpException {
-        if (LOAD_NATIVE) NativeLoader.load();
-        String value = nativeUuidV7();
-        if (value == null) throw new LegacyHttpException("native UUIDv7 unavailable");
-        return value;
-    }
-
-    public String base64Encode(byte[] value) throws LegacyHttpException {
-        if (value == null) throw new IllegalArgumentException("value is required");
-        if (LOAD_NATIVE) NativeLoader.load();
-        String encoded = nativeBase64Encode(value.clone());
-        if (encoded == null) throw new LegacyHttpException("native Base64 encoding unavailable");
-        return encoded;
-    }
-
-    public String requestJson(LegacyHttpRequest request) throws LegacyHttpException {
-        if (request == null) throw new IllegalArgumentException("request is required");
-        if (LOAD_NATIVE) NativeLoader.load();
-        String json = nativeRequestJson(request.getUrl(), request.getMethod(), flattenHeaders(request.getHeaders()), request.getBody());
-        if (json == null) throw new LegacyHttpException("native JSON serialization unavailable");
-        return json;
     }
 
     private String[] flattenHeaders(Map<String, String> headers) {
