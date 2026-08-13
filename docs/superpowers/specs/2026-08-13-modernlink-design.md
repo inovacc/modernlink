@@ -111,10 +111,10 @@ The JNI crate is the only Rust crate permitted to depend on JNI-specific binding
 Use Cargo for the Rust project and keep responsibilities separated:
 
 ```text
-modernlink-core   - shared Rust domain types and error model
-modernlink-http   - HTTP request execution and response handling
-modernlink-tls    - TLS configuration, verification, and peer metadata
-modernlink-jni    - JNI entry points, handle registry, and Java conversion
+core              - shared Rust domain types and error model
+http              - HTTP request execution and response handling
+tls               - TLS configuration, verification, and peer metadata
+jni               - JNI entry points, handle registry, and Java conversion
 ```
 
 The produced native artifact is named `modernlink` for every platform, with the platform-specific filename convention applied by the build toolchain.
@@ -203,4 +203,3 @@ Study and add messaging capabilities only after the HTTPS/TLS foundation has a s
 ## Validation boundary
 
 Build and test results are machine observations, not proof that the product satisfies the legacy application's intent. Human validation must eventually exercise the actual Java 6 runtime, target operating systems, native loading behavior, TLS endpoints, failure modes, and deployment constraints.
-

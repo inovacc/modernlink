@@ -132,3 +132,16 @@ Xerial SQLite JDBC is the primary reference for this pattern: its documentation 
 ## Document status
 
 This document describes a research direction and a candidate architecture. It is not yet an implementation specification, and it is not evidence that the integration works with the legacy product. Validation must later be performed with the Java 6 runtime, target platforms, and real services.
+
+## Current implementation layout
+
+The Rust workspace uses unprefixed internal crate names while retaining `ModernLink` as the public product name:
+
+```text
+crates/core  - shared request, response, TLS metadata, and error types
+crates/http  - HTTPS execution
+crates/tls   - TLS policy boundary
+crates/jni   - JNI entry points and native library
+```
+
+The Java facade is under `java/src/main/java/com/modernlink`. The native artifact remains `modernlink`.

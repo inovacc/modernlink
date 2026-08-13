@@ -1,0 +1,8 @@
+[package]
+name = "http"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+core = { path = "../core" }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
