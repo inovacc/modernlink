@@ -26,6 +26,7 @@ public final class ModernHttpsURLConnection extends HttpsURLConnection {
     private final LegacyHttpClient client = new LegacyHttpClient();
     private final ByteArrayOutputStream requestBody = new ByteArrayOutputStream();
     private LegacyHttpResponse response;
+    private int minimumTlsVersion = LegacyHttpRequest.TLS_1_2;
 
     public ModernHttpsURLConnection(URL url) {
         super(url);
@@ -38,12 +39,24 @@ public final class ModernHttpsURLConnection extends HttpsURLConnection {
         return response == null ? null : response.getFinalUrl();
     }
 
+    public ModernHttpsURLConnection minimumTlsVersion(int version) {
+        if (connected) throw new IllegalStateException("cannot change TLS version after connect");
+        if (version != LegacyHttpRequest.TLS_1_2 && version != LegacyHttpRequest.TLS_1_3) {
+            throw new IllegalArgumentException("minimum TLS version must be TLS_1_2 or TLS_1_3");
+        }
+        minimumTlsVersion = version;
+        return this;
+    }
+
+    public int getMinimumTlsVersion() { return minimumTlsVersion; }
+
     public void connect() throws IOException {
         if (connected) return;
         LegacyHttpRequest request = new LegacyHttpRequest(url.toExternalForm())
             .method(getRequestMethod())
             .connectTimeoutMillis(getConnectTimeout())
-            .readTimeoutMillis(getReadTimeout());
+            .readTimeoutMillis(getReadTimeout())
+            .minimumTlsVersion(minimumTlsVersion);
         Map<String, List<String>> properties = getRequestProperties();
         for (Map.Entry<String, List<String>> entry : properties.entrySet()) {
             List<String> values = entry.getValue();

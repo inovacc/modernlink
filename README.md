@@ -42,6 +42,8 @@ The packaged JAR also provides `com.modernlink.ModernHttpsURLConnection`, a Java
 
 The adapter is created explicitly with `new ModernHttpsURLConnection(new URL("https://..."))`; it does not register a global URL handler. The Docker build produces the distributable artifact at `/workspace/modernlink.jar`, with the platform native library embedded under the JAR's native resource path.
 
+TLS policy defaults to a minimum of TLS 1.2. Java callers may select `LegacyHttpRequest.TLS_1_2` or `LegacyHttpRequest.TLS_1_3` with `minimumTlsVersion(...)`; unsupported protocol values are rejected before the native request is started.
+
 This architecture is still a design hypothesis. The final integration approach—embedded JNI or an external sidecar process—has not yet been decided.
 
 ## Integration alternatives

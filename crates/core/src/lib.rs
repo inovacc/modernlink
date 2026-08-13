@@ -10,6 +10,12 @@ pub enum Error {
     Native(String),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TlsVersion {
+    Tls12,
+    Tls13,
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -33,6 +39,7 @@ pub struct Request {
     pub read_timeout: Option<Duration>,
     pub follow_redirects: bool,
     pub max_redirects: u32,
+    pub minimum_tls_version: TlsVersion,
 }
 
 impl Request {
@@ -52,6 +59,7 @@ impl Request {
             read_timeout: None,
             follow_redirects: true,
             max_redirects: 10,
+            minimum_tls_version: TlsVersion::Tls12,
         })
     }
 }
@@ -88,5 +96,6 @@ mod tests {
         assert_eq!(request.method, "GET");
         assert!(request.follow_redirects);
         assert_eq!(request.max_redirects, 10);
+        assert_eq!(request.minimum_tls_version, super::TlsVersion::Tls12);
     }
 }

@@ -5,6 +5,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 public final class LegacyHttpRequest {
+    public static final int TLS_1_2 = 12;
+    public static final int TLS_1_3 = 13;
     private final String url;
     private String method;
     private final Map<String, String> headers = new LinkedHashMap<String, String>();
@@ -13,6 +15,7 @@ public final class LegacyHttpRequest {
     private long readTimeoutMillis;
     private boolean followRedirects = true;
     private int maxRedirects = 10;
+    private int minimumTlsVersion = TLS_1_2;
 
     public LegacyHttpRequest(String url) {
         if (url == null || url.trim().length() == 0) {
@@ -85,4 +88,14 @@ public final class LegacyHttpRequest {
     }
 
     public int getMaxRedirects() { return maxRedirects; }
+
+    public LegacyHttpRequest minimumTlsVersion(int version) {
+        if (version != TLS_1_2 && version != TLS_1_3) {
+            throw new IllegalArgumentException("minimum TLS version must be TLS_1_2 or TLS_1_3");
+        }
+        minimumTlsVersion = version;
+        return this;
+    }
+
+    public int getMinimumTlsVersion() { return minimumTlsVersion; }
 }

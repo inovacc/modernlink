@@ -1,7 +1,7 @@
 use jni::objects::{JByteArray, JClass, JObjectArray, JString};
 use jni::sys::{jbyteArray, jint, jlong, jobjectArray};
 use jni::JNIEnv;
-use core::{Request, Response};
+use core::{Request, Response, TlsVersion};
 use std::time::Duration;
 use std::cell::RefCell;
 
@@ -36,6 +36,7 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeExecute(
     read_timeout_millis: jlong,
     follow_redirects: jni::sys::jboolean,
     max_redirects: jint,
+    minimum_tls_version: jint,
 ) -> jlong {
     let url = match env.get_string(&url).ok().and_then(|value| value.to_str().ok().map(str::to_owned)) {
         Some(value) => value,
@@ -68,6 +69,11 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeExecute(
     request.follow_redirects = follow_redirects != 0;
     if max_redirects < 0 { return set_error("maximum redirects must not be negative".to_string()); }
     request.max_redirects = max_redirects as u32;
+    request.minimum_tls_version = match minimum_tls_version {
+        12 => TlsVersion::Tls12,
+        13 => TlsVersion::Tls13,
+        _ => return set_error("unsupported minimum TLS version".to_string()),
+    };
     let result = match http::execute(&request) { Ok(value) => value, Err(error) => return set_error(error.to_string()) };
     Box::into_raw(Box::new(NativeResponse(result))) as jlong
 }

@@ -12,7 +12,7 @@ public final class LegacyHttpClient {
         String[] headers = flattenHeaders(request.getHeaders());
         long handle = nativeExecute(request.getUrl(), request.getMethod(), headers, request.getBody(),
             request.getConnectTimeoutMillis(), request.getReadTimeoutMillis(),
-            request.getFollowRedirects(), request.getMaxRedirects());
+            request.getFollowRedirects(), request.getMaxRedirects(), request.getMinimumTlsVersion());
         if (handle == 0L) throw new LegacyHttpException(nativeLastError());
         try {
             return decode(handle);
@@ -22,7 +22,8 @@ public final class LegacyHttpClient {
     }
 
     private static native long nativeExecute(String url, String method, String[] headers, byte[] body,
-        long connectTimeoutMillis, long readTimeoutMillis, boolean followRedirects, int maxRedirects);
+        long connectTimeoutMillis, long readTimeoutMillis, boolean followRedirects, int maxRedirects,
+        int minimumTlsVersion);
     private static native String nativeLastError();
     private static native int nativeStatus(long handle);
     private static native String[] nativeHeaders(long handle);

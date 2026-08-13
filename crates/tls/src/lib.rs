@@ -1,11 +1,6 @@
 use std::sync::Arc;
 use rustls::{ClientConfig, RootCertStore};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TlsVersion {
-    Tls12,
-    Tls13,
-}
+pub use core::TlsVersion;
 
 #[derive(Debug, Clone, Copy)]
 pub struct TlsConfig {
@@ -19,6 +14,10 @@ impl TlsConfig {
 
     pub fn minimum_version(&self) -> TlsVersion {
         self.minimum_version
+    }
+
+    pub fn with_minimum_version(minimum_version: TlsVersion) -> Self {
+        Self { minimum_version }
     }
 }
 

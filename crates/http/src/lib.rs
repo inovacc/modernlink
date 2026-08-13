@@ -66,7 +66,9 @@ async fn execute_once_async(request: &Request) -> Result<Response, Error> {
     }.map_err(|error| Error::Transport(error.to_string()))?;
     let server_name = rustls::pki_types::ServerName::try_from(host.to_string())
         .map_err(|error| Error::Tls(error.to_string()))?;
-    let connector = TlsConnector::from(tls::client_config(tls::TlsConfig::secure_default()));
+    let connector = TlsConnector::from(tls::client_config(
+        tls::TlsConfig::with_minimum_version(request.minimum_tls_version),
+    ));
     let tls_stream = connector.connect(server_name, tcp).await.map_err(|error| Error::Tls(error.to_string()))?;
     let (_, session) = tls_stream.get_ref();
     let tls_info = TlsInfo {
