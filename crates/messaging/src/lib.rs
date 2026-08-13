@@ -3,6 +3,9 @@ use lapin::acker::Acker;
 use lapin::options::{BasicAckOptions, BasicGetOptions, BasicPublishOptions, QueueDeclareOptions};
 use lapin::types::FieldTable;
 use lapin::{BasicProperties, Connection, ConnectionProperties};
+use pulsar::consumer::{Consumer as PulsarConsumer, Message as PulsarMessage};
+use pulsar::producer::Message as PulsarProducerMessage;
+use pulsar::{Pulsar, TokioExecutor};
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
@@ -653,6 +656,172 @@ pub struct RabbitMqTransport {
     pending_acknowledgements: Mutex<BTreeMap<String, Acker>>,
 }
 
+pub struct PulsarTransport {
+    client: Option<Pulsar<TokioExecutor>>,
+    consumer: Mutex<PulsarConsumer<Vec<u8>, TokioExecutor>>,
+    runtime: Option<tokio::runtime::Runtime>,
+    topic: String,
+    pending_acknowledgements: Mutex<BTreeMap<String, PulsarMessage<Vec<u8>>>>,
+}
+
+impl PulsarTransport {
+    pub fn connect(
+        service_url: &str,
+        topic: &str,
+        subscription: &str,
+    ) -> Result<Self, DomainError> {
+        if service_url.trim().is_empty()
+            || topic.trim().is_empty()
+            || subscription.trim().is_empty()
+        {
+            return Err(DomainError::InvalidEnvelope(
+                "Pulsar service URL, topic, and subscription are required".to_string(),
+            ));
+        }
+        let runtime = tokio::runtime::Runtime::new()
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        let _runtime_guard = runtime.enter();
+        let client = runtime
+            .block_on(Pulsar::builder(service_url, TokioExecutor).build())
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        let consumer = runtime
+            .block_on(
+                client
+                    .consumer()
+                    .with_topic(topic)
+                    .with_subscription(subscription)
+                    .build::<Vec<u8>>(),
+            )
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        Ok(Self {
+            client: Some(client),
+            consumer: Mutex::new(consumer),
+            runtime: Some(runtime),
+            topic: topic.to_string(),
+            pending_acknowledgements: Mutex::new(BTreeMap::new()),
+        })
+    }
+}
+
+impl Drop for PulsarTransport {
+    fn drop(&mut self) {
+        self.client.take();
+        if let Some(runtime) = self.runtime.take() {
+            runtime.block_on(async {});
+        }
+    }
+}
+
+impl MessageTransport for PulsarTransport {
+    fn provider(&self) -> Provider {
+        Provider::Pulsar
+    }
+
+    fn publish(&self, message: MessageEnvelope) -> Result<DeliveryReceipt, DomainError> {
+        let message_id = message.message_id.clone();
+        let trace_id = message.tracing.trace_id.clone();
+        let payload = serde_json::to_vec(&message)
+            .map_err(|error| DomainError::Serialization(error.to_string()))?;
+        let runtime = self
+            .runtime
+            .as_ref()
+            .ok_or_else(|| DomainError::Transport("Pulsar runtime is unavailable".to_string()))?;
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| DomainError::Transport("Pulsar client is unavailable".to_string()))?;
+        runtime.block_on(async {
+            let send = client
+                .send(
+                    self.topic.clone(),
+                    PulsarProducerMessage {
+                        payload,
+                        ..Default::default()
+                    },
+                )
+                .await
+                .map_err(|error| DomainError::Transport(error.to_string()))?;
+            send.await
+                .map_err(|error| DomainError::Transport(error.to_string()))
+        })?;
+        Ok(DeliveryReceipt {
+            message_id,
+            provider: Provider::Pulsar,
+            state: DeliveryState::Published,
+            trace_id,
+        })
+    }
+
+    fn receive(&self) -> Result<Option<ReceivedMessage>, DomainError> {
+        let runtime = self
+            .runtime
+            .as_ref()
+            .ok_or_else(|| DomainError::Transport("Pulsar runtime is unavailable".to_string()))?;
+        let mut consumer = self
+            .consumer
+            .lock()
+            .map_err(|_| DomainError::Transport("Pulsar consumer is unavailable".to_string()))?;
+        let delivery = runtime
+            .block_on(consumer.next())
+            .transpose()
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        let Some(delivery) = delivery else {
+            return Ok(None);
+        };
+        let envelope: MessageEnvelope = serde_json::from_slice(&delivery.deserialize())
+            .map_err(|error| DomainError::Serialization(error.to_string()))?;
+        let receipt = DeliveryReceipt {
+            message_id: envelope.message_id.clone(),
+            provider: Provider::Pulsar,
+            state: DeliveryState::Received,
+            trace_id: envelope.tracing.trace_id.clone(),
+        };
+        self.pending_acknowledgements
+            .lock()
+            .map_err(|_| {
+                DomainError::Transport("Pulsar acknowledgement store is unavailable".to_string())
+            })?
+            .insert(envelope.message_id.clone(), delivery);
+        Ok(Some(ReceivedMessage {
+            message: envelope,
+            receipt,
+        }))
+    }
+
+    fn acknowledge(&self, receipt: &DeliveryReceipt) -> Result<DeliveryReceipt, DomainError> {
+        if receipt.provider != Provider::Pulsar {
+            return Err(DomainError::Transport(
+                "receipt provider does not match Pulsar".to_string(),
+            ));
+        }
+        let delivery = self
+            .pending_acknowledgements
+            .lock()
+            .map_err(|_| {
+                DomainError::Transport("Pulsar acknowledgement store is unavailable".to_string())
+            })?
+            .remove(&receipt.message_id)
+            .ok_or_else(|| {
+                DomainError::Transport("no pending Pulsar acknowledgement for receipt".to_string())
+            })?;
+        let runtime = self
+            .runtime
+            .as_ref()
+            .ok_or_else(|| DomainError::Transport("Pulsar runtime is unavailable".to_string()))?;
+        let mut consumer = self
+            .consumer
+            .lock()
+            .map_err(|_| DomainError::Transport("Pulsar consumer is unavailable".to_string()))?;
+        runtime
+            .block_on(consumer.ack(&delivery))
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        Ok(DeliveryReceipt {
+            state: DeliveryState::Acknowledged,
+            ..receipt.clone()
+        })
+    }
+}
+
 impl RabbitMqTransport {
     pub fn connect(uri: &str, queue: &str) -> Result<Self, DomainError> {
         if uri.trim().is_empty() || queue.trim().is_empty() {
@@ -996,6 +1165,7 @@ pub enum MessageTransportKind {
     Nats(NatsTransportKind),
     Kafka(KafkaTransport),
     RabbitMq(RabbitMqTransport),
+    Pulsar(PulsarTransport),
 }
 
 impl MessageTransport for MessageTransportKind {
@@ -1004,6 +1174,7 @@ impl MessageTransport for MessageTransportKind {
             Self::Nats(transport) => transport.provider(),
             Self::Kafka(transport) => transport.provider(),
             Self::RabbitMq(transport) => transport.provider(),
+            Self::Pulsar(transport) => transport.provider(),
         }
     }
 
@@ -1012,6 +1183,7 @@ impl MessageTransport for MessageTransportKind {
             Self::Nats(transport) => transport.publish(message),
             Self::Kafka(transport) => transport.publish(message),
             Self::RabbitMq(transport) => transport.publish(message),
+            Self::Pulsar(transport) => transport.publish(message),
         }
     }
 
@@ -1020,6 +1192,7 @@ impl MessageTransport for MessageTransportKind {
             Self::Nats(transport) => transport.receive(),
             Self::Kafka(transport) => transport.receive(),
             Self::RabbitMq(transport) => transport.receive(),
+            Self::Pulsar(transport) => transport.receive(),
         }
     }
 
@@ -1028,6 +1201,7 @@ impl MessageTransport for MessageTransportKind {
             Self::Nats(transport) => transport.acknowledge(receipt),
             Self::Kafka(transport) => transport.acknowledge(receipt),
             Self::RabbitMq(transport) => transport.acknowledge(receipt),
+            Self::Pulsar(transport) => transport.acknowledge(receipt),
         }
     }
 }
