@@ -142,9 +142,19 @@ The Java sources are compiled against the packaged `/workspace/modernlink.jar`
 inside the Java 6 Docker image. A typical publisher invocation is:
 
 ```powershell
-docker run --rm -v "${PWD}/hacks/java6-messaging:/workspace/hack" modernlink-java6-https sh -c "mkdir -p /workspace/hack/classes && javac -source 1.6 -target 1.6 -classpath /workspace/modernlink.jar -d /workspace/hack/classes \\$(find /workspace/hack/src -name '*.java') && java -cp /workspace/modernlink.jar:/workspace/hack/classes com.modernlink.messaging.LegacyJmsJmxDemo TRANSFORM KAFKA"
+docker run --rm -v "${PWD}/hacks/java6-messaging:/workspace/hack" modernlink-java6 sh -c "mkdir -p /workspace/hack/classes && javac -source 1.6 -target 1.6 -classpath /workspace/modernlink.jar -d /workspace/hack/classes \\$(find /workspace/hack/src -name '*.java') && java -cp /workspace/modernlink.jar:/workspace/hack/classes com.modernlink.messaging.LegacyJmsJmxDemo TRANSFORM KAFKA"
 ```
 
 The fixture is intentionally small. Real JMS provider compatibility,
 broker-backed delivery, acknowledgement, transactions, and external JMX
 deployment remain separate backlog work in [`docs/BACKLOG.md`](../docs/BACKLOG.md).
+
+The Java 6 distributable image also exercises the native RabbitMQ façade
+directly. After building `modernlink-java6`, compile the fixture sources in the
+image and run the client with an AMQP URL reachable from the container:
+
+```powershell
+docker build -f docker/java6/Dockerfile -t modernlink-java6 .
+docker run --rm -v "${PWD}/hacks/java6-messaging:/workspace/hack" `
+  modernlink-java6 sh -c "mkdir -p /workspace/hack/classes && javac -source 1.6 -target 1.6 -classpath /workspace/modernlink.jar -d /workspace/hack/classes \$(find /workspace/hack/src -name '*.java') && java -cp /workspace/modernlink.jar:/workspace/hack/classes com.modernlink.messaging.JmsFacadeNatsApp amqp://guest:guest@host.docker.internal:5672/%2f modernlink.java6.jms.facade RABBITMQ"
+```

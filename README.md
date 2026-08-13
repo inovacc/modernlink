@@ -189,4 +189,4 @@ docker build -f docker/java6/Dockerfile -t modernlink-java6 .
 docker run --rm modernlink-java6
 ```
 
-The image compiles the Java facade and test sources with `-source 1.6 -target 1.6`, then reports the container's Java version. Native loading and the Java-to-Rust HTTPS path require a later image step that includes the packaged `modernlink` library.
+The image compiles the Java facade and test sources with `-source 1.6 -target 1.6`, packages the platform-selected native libraries into `/workspace/modernlink.jar`, and reports the container's Java version. The same JAR can be used to exercise the Java-to-Rust HTTPS and messaging paths.
