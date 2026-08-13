@@ -144,6 +144,30 @@ public final class ModernHttpsURLConnection extends HttpsURLConnection {
         return response.getHeader(name);
     }
 
+    public String getHeaderField(int index) {
+        Map.Entry<String, String> entry = headerEntry(index);
+        return entry == null ? null : entry.getValue();
+    }
+
+    public String getHeaderFieldKey(int index) {
+        Map.Entry<String, String> entry = headerEntry(index);
+        return entry == null ? null : entry.getKey();
+    }
+
+    public int getContentLength() {
+        String value = getHeaderField("content-length");
+        if (value == null) return -1;
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException ignored) {
+            return -1;
+        }
+    }
+
+    public String getContentType() { return getHeaderField("content-type"); }
+
+    public String getContentEncoding() { return getHeaderField("content-encoding"); }
+
     public Map<String, List<String>> getHeaderFields() {
         if (response == null) return Collections.emptyMap();
         Map<String, List<String>> result = new LinkedHashMap<String, List<String>>();
@@ -151,6 +175,15 @@ public final class ModernHttpsURLConnection extends HttpsURLConnection {
             result.put(entry.getKey(), Collections.singletonList(entry.getValue()));
         }
         return Collections.unmodifiableMap(result);
+    }
+
+    private Map.Entry<String, String> headerEntry(int index) {
+        if (response == null || index < 0) return null;
+        int current = 0;
+        for (Map.Entry<String, String> entry : response.getHeaders().entrySet()) {
+            if (current++ == index) return entry;
+        }
+        return null;
     }
 
     public String getCipherSuite() {
