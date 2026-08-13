@@ -85,6 +85,86 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeLastError(env:
 }
 
 #[no_mangle]
+pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeCapabilities(
+    _env: JNIEnv, _class: JClass,
+) -> jlong {
+    31
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeUuidV7(
+    env: JNIEnv, _class: JClass,
+) -> jni::sys::jstring {
+    match env.new_string(core::uuid_v7()) {
+        Ok(value) => value.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeBase64Encode(
+    env: JNIEnv, _class: JClass, value: JByteArray,
+) -> jni::sys::jstring {
+    let value = match env.convert_byte_array(&value) {
+        Ok(value) => value,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    match env.new_string(core::base64_encode(&value)) {
+        Ok(value) => value.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeRequestJson(
+    mut env: JNIEnv,
+    _class: JClass,
+    url: JString,
+    method: JString,
+    headers: JObjectArray,
+    body: JByteArray,
+) -> jni::sys::jstring {
+    let url = match env.get_string(&url).ok().and_then(|value| value.to_str().ok().map(str::to_owned)) {
+        Some(value) => value,
+        None => return std::ptr::null_mut(),
+    };
+    let method = match env.get_string(&method).ok().and_then(|value| value.to_str().ok().map(str::to_owned)) {
+        Some(value) => value,
+        None => return std::ptr::null_mut(),
+    };
+    let mut request = match Request::new(&url) {
+        Ok(value) => value,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    request.method = method;
+    let count = match env.get_array_length(&headers) {
+        Ok(value) if value % 2 == 0 => value,
+        _ => return std::ptr::null_mut(),
+    };
+    for index in (0..count).step_by(2) {
+        let name = match env.get_object_array_element(&headers, index).ok()
+            .and_then(|value| env.get_string(&JString::from(value)).ok().and_then(|text| text.to_str().ok().map(str::to_owned))) {
+            Some(value) => value,
+            None => return std::ptr::null_mut(),
+        };
+        let value = match env.get_object_array_element(&headers, index + 1).ok()
+            .and_then(|value| env.get_string(&JString::from(value)).ok().and_then(|text| text.to_str().ok().map(str::to_owned))) {
+            Some(value) => value,
+            None => return std::ptr::null_mut(),
+        };
+        request.headers.insert(name, value);
+    }
+    request.body = match env.convert_byte_array(&body) {
+        Ok(value) => value,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    match env.new_string(core::request_json(&request)) {
+        Ok(value) => value.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
 pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeStatus(_env: JNIEnv, _class: JClass, handle: jlong) -> jint {
     unsafe { response(handle).map(|value| value.0.status as jint).unwrap_or(0) }
 }

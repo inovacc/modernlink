@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::time::Duration;
+use base64::Engine;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
@@ -64,6 +65,29 @@ impl Request {
     }
 }
 
+pub fn uuid_v7() -> String {
+    uuid::Uuid::now_v7().to_string()
+}
+
+pub fn base64_encode(value: &[u8]) -> String {
+    base64::engine::general_purpose::STANDARD.encode(value)
+}
+
+pub fn request_json(request: &Request) -> String {
+    serde_json::json!({
+        "url": request.url,
+        "method": request.method,
+        "headers": request.headers,
+        "bodyBase64": base64_encode(&request.body),
+        "followRedirects": request.follow_redirects,
+        "maxRedirects": request.max_redirects,
+        "minimumTlsVersion": match request.minimum_tls_version {
+            TlsVersion::Tls12 => "TLSv1.2",
+            TlsVersion::Tls13 => "TLSv1.3",
+        },
+    }).to_string()
+}
+
 #[derive(Debug, Clone)]
 pub struct Response {
     pub final_url: String,
@@ -83,7 +107,7 @@ pub struct TlsInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::Request;
+    use super::{base64_encode, request_json, uuid_v7, Request};
 
     #[test]
     fn request_rejects_empty_url() {
@@ -98,5 +122,22 @@ mod tests {
         assert!(request.follow_redirects);
         assert_eq!(request.max_redirects, 10);
         assert_eq!(request.minimum_tls_version, super::TlsVersion::Tls12);
+    }
+
+    #[test]
+    fn uuid_v7_has_uuid_shape() {
+        let value = uuid_v7();
+        assert_eq!(value.len(), 36);
+        assert_eq!(&value[14..15], "7");
+    }
+
+    #[test]
+    fn base64_and_json_helpers_encode_request_data() {
+        assert_eq!(base64_encode(b"modernlink"), "bW9kZXJubGluaw==");
+        let mut request = Request::new("https://example.com").unwrap();
+        request.body = b"payload".to_vec();
+        let json = request_json(&request);
+        assert!(json.contains("bodyBase64"));
+        assert!(json.contains("cGF5bG9hZA=="));
     }
 }

@@ -44,6 +44,10 @@ The adapter is created explicitly with `new ModernHttpsURLConnection(new URL("ht
 
 The response model preserves the HTTP status reason phrase, exposed as `LegacyHttpResponse.getStatusMessage()` and `ModernHttpsURLConnection.getResponseMessage()`. The adapter also exposes indexed headers and typed content metadata through `getHeaderField(int)`, `getHeaderFieldKey(int)`, `getContentType()`, and `getContentLength()`.
 
+`LegacyHttpClient.getCapabilities()` provides a stable bitmask for feature discovery before requests. The current bits identify HTTPS, TLS 1.2, TLS 1.3, redirects, and peer-certificate access.
+
+The Java facade also exposes Cargo-backed native utilities: `newUuidV7()`, `base64Encode(byte[])`, and `requestJson(LegacyHttpRequest)`. Request JSON includes method, URL, headers, redirect policy, minimum TLS version, and a Base64-encoded body.
+
 The current JAR contains Linux x86_64 and Linux ARM64 native resources:
 
 - `native/linux-x86_64/libmodernlink.so`

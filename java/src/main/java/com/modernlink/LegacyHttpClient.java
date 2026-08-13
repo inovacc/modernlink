@@ -4,6 +4,11 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 public final class LegacyHttpClient {
+    public static final long CAPABILITY_HTTPS = 1L;
+    public static final long CAPABILITY_TLS_1_2 = 2L;
+    public static final long CAPABILITY_TLS_1_3 = 4L;
+    public static final long CAPABILITY_REDIRECTS = 8L;
+    public static final long CAPABILITY_PEER_CERTIFICATES = 16L;
     private static final boolean LOAD_NATIVE = Boolean.valueOf(System.getProperty("modernlink.loadNative", "true")).booleanValue();
 
     public LegacyHttpResponse execute(LegacyHttpRequest request) throws LegacyHttpException {
@@ -25,6 +30,10 @@ public final class LegacyHttpClient {
         long connectTimeoutMillis, long readTimeoutMillis, boolean followRedirects, int maxRedirects,
         int minimumTlsVersion);
     private static native String nativeLastError();
+    private static native long nativeCapabilities();
+    private static native String nativeUuidV7();
+    private static native String nativeBase64Encode(byte[] value);
+    private static native String nativeRequestJson(String url, String method, String[] headers, byte[] body);
     private static native int nativeStatus(long handle);
     private static native String nativeStatusMessage(long handle);
     private static native String[] nativeHeaders(long handle);
@@ -34,6 +43,36 @@ public final class LegacyHttpClient {
     private static native String nativeTlsCipherSuite(long handle);
     private static native String nativeFinalUrl(long handle);
     private static native void nativeRelease(long handle);
+
+    public long getCapabilities() throws LegacyHttpException {
+        if (LOAD_NATIVE) NativeLoader.load();
+        long capabilities = nativeCapabilities();
+        if (capabilities == 0L) throw new LegacyHttpException("native capabilities unavailable");
+        return capabilities;
+    }
+
+    public String newUuidV7() throws LegacyHttpException {
+        if (LOAD_NATIVE) NativeLoader.load();
+        String value = nativeUuidV7();
+        if (value == null) throw new LegacyHttpException("native UUIDv7 unavailable");
+        return value;
+    }
+
+    public String base64Encode(byte[] value) throws LegacyHttpException {
+        if (value == null) throw new IllegalArgumentException("value is required");
+        if (LOAD_NATIVE) NativeLoader.load();
+        String encoded = nativeBase64Encode(value.clone());
+        if (encoded == null) throw new LegacyHttpException("native Base64 encoding unavailable");
+        return encoded;
+    }
+
+    public String requestJson(LegacyHttpRequest request) throws LegacyHttpException {
+        if (request == null) throw new IllegalArgumentException("request is required");
+        if (LOAD_NATIVE) NativeLoader.load();
+        String json = nativeRequestJson(request.getUrl(), request.getMethod(), flattenHeaders(request.getHeaders()), request.getBody());
+        if (json == null) throw new LegacyHttpException("native JSON serialization unavailable");
+        return json;
+    }
 
     private String[] flattenHeaders(Map<String, String> headers) {
         String[] result = new String[headers.size() * 2];
