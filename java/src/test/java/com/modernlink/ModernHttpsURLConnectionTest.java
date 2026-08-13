@@ -38,9 +38,11 @@ public final class ModernHttpsURLConnectionTest {
         input.close();
         if (connection.getResponseCode() != 200) throw new AssertionError("unexpected response code");
         if (!"OK".equals(connection.getResponseMessage())) throw new AssertionError("response message is unavailable");
-        if (connection.getHeaderFieldKey(0) == null || connection.getHeaderField(0) == null) {
-            throw new AssertionError("indexed response headers are unavailable");
+        if (connection.getHeaderFieldKey(0) != null || connection.getHeaderField(0) == null
+            || connection.getHeaderField(0).indexOf("HTTP/") != 0) {
+            throw new AssertionError("HTTP status line is not exposed at indexed header zero");
         }
+        if (!connection.getHeaderFields().containsKey(null)) throw new AssertionError("status line is missing from header fields");
         if (connection.getContentType() == null) throw new AssertionError("content type is unavailable");
         if (connection.getContentLength() < -1) throw new AssertionError("invalid content length");
         if (bytes == 0) throw new AssertionError("response body is empty");

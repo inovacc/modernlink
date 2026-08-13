@@ -140,17 +140,22 @@ public final class ModernHttpsURLConnection extends HttpsURLConnection {
     }
 
     public String getHeaderField(String name) {
+        ensureConnectedQuietly();
         if (response == null) return null;
         return response.getHeader(name);
     }
 
     public String getHeaderField(int index) {
-        Map.Entry<String, String> entry = headerEntry(index);
+        ensureConnectedQuietly();
+        if (index == 0) return statusLine();
+        Map.Entry<String, String> entry = headerEntry(index - 1);
         return entry == null ? null : entry.getValue();
     }
 
     public String getHeaderFieldKey(int index) {
-        Map.Entry<String, String> entry = headerEntry(index);
+        ensureConnectedQuietly();
+        if (index == 0) return null;
+        Map.Entry<String, String> entry = headerEntry(index - 1);
         return entry == null ? null : entry.getKey();
     }
 
@@ -169,8 +174,10 @@ public final class ModernHttpsURLConnection extends HttpsURLConnection {
     public String getContentEncoding() { return getHeaderField("content-encoding"); }
 
     public Map<String, List<String>> getHeaderFields() {
+        ensureConnectedQuietly();
         if (response == null) return Collections.emptyMap();
         Map<String, List<String>> result = new LinkedHashMap<String, List<String>>();
+        result.put(null, Collections.singletonList(statusLine()));
         for (Map.Entry<String, String> entry : response.getHeaders().entrySet()) {
             result.put(entry.getKey(), Collections.singletonList(entry.getValue()));
         }
@@ -184,6 +191,24 @@ public final class ModernHttpsURLConnection extends HttpsURLConnection {
             if (current++ == index) return entry;
         }
         return null;
+    }
+
+    private String statusLine() {
+        if (response == null) return null;
+        String message = response.getStatusMessage();
+        if (message == null || message.length() == 0) {
+            return "HTTP/1.1 " + response.getStatus();
+        }
+        return "HTTP/1.1 " + response.getStatus() + " " + message;
+    }
+
+    private void ensureConnectedQuietly() {
+        if (connected) return;
+        try {
+            connect();
+        } catch (IOException ignored) {
+            // Header accessors cannot report checked I/O failures by contract.
+        }
     }
 
     public String getCipherSuite() {
