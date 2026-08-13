@@ -2,6 +2,10 @@ use core::{Request, Response, TlsVersion};
 use jni::objects::{JByteArray, JClass, JObjectArray, JString};
 use jni::sys::{jbyteArray, jint, jlong, jobjectArray};
 use jni::JNIEnv;
+use messaging::{
+    AcknowledgementMode, DeliveryReceipt, DeliveryState, MessageEnvelope, MessageTransport, Mode,
+    NatsTransport, Payload, Provider, RouteConfig, TraceContext,
+};
 use std::cell::RefCell;
 use std::time::Duration;
 
@@ -21,6 +25,341 @@ pub extern "C" fn getauxval(_kind: usize) -> usize {
 }
 
 struct NativeResponse(Response);
+
+struct NativeMessagingClient {
+    transport: NatsTransport,
+    route: RouteConfig,
+}
+
+unsafe fn messaging_client<'a>(handle: jlong) -> Option<&'a NativeMessagingClient> {
+    if handle == 0 {
+        None
+    } else {
+        Some(&*(handle as *const NativeMessagingClient))
+    }
+}
+
+fn java_string(env: &mut JNIEnv, value: &JString) -> Option<String> {
+    env.get_string(value)
+        .ok()
+        .and_then(|text| text.to_str().ok().map(str::to_owned))
+}
+
+fn messaging_error(message: String) -> jlong {
+    set_error(message)
+}
+
+fn messaging_string_error(message: String) -> jni::sys::jstring {
+    set_error(message);
+    std::ptr::null_mut()
+}
+
+fn messaging_mode(value: &str) -> Result<Mode, String> {
+    match value {
+        "TRANSPARENT" => Ok(Mode::Transparent),
+        "TRANSFORM" => Ok(Mode::Transform),
+        "REDIRECT" => Ok(Mode::Redirect),
+        _ => Err(format!("unsupported messaging mode: {}", value)),
+    }
+}
+
+fn messaging_provider(value: &str) -> Result<Provider, String> {
+    match value {
+        "LEGACY_JMS" => Ok(Provider::LegacyJms),
+        "KAFKA" => Ok(Provider::Kafka),
+        "PULSAR" => Ok(Provider::Pulsar),
+        "NATS" => Ok(Provider::Nats),
+        "RABBITMQ" => Ok(Provider::RabbitMq),
+        _ => Err(format!("unsupported messaging provider: {}", value)),
+    }
+}
+
+fn messaging_acknowledgement(value: &str) -> Result<AcknowledgementMode, String> {
+    match value {
+        "AUTO" => Ok(AcknowledgementMode::Auto),
+        "CLIENT" => Ok(AcknowledgementMode::Client),
+        "DUPLICATE_OK" => Ok(AcknowledgementMode::DuplicateOk),
+        "TRANSACTED" => Ok(AcknowledgementMode::Transacted),
+        _ => Err(format!("unsupported acknowledgement mode: {}", value)),
+    }
+}
+
+fn messaging_provider_name(provider: Provider) -> &'static str {
+    match provider {
+        Provider::LegacyJms => "LEGACY_JMS",
+        Provider::Kafka => "KAFKA",
+        Provider::Pulsar => "PULSAR",
+        Provider::Nats => "NATS",
+        Provider::RabbitMq => "RABBITMQ",
+    }
+}
+
+fn messaging_state_name(state: DeliveryState) -> &'static str {
+    match state {
+        DeliveryState::Published => "PUBLISHED",
+        DeliveryState::Received => "RECEIVED",
+        DeliveryState::Acknowledged => "ACKNOWLEDGED",
+        DeliveryState::Rejected => "REJECTED",
+        DeliveryState::Retried => "RETRIED",
+        DeliveryState::DeadLettered => "DEAD_LETTERED",
+    }
+}
+
+fn messaging_receipt_frame(receipt: &DeliveryReceipt) -> String {
+    format!(
+        "{}#{}#{}#{}",
+        receipt.message_id,
+        messaging_provider_name(receipt.provider),
+        messaging_state_name(receipt.state),
+        receipt.trace_id
+    )
+}
+
+fn messaging_message_frame(
+    message: &MessageEnvelope,
+    receipt: &DeliveryReceipt,
+) -> Result<String, String> {
+    let payload = match &message.payload {
+        Payload::Text(value) => value,
+        _ => {
+            return Err("Java 6 messaging facade currently supports text payloads only".to_string())
+        }
+    };
+    let acknowledgement = match message.acknowledgement_mode {
+        AcknowledgementMode::Auto => "AUTO",
+        AcknowledgementMode::Client => "CLIENT",
+        AcknowledgementMode::DuplicateOk => "DUPLICATE_OK",
+        AcknowledgementMode::Transacted => "TRANSACTED",
+    };
+    let message_frame = [
+        message.message_id.clone(),
+        message.destination.clone(),
+        core::base64_encode(payload.as_bytes()),
+        message.tracing.trace_id.clone(),
+        message.tracing.span_id.clone(),
+        message.tracing.parent_span_id.clone().unwrap_or_default(),
+        message.tracing.trace_state.clone().unwrap_or_default(),
+        acknowledgement.to_string(),
+        if message.tracing.sampled {
+            "1".to_string()
+        } else {
+            "0".to_string()
+        },
+    ]
+    .join("|");
+    Ok(format!(
+        "{}\n{}",
+        message_frame,
+        messaging_receipt_frame(receipt)
+    ))
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativeOpen(
+    mut env: JNIEnv,
+    _class: JClass,
+    url: JString,
+    subject: JString,
+    mode: JString,
+    provider: JString,
+) -> jlong {
+    let values = [&url, &subject, &mode, &provider]
+        .iter()
+        .map(|value| java_string(&mut env, value))
+        .collect::<Option<Vec<_>>>();
+    let values = match values {
+        Some(values) => values,
+        None => return messaging_error("invalid messaging connection string".to_string()),
+    };
+    let selected_mode = match messaging_mode(&values[2]) {
+        Ok(value) => value,
+        Err(error) => return messaging_error(error),
+    };
+    let selected_provider = match messaging_provider(&values[3]) {
+        Ok(value) => value,
+        Err(error) => return messaging_error(error),
+    };
+    if selected_provider != Provider::Nats {
+        return messaging_error("native messaging client currently supports NATS only".to_string());
+    }
+    let route = RouteConfig {
+        default_mode: selected_mode,
+        default_provider: selected_provider,
+        rules: Vec::new(),
+    };
+    let route_probe = match MessageEnvelope::new(&values[1], Payload::Text(String::new()), 0) {
+        Ok(value) => value,
+        Err(error) => return messaging_error(error.to_string()),
+    };
+    if let Err(error) = route.decide(&route_probe) {
+        return messaging_error(error.to_string());
+    }
+    let transport = match NatsTransport::connect(&values[0], &values[1]) {
+        Ok(value) => value,
+        Err(error) => return messaging_error(error.to_string()),
+    };
+    Box::into_raw(Box::new(NativeMessagingClient { transport, route })) as jlong
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativePublish(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    message_id: JString,
+    destination: JString,
+    payload: JString,
+    trace_id: JString,
+    span_id: JString,
+    parent_span_id: JString,
+    trace_state: JString,
+    sampled: jni::sys::jboolean,
+    acknowledgement_mode: JString,
+) -> jni::sys::jstring {
+    let client = match unsafe { messaging_client(handle) } {
+        Some(value) => value,
+        None => return messaging_string_error("messaging client handle is invalid".to_string()),
+    };
+    let values = [
+        &message_id,
+        &destination,
+        &payload,
+        &trace_id,
+        &span_id,
+        &parent_span_id,
+        &trace_state,
+        &acknowledgement_mode,
+    ]
+    .iter()
+    .map(|value| java_string(&mut env, value))
+    .collect::<Option<Vec<_>>>();
+    let values = match values {
+        Some(values) => values,
+        None => return messaging_string_error("invalid messaging message string".to_string()),
+    };
+    let acknowledgement = match messaging_acknowledgement(&values[7]) {
+        Ok(value) => value,
+        Err(error) => return messaging_string_error(error),
+    };
+    let mut message = match MessageEnvelope::new(&values[1], Payload::Text(values[2].clone()), 0) {
+        Ok(value) => value,
+        Err(error) => return messaging_string_error(error.to_string()),
+    };
+    message.message_id = values[0].clone();
+    message.acknowledgement_mode = acknowledgement;
+    message.tracing = TraceContext {
+        trace_id: values[3].clone(),
+        span_id: values[4].clone(),
+        parent_span_id: if values[5].is_empty() {
+            None
+        } else {
+            Some(values[5].clone())
+        },
+        trace_state: if values[6].is_empty() {
+            None
+        } else {
+            Some(values[6].clone())
+        },
+        sampled: sampled != 0,
+    };
+    let receipt = match client.route.dispatch(message, &client.transport) {
+        Ok(value) => value.receipt,
+        Err(error) => return messaging_string_error(error.to_string()),
+    };
+    match env.new_string(messaging_receipt_frame(&receipt)) {
+        Ok(value) => value.into_raw(),
+        Err(error) => messaging_string_error(error.to_string()),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativeReceive(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jni::sys::jstring {
+    let client = match unsafe { messaging_client(handle) } {
+        Some(value) => value,
+        None => return messaging_string_error("messaging client handle is invalid".to_string()),
+    };
+    let received = match client.transport.receive() {
+        Ok(Some(value)) => value,
+        Ok(None) => return messaging_string_error("no messaging message available".to_string()),
+        Err(error) => return messaging_string_error(error.to_string()),
+    };
+    let frame = match messaging_message_frame(&received.message, &received.receipt) {
+        Ok(value) => value,
+        Err(error) => return messaging_string_error(error),
+    };
+    match env.new_string(frame) {
+        Ok(value) => value.into_raw(),
+        Err(error) => messaging_string_error(error.to_string()),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativeAcknowledge(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    message_id: JString,
+    provider: JString,
+    state: JString,
+    trace_id: JString,
+) -> jni::sys::jstring {
+    let client = match unsafe { messaging_client(handle) } {
+        Some(value) => value,
+        None => return messaging_string_error("messaging client handle is invalid".to_string()),
+    };
+    let values = [&message_id, &provider, &state, &trace_id]
+        .iter()
+        .map(|value| java_string(&mut env, value))
+        .collect::<Option<Vec<_>>>();
+    let values = match values {
+        Some(values) => values,
+        None => return messaging_string_error("invalid delivery receipt string".to_string()),
+    };
+    let provider = match messaging_provider(&values[1]) {
+        Ok(value) => value,
+        Err(error) => return messaging_string_error(error),
+    };
+    let state = match values[2].as_str() {
+        "PUBLISHED" => DeliveryState::Published,
+        "RECEIVED" => DeliveryState::Received,
+        "ACKNOWLEDGED" => DeliveryState::Acknowledged,
+        "REJECTED" => DeliveryState::Rejected,
+        "RETRIED" => DeliveryState::Retried,
+        "DEAD_LETTERED" => DeliveryState::DeadLettered,
+        _ => return messaging_string_error("unsupported delivery state".to_string()),
+    };
+    let receipt = DeliveryReceipt {
+        message_id: values[0].clone(),
+        provider,
+        state,
+        trace_id: values[3].clone(),
+    };
+    let acknowledged = match client.transport.acknowledge(&receipt) {
+        Ok(value) => value,
+        Err(error) => return messaging_string_error(error.to_string()),
+    };
+    match env.new_string(messaging_receipt_frame(&acknowledged)) {
+        Ok(value) => value.into_raw(),
+        Err(error) => messaging_string_error(error.to_string()),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativeClose(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) {
+    if handle != 0 {
+        unsafe {
+            drop(Box::from_raw(handle as *mut NativeMessagingClient));
+        }
+    }
+}
 
 unsafe fn response<'a>(handle: jlong) -> Option<&'a NativeResponse> {
     if handle == 0 {

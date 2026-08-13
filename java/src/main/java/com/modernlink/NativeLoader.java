@@ -7,12 +7,12 @@ import java.io.InputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
-final class NativeLoader {
+public final class NativeLoader {
     private static boolean loaded;
 
     private NativeLoader() { }
 
-    static synchronized void load() throws LegacyHttpException {
+    public static synchronized void load() throws LegacyHttpException {
         if (loaded) return;
         String os = System.getProperty("os.name").toLowerCase();
         String arch = System.getProperty("os.arch").toLowerCase();

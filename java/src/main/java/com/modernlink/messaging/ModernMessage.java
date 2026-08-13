@@ -43,15 +43,17 @@ public final class ModernMessage {
         }
         return join("|", messageId, destination, ModernBase64.encode(encodedPayload),
             tracing.getTraceId(), tracing.getSpanId(), tracing.getParentSpanId() == null ? "" : tracing.getParentSpanId(),
-            tracing.getTraceState() == null ? "" : tracing.getTraceState(), acknowledgementMode.name());
+            tracing.getTraceState() == null ? "" : tracing.getTraceState(), acknowledgementMode.name(),
+            tracing.isSampled() ? "1" : "0");
     }
 
     public static ModernMessage decode(String value) throws Exception {
         if (value == null) throw new IllegalArgumentException("message is required");
         String[] fields = value.split("\\|", -1);
-        if (fields.length != 8) throw new IllegalArgumentException("invalid message field count");
+        if (fields.length != 9) throw new IllegalArgumentException("invalid message field count");
         String payload = new String(ModernBase64.decode(fields[2]), "UTF-8");
-        ModernTraceContext tracing = new ModernTraceContextForDecode(fields[3], fields[4], fields[5].length() == 0 ? null : fields[5], fields[6].length() == 0 ? null : fields[6]).value();
+        if (!"0".equals(fields[8]) && !"1".equals(fields[8])) throw new IllegalArgumentException("invalid trace sampling flag");
+        ModernTraceContext tracing = new ModernTraceContextForDecode(fields[3], fields[4], fields[5].length() == 0 ? null : fields[5], fields[6].length() == 0 ? null : fields[6], "1".equals(fields[8])).value();
         return new ModernMessage(fields[0], fields[1], payload, tracing, ModernAcknowledgementMode.valueOf(fields[7]));
     }
 
@@ -67,8 +69,8 @@ public final class ModernMessage {
     private static final class ModernTraceContextForDecode {
         private final ModernTraceContext value;
 
-        private ModernTraceContextForDecode(String traceId, String spanId, String parentSpanId, String traceState) {
-            value = new ModernTraceContext(traceId, spanId, parentSpanId, traceState, true);
+        private ModernTraceContextForDecode(String traceId, String spanId, String parentSpanId, String traceState, boolean sampled) {
+            value = new ModernTraceContext(traceId, spanId, parentSpanId, traceState, sampled);
         }
 
         private ModernTraceContext value() { return value; }

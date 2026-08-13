@@ -617,6 +617,7 @@ dependencies = [
  "core",
  "http 0.1.0",
  "jni 0.21.1",
+ "messaging",
  "tls",
 ]
 

@@ -44,6 +44,19 @@ receipts. Core NATS does not provide durable broker acknowledgements; durable
 acknowledgement semantics require a JetStream adapter and remain separate
 work.
 
+The Java facade can exercise the same native boundary on a host whose bundled
+native resource matches the host platform:
+
+```powershell
+javac -source 1.6 -target 1.6 ...
+java -cp hacks/java6-messaging/classes com.modernlink.messaging.NativeNatsApp
+```
+
+`NativeNatsApp` uses `ModernMessagingClient` and preserves the message and
+trace identities across publish, receive, and acknowledgement. The current
+fixture has a Windows x86_64 native probe; Java 6 Docker compilation and the
+Linux packaged-JAR probe remain separate checks.
+
 ## Java 6 fixture
 
 `java6-messaging/src` contains the Java 6 publisher and modern-provider
