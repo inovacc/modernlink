@@ -38,6 +38,8 @@ The JAR should expose a small, stable API to Java 6 code. Modern implementation 
 
 The messaging compatibility backlog is documented in [`docs/BACKLOG.md`](docs/BACKLOG.md). It separates the JMS application contract from JMX management and defines transparent pass-through, transform, and redirect modes for legacy infrastructure and modern providers.
 
+Executable cross-application contract fixtures live under [`hacks/`](hacks/README.md). They include a JMS/JMX-shaped publisher and a provider-neutral consumer, with first-class trace ID and span ID propagation. They exercise the message domain locally; they do not claim connection to external brokers.
+
 ## Java 6 HTTPS adapter
 
 The packaged JAR also provides `com.modernlink.ModernHttpsURLConnection`, a Java 6-compatible `HttpsURLConnection`-style facade over the ModernLink request API. It supports request methods and properties, connect/read timeouts covering TCP connection and TLS handshake, buffered request output, response streams, status and headers, redirect policy inherited from `LegacyHttpRequest`, and TLS cipher/certificate access.

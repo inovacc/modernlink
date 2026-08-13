@@ -3,6 +3,7 @@ FROM rust:1.96-bookworm AS native-builder
 WORKDIR /native
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY hacks/messaging-demo ./hacks/messaging-demo
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3-pip \
     && pip3 install --break-system-packages --no-cache-dir ziglang \

@@ -4,6 +4,8 @@ members = [
     "crates/http",
     "crates/tls",
     "crates/jni",
+    "crates/messaging",
+    "hacks/messaging-demo",
 ]
 resolver = "2"
 

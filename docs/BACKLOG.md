@@ -53,6 +53,13 @@ The envelope must define stable mappings for:
 Transform mode must document information loss, ordering scope, retry behavior,
 and the point at which acknowledgement is considered committed.
 
+Tracing is first-class domain data, not only a user property or transport
+header. Every envelope carries a trace ID, span ID, optional parent span ID,
+optional trace state, and sampling decision. Transparent mode forwards it;
+transform mode maps it to the target provider's tracing metadata; redirect mode
+preserves it across the route decision. Provider adapters must not silently
+replace or discard these fields.
+
 ### 3. Redirect mode
 
 The legacy JMS call remains the application-facing API, but routing sends the
@@ -103,6 +110,24 @@ Acceptance criteria:
 - a versioned envelope schema exists;
 - mappings to JMS, Kafka, Pulsar, NATS, and RabbitMQ are documented;
 - unsupported mappings fail explicitly rather than being silently dropped.
+- trace context is preserved as a typed envelope field across all modes.
+
+### M1 — Maintain cross-application contract fixtures
+
+Keep the executable JMS/JMX-shaped publisher and modern-provider consumer
+fixtures under `hacks/`. They must exchange the same provider-neutral envelope
+while switching between transparent, transform, and redirect modes. The
+fixtures are deterministic contract probes; they are not substitutes for
+external broker integration.
+
+Acceptance criteria:
+
+- separate publisher and consumer processes exchange a message;
+- Kafka, Pulsar, NATS, and RabbitMQ provider identities can be selected by the
+  same consumer contract;
+- destination, payload, message ID, and trace context remain observable after
+  switching mode;
+- the Java 6 fixture registers a JMX metrics MBean without requiring Java 8.
 
 ### M1 — Specify JMS compatibility surface
 
