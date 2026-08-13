@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 pub const ENVELOPE_VERSION: u16 = 1;
 
@@ -410,6 +411,209 @@ impl MessageTransport for NatsTransport {
                 DomainError::Transport("NATS acknowledgement state is unavailable".to_string())
             })?
             .insert(receipt.message_id.clone());
+        Ok(DeliveryReceipt {
+            state: DeliveryState::Acknowledged,
+            ..receipt.clone()
+        })
+    }
+}
+
+/// JetStream-backed NATS transport with server-side durable acknowledgement state.
+pub struct NatsJetStreamTransport {
+    client: Option<async_nats::Client>,
+    context: Option<async_nats::jetstream::Context>,
+    stream: Mutex<Option<async_nats::jetstream::consumer::pull::Stream>>,
+    pending_acknowledgements: Mutex<BTreeMap<String, async_nats::jetstream::message::Acker>>,
+    subject: String,
+    runtime: Option<tokio::runtime::Runtime>,
+}
+
+impl NatsJetStreamTransport {
+    pub fn connect(
+        url: &str,
+        subject: &str,
+        stream_name: &str,
+        consumer_name: &str,
+    ) -> Result<Self, DomainError> {
+        if subject.trim().is_empty()
+            || stream_name.trim().is_empty()
+            || consumer_name.trim().is_empty()
+        {
+            return Err(DomainError::InvalidEnvelope(
+                "NATS JetStream subject, stream, and consumer names are required".to_string(),
+            ));
+        }
+        let runtime = tokio::runtime::Runtime::new()
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        let (client, context, consumer_stream) = runtime.block_on(async {
+            let client = async_nats::connect(url)
+                .await
+                .map_err(|error| DomainError::Transport(error.to_string()))?;
+            let context = async_nats::jetstream::new(client.clone());
+            let stream = context
+                .get_or_create_stream(async_nats::jetstream::stream::Config {
+                    name: stream_name.to_string(),
+                    subjects: vec![subject.to_string()],
+                    max_messages: -1,
+                    max_age: Duration::from_secs(0),
+                    ..Default::default()
+                })
+                .await
+                .map_err(|error| DomainError::Transport(error.to_string()))?;
+            let consumer = stream
+                .get_or_create_consumer(
+                    consumer_name,
+                    async_nats::jetstream::consumer::pull::Config {
+                        durable_name: Some(consumer_name.to_string()),
+                        ack_policy: async_nats::jetstream::consumer::AckPolicy::Explicit,
+                        ..Default::default()
+                    },
+                )
+                .await
+                .map_err(|error| DomainError::Transport(error.to_string()))?;
+            let consumer_stream = consumer
+                .stream()
+                .max_messages_per_batch(1)
+                .messages()
+                .await
+                .map_err(|error| DomainError::Transport(error.to_string()))?;
+            Ok::<_, DomainError>((client, context, consumer_stream))
+        })?;
+        Ok(Self {
+            client: Some(client),
+            context: Some(context),
+            stream: Mutex::new(Some(consumer_stream)),
+            pending_acknowledgements: Mutex::new(BTreeMap::new()),
+            subject: subject.to_string(),
+            runtime: Some(runtime),
+        })
+    }
+}
+
+impl Drop for NatsJetStreamTransport {
+    fn drop(&mut self) {
+        let stream = self.stream.lock().ok().and_then(|mut stream| stream.take());
+        if let Some(runtime) = self.runtime.take() {
+            runtime.block_on(async move {
+                drop(stream);
+            });
+        }
+        self.pending_acknowledgements
+            .lock()
+            .ok()
+            .map(|mut acknowledgements| acknowledgements.clear());
+        self.context.take();
+        self.client.take();
+    }
+}
+
+impl MessageTransport for NatsJetStreamTransport {
+    fn provider(&self) -> Provider {
+        Provider::Nats
+    }
+
+    fn publish(&self, message: MessageEnvelope) -> Result<DeliveryReceipt, DomainError> {
+        let message_id = message.message_id.clone();
+        let trace_id = message.tracing.trace_id.clone();
+        let payload = serde_json::to_vec(&message)
+            .map_err(|error| DomainError::Serialization(error.to_string()))?;
+        let runtime = self.runtime.as_ref().ok_or_else(|| {
+            DomainError::Transport("NATS JetStream runtime is unavailable".to_string())
+        })?;
+        let context = self.context.as_ref().ok_or_else(|| {
+            DomainError::Transport("NATS JetStream context is unavailable".to_string())
+        })?;
+        runtime.block_on(async {
+            let pending = context
+                .publish(self.subject.clone(), payload.into())
+                .await
+                .map_err(|error| DomainError::Transport(error.to_string()))?;
+            pending
+                .await
+                .map_err(|error| DomainError::Transport(error.to_string()))
+        })?;
+        Ok(DeliveryReceipt {
+            message_id,
+            provider: Provider::Nats,
+            state: DeliveryState::Published,
+            trace_id,
+        })
+    }
+
+    fn receive(&self) -> Result<Option<ReceivedMessage>, DomainError> {
+        let mut stream = self
+            .stream
+            .lock()
+            .map_err(|_| {
+                DomainError::Transport("NATS JetStream stream is unavailable".to_string())
+            })?
+            .take()
+            .ok_or_else(|| {
+                DomainError::Transport("NATS JetStream stream is unavailable".to_string())
+            })?;
+        let runtime = self.runtime.as_ref().ok_or_else(|| {
+            DomainError::Transport("NATS JetStream runtime is unavailable".to_string())
+        })?;
+        let result = runtime.block_on(async {
+            stream
+                .next()
+                .await
+                .ok_or_else(|| DomainError::Transport("NATS JetStream consumer ended".to_string()))?
+                .map_err(|error| DomainError::Transport(error.to_string()))
+        });
+        self.stream
+            .lock()
+            .map_err(|_| {
+                DomainError::Transport("NATS JetStream stream is unavailable".to_string())
+            })?
+            .replace(stream);
+        let message = result?;
+        let (message, acker) = message.split();
+        let message: MessageEnvelope = serde_json::from_slice(&message.payload)
+            .map_err(|error| DomainError::Serialization(error.to_string()))?;
+        let receipt = DeliveryReceipt {
+            message_id: message.message_id.clone(),
+            provider: Provider::Nats,
+            state: DeliveryState::Received,
+            trace_id: message.tracing.trace_id.clone(),
+        };
+        self.pending_acknowledgements
+            .lock()
+            .map_err(|_| {
+                DomainError::Transport(
+                    "NATS JetStream acknowledgement store is unavailable".to_string(),
+                )
+            })?
+            .insert(message.message_id.clone(), acker);
+        Ok(Some(ReceivedMessage { message, receipt }))
+    }
+
+    fn acknowledge(&self, receipt: &DeliveryReceipt) -> Result<DeliveryReceipt, DomainError> {
+        if receipt.provider != Provider::Nats {
+            return Err(DomainError::Transport(
+                "receipt provider does not match NATS JetStream".to_string(),
+            ));
+        }
+        let acker = self
+            .pending_acknowledgements
+            .lock()
+            .map_err(|_| {
+                DomainError::Transport(
+                    "NATS JetStream acknowledgement store is unavailable".to_string(),
+                )
+            })?
+            .remove(&receipt.message_id)
+            .ok_or_else(|| {
+                DomainError::Transport(
+                    "no pending JetStream acknowledgement for receipt".to_string(),
+                )
+            })?;
+        let runtime = self.runtime.as_ref().ok_or_else(|| {
+            DomainError::Transport("NATS JetStream runtime is unavailable".to_string())
+        })?;
+        runtime
+            .block_on(acker.ack())
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
         Ok(DeliveryReceipt {
             state: DeliveryState::Acknowledged,
             ..receipt.clone()

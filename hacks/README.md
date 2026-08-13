@@ -40,9 +40,19 @@ docker rm -f modernlink-nats
 ```
 
 The NATS core transport reports publish, receive, and local acknowledgement
-receipts. Core NATS does not provide durable broker acknowledgements; durable
-acknowledgement semantics require a JetStream adapter and remain separate
-work.
+receipts. Core NATS does not provide durable broker acknowledgements; the
+separate JetStream transport below provides server-side acknowledgement state.
+
+The JetStream adapter is exercised separately with a durable stream and pull
+consumer:
+
+```powershell
+docker run --rm -d --name modernlink-nats-js -p 4222:4222 nats:2.10-alpine -js
+cargo run --manifest-path hacks/messaging-demo/Cargo.toml --bin jetstream-app
+docker rm -f modernlink-nats-js
+```
+
+Its receipt is returned only after the server-side JetStream acknowledgement.
 
 The Java facade can exercise the same native boundary on a host whose bundled
 native resource matches the host platform:
