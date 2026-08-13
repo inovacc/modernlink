@@ -8,6 +8,17 @@ public final class ModernHttpsURLConnectionTest {
     public static void main(String[] args) throws Exception {
         ModernHttpsURLConnection connection = new ModernHttpsURLConnection(new URL("https://example.com"))
             .minimumTlsVersion(LegacyHttpRequest.TLS_1_3);
+        connection.setInstanceFollowRedirects(false);
+        if (connection.getInstanceFollowRedirects()) throw new AssertionError("redirect policy was not retained");
+        boolean verifierRejected = false;
+        try {
+            connection.setHostnameVerifier(new javax.net.ssl.HostnameVerifier() {
+                public boolean verify(String host, javax.net.ssl.SSLSession session) { return true; }
+            });
+        } catch (UnsupportedOperationException expected) {
+            verifierRejected = true;
+        }
+        if (!verifierRejected) throw new AssertionError("custom hostname verifier was silently accepted");
         connection.setRequestProperty("X-ModernLink-Test", "adapter");
         if (!"GET".equals(connection.getRequestMethod())) throw new AssertionError("default method is not GET");
         InputStream input = connection.getInputStream();

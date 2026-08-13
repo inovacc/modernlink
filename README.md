@@ -44,6 +44,8 @@ The adapter is created explicitly with `new ModernHttpsURLConnection(new URL("ht
 
 TLS policy defaults to a minimum of TLS 1.2. Java callers may select `LegacyHttpRequest.TLS_1_2` or `LegacyHttpRequest.TLS_1_3` with `minimumTlsVersion(...)`; unsupported protocol values are rejected before the native request is started.
 
+`ModernHttpsURLConnection` forwards its instance redirect flag. Custom Java `HostnameVerifier` and `SSLSocketFactory` instances are explicitly rejected because the connection is terminated and verified by Rust; accepting those objects while ignoring them would create a misleading security contract.
+
 This architecture is still a design hypothesis. The final integration approach—embedded JNI or an external sidecar process—has not yet been decided.
 
 ## Integration alternatives

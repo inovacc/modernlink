@@ -19,7 +19,9 @@ import java.util.List;
 import java.util.Map;
 
 import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLPeerUnverifiedException;
+import javax.net.ssl.SSLSocketFactory;
 
 /** Java 6-compatible HttpsURLConnection-shaped facade over ModernLink. */
 public final class ModernHttpsURLConnection extends HttpsURLConnection {
@@ -56,6 +58,7 @@ public final class ModernHttpsURLConnection extends HttpsURLConnection {
             .method(getRequestMethod())
             .connectTimeoutMillis(getConnectTimeout())
             .readTimeoutMillis(getReadTimeout())
+            .followRedirects(getInstanceFollowRedirects())
             .minimumTlsVersion(minimumTlsVersion);
         Map<String, List<String>> properties = getRequestProperties();
         for (Map.Entry<String, List<String>> entry : properties.entrySet()) {
@@ -83,6 +86,20 @@ public final class ModernHttpsURLConnection extends HttpsURLConnection {
     }
 
     public boolean usingProxy() { return false; }
+
+    public void setHostnameVerifier(HostnameVerifier verifier) {
+        if (verifier != getDefaultHostnameVerifier()) {
+            throw new UnsupportedOperationException("Java hostname verifiers are not supported; Rust hostname verification is mandatory");
+        }
+        super.setHostnameVerifier(verifier);
+    }
+
+    public void setSSLSocketFactory(SSLSocketFactory factory) {
+        if (factory != getDefaultSSLSocketFactory()) {
+            throw new UnsupportedOperationException("Java SSL socket factories are not supported; TLS is provided by Rust");
+        }
+        super.setSSLSocketFactory(factory);
+    }
 
     public OutputStream getOutputStream() throws IOException {
         if (connected) throw new ProtocolException("cannot write after connect");
