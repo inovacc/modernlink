@@ -2,7 +2,8 @@
 
 This directory contains executable compatibility fixtures. They are not part
 of the distributable JAR. The NATS fixtures exercise a real external NATS
-broker; Kafka, Pulsar, RabbitMQ, and JMS broker interoperability remain open.
+broker; Kafka and RabbitMQ now have Cargo-backed fixtures. Pulsar and JMS broker
+interoperability remain open.
 
 ## Rust cross-application fixture
 
@@ -100,6 +101,23 @@ The native Java facade accepts `KAFKA` through the same `ModernConnectionFactory
 selection used by the NATS fixtures. Kafka provider selection requires the
 broker address in the URL field and derives a stable consumer group from the
 destination for this compatibility fixture.
+
+## RabbitMQ broker fixture
+
+The Cargo-backed RabbitMQ adapter declares a durable queue, publishes the
+uniform JSON envelope, reads it with `basic_get`, and acknowledges it only after
+the uniform receipt is acknowledged:
+
+```powershell
+docker run --rm -d --name modernlink-rabbitmq -p 5672:5672 `
+  rabbitmq:4-management-alpine
+cargo run --manifest-path hacks/messaging-demo/Cargo.toml --bin rabbitmq-app
+docker rm -f modernlink-rabbitmq
+```
+
+The default URI is `amqp://guest:guest@127.0.0.1:5672/%2f`; override it with
+`RABBITMQ_URI` and the queue with `RABBITMQ_QUEUE`. The Java facade accepts
+`RABBITMQ` through the same provider selection surface.
 
 ## Java 6 fixture
 

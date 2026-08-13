@@ -105,9 +105,9 @@ acknowledgement receipts, and trace context, and exposes read-only counters via
 the provider-neutral compatibility scope below. The Rust messaging crate also
 contains a JetStream transport that uses a durable pull consumer and server-side
 acknowledgement, and the Java/JNI provider selection surface accepts
-`NATS_JETSTREAM`. A Kafka adapter using `rdkafka` is now available through the
-same uniform transport boundary and Java/JNI provider selection; Pulsar and
-RabbitMQ remain pending.
+`NATS_JETSTREAM`. Kafka and RabbitMQ adapters are now available through the same
+uniform transport boundary and Java/JNI provider selection; Pulsar remains
+pending.
 
 ## Backlog items
 

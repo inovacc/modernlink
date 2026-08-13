@@ -1,4 +1,8 @@
 use futures_util::StreamExt;
+use lapin::acker::Acker;
+use lapin::options::{BasicAckOptions, BasicGetOptions, BasicPublishOptions, QueueDeclareOptions};
+use lapin::types::FieldTable;
+use lapin::{BasicProperties, Connection, ConnectionProperties};
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
@@ -641,6 +645,180 @@ pub struct KafkaTransport {
     pending_acknowledgements: Mutex<BTreeMap<String, TopicPartitionList>>,
 }
 
+pub struct RabbitMqTransport {
+    connection: Option<Connection>,
+    channel: Option<lapin::Channel>,
+    runtime: Option<tokio::runtime::Runtime>,
+    queue: String,
+    pending_acknowledgements: Mutex<BTreeMap<String, Acker>>,
+}
+
+impl RabbitMqTransport {
+    pub fn connect(uri: &str, queue: &str) -> Result<Self, DomainError> {
+        if uri.trim().is_empty() || queue.trim().is_empty() {
+            return Err(DomainError::InvalidEnvelope(
+                "RabbitMQ URI and queue are required".to_string(),
+            ));
+        }
+        let runtime = tokio::runtime::Runtime::new()
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        let _runtime_guard = runtime.enter();
+        let connection = runtime
+            .block_on(Connection::connect(uri, ConnectionProperties::default()))
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        let channel = runtime
+            .block_on(connection.create_channel())
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        runtime
+            .block_on(channel.queue_declare(
+                queue,
+                QueueDeclareOptions {
+                    durable: true,
+                    ..QueueDeclareOptions::default()
+                },
+                FieldTable::default(),
+            ))
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        Ok(Self {
+            connection: Some(connection),
+            channel: Some(channel),
+            runtime: Some(runtime),
+            queue: queue.to_string(),
+            pending_acknowledgements: Mutex::new(BTreeMap::new()),
+        })
+    }
+}
+
+impl Drop for RabbitMqTransport {
+    fn drop(&mut self) {
+        let channel = self.channel.take();
+        let connection = self.connection.take();
+        if let Some(runtime) = self.runtime.take() {
+            runtime.block_on(async move {
+                drop(channel);
+                drop(connection);
+            });
+        }
+    }
+}
+
+impl MessageTransport for RabbitMqTransport {
+    fn provider(&self) -> Provider {
+        Provider::RabbitMq
+    }
+
+    fn publish(&self, message: MessageEnvelope) -> Result<DeliveryReceipt, DomainError> {
+        let message_id = message.message_id.clone();
+        let trace_id = message.tracing.trace_id.clone();
+        let payload = serde_json::to_vec(&message)
+            .map_err(|error| DomainError::Serialization(error.to_string()))?;
+        let runtime = self
+            .runtime
+            .as_ref()
+            .ok_or_else(|| DomainError::Transport("RabbitMQ runtime is unavailable".to_string()))?;
+        let channel = self
+            .channel
+            .as_ref()
+            .ok_or_else(|| DomainError::Transport("RabbitMQ channel is unavailable".to_string()))?;
+        let confirmation = runtime
+            .block_on(async {
+                let confirm = channel
+                    .basic_publish(
+                        "",
+                        &self.queue,
+                        BasicPublishOptions::default(),
+                        &payload,
+                        BasicProperties::default(),
+                    )
+                    .await?;
+                confirm.await
+            })
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        if !confirmation.is_ack()
+            && !matches!(
+                confirmation,
+                lapin::publisher_confirm::Confirmation::NotRequested
+            )
+        {
+            return Err(DomainError::Transport(
+                "RabbitMQ publish was not acknowledged".to_string(),
+            ));
+        }
+        Ok(DeliveryReceipt {
+            message_id,
+            provider: Provider::RabbitMq,
+            state: DeliveryState::Published,
+            trace_id,
+        })
+    }
+
+    fn receive(&self) -> Result<Option<ReceivedMessage>, DomainError> {
+        let runtime = self
+            .runtime
+            .as_ref()
+            .ok_or_else(|| DomainError::Transport("RabbitMQ runtime is unavailable".to_string()))?;
+        let channel = self
+            .channel
+            .as_ref()
+            .ok_or_else(|| DomainError::Transport("RabbitMQ channel is unavailable".to_string()))?;
+        let result = runtime
+            .block_on(channel.basic_get(&self.queue, BasicGetOptions::default()))
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        let Some(delivery) = result else {
+            return Ok(None);
+        };
+        let envelope: MessageEnvelope = serde_json::from_slice(&delivery.data)
+            .map_err(|error| DomainError::Serialization(error.to_string()))?;
+        let receipt = DeliveryReceipt {
+            message_id: envelope.message_id.clone(),
+            provider: Provider::RabbitMq,
+            state: DeliveryState::Received,
+            trace_id: envelope.tracing.trace_id.clone(),
+        };
+        self.pending_acknowledgements
+            .lock()
+            .map_err(|_| {
+                DomainError::Transport("RabbitMQ acknowledgement store is unavailable".to_string())
+            })?
+            .insert(envelope.message_id.clone(), delivery.delivery.acker.clone());
+        Ok(Some(ReceivedMessage {
+            message: envelope,
+            receipt,
+        }))
+    }
+
+    fn acknowledge(&self, receipt: &DeliveryReceipt) -> Result<DeliveryReceipt, DomainError> {
+        if receipt.provider != Provider::RabbitMq {
+            return Err(DomainError::Transport(
+                "receipt provider does not match RabbitMQ".to_string(),
+            ));
+        }
+        let acker = self
+            .pending_acknowledgements
+            .lock()
+            .map_err(|_| {
+                DomainError::Transport("RabbitMQ acknowledgement store is unavailable".to_string())
+            })?
+            .remove(&receipt.message_id)
+            .ok_or_else(|| {
+                DomainError::Transport(
+                    "no pending RabbitMQ acknowledgement for receipt".to_string(),
+                )
+            })?;
+        let runtime = self
+            .runtime
+            .as_ref()
+            .ok_or_else(|| DomainError::Transport("RabbitMQ runtime is unavailable".to_string()))?;
+        runtime
+            .block_on(acker.ack(BasicAckOptions::default()))
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        Ok(DeliveryReceipt {
+            state: DeliveryState::Acknowledged,
+            ..receipt.clone()
+        })
+    }
+}
+
 impl KafkaTransport {
     pub fn connect(brokers: &str, topic: &str, group_id: &str) -> Result<Self, DomainError> {
         if brokers.trim().is_empty() || topic.trim().is_empty() || group_id.trim().is_empty() {
@@ -817,6 +995,7 @@ impl MessageTransport for KafkaTransport {
 pub enum MessageTransportKind {
     Nats(NatsTransportKind),
     Kafka(KafkaTransport),
+    RabbitMq(RabbitMqTransport),
 }
 
 impl MessageTransport for MessageTransportKind {
@@ -824,6 +1003,7 @@ impl MessageTransport for MessageTransportKind {
         match self {
             Self::Nats(transport) => transport.provider(),
             Self::Kafka(transport) => transport.provider(),
+            Self::RabbitMq(transport) => transport.provider(),
         }
     }
 
@@ -831,6 +1011,7 @@ impl MessageTransport for MessageTransportKind {
         match self {
             Self::Nats(transport) => transport.publish(message),
             Self::Kafka(transport) => transport.publish(message),
+            Self::RabbitMq(transport) => transport.publish(message),
         }
     }
 
@@ -838,6 +1019,7 @@ impl MessageTransport for MessageTransportKind {
         match self {
             Self::Nats(transport) => transport.receive(),
             Self::Kafka(transport) => transport.receive(),
+            Self::RabbitMq(transport) => transport.receive(),
         }
     }
 
@@ -845,6 +1027,7 @@ impl MessageTransport for MessageTransportKind {
         match self {
             Self::Nats(transport) => transport.acknowledge(receipt),
             Self::Kafka(transport) => transport.acknowledge(receipt),
+            Self::RabbitMq(transport) => transport.acknowledge(receipt),
         }
     }
 }
