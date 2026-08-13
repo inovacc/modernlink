@@ -34,6 +34,8 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeExecute(
     body: JByteArray,
     connect_timeout_millis: jlong,
     read_timeout_millis: jlong,
+    follow_redirects: jni::sys::jboolean,
+    max_redirects: jint,
 ) -> jlong {
     let url = match env.get_string(&url).ok().and_then(|value| value.to_str().ok().map(str::to_owned)) {
         Some(value) => value,
@@ -63,6 +65,9 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeExecute(
     request.body = match env.convert_byte_array(&body) { Ok(value) => value, Err(error) => return set_error(error.to_string()) };
     if connect_timeout_millis > 0 { request.connect_timeout = Some(Duration::from_millis(connect_timeout_millis as u64)); }
     if read_timeout_millis > 0 { request.read_timeout = Some(Duration::from_millis(read_timeout_millis as u64)); }
+    request.follow_redirects = follow_redirects != 0;
+    if max_redirects < 0 { return set_error("maximum redirects must not be negative".to_string()); }
+    request.max_redirects = max_redirects as u32;
     let result = match http::execute(&request) { Ok(value) => value, Err(error) => return set_error(error.to_string()) };
     Box::into_raw(Box::new(NativeResponse(result))) as jlong
 }
@@ -121,6 +126,17 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeTlsCertificate
 
 fn tls_string(handle: jlong, protocol: bool) -> Option<String> {
     unsafe { response(handle).and_then(|value| value.0.tls.as_ref()).and_then(|info| if protocol { info.protocol.clone() } else { info.cipher_suite.clone() }) }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeFinalUrl(
+    env: JNIEnv, _class: JClass, handle: jlong,
+) -> jni::sys::jstring {
+    match unsafe { response(handle).map(|value| value.0.final_url.clone()) }
+        .and_then(|value| env.new_string(value).ok()) {
+        Some(value) => value.into_raw(),
+        None => std::ptr::null_mut(),
+    }
 }
 
 #[no_mangle]

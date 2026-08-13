@@ -11,7 +11,8 @@ public final class LegacyHttpClient {
         if (LOAD_NATIVE) NativeLoader.load();
         String[] headers = flattenHeaders(request.getHeaders());
         long handle = nativeExecute(request.getUrl(), request.getMethod(), headers, request.getBody(),
-            request.getConnectTimeoutMillis(), request.getReadTimeoutMillis());
+            request.getConnectTimeoutMillis(), request.getReadTimeoutMillis(),
+            request.getFollowRedirects(), request.getMaxRedirects());
         if (handle == 0L) throw new LegacyHttpException(nativeLastError());
         try {
             return decode(handle);
@@ -21,7 +22,7 @@ public final class LegacyHttpClient {
     }
 
     private static native long nativeExecute(String url, String method, String[] headers, byte[] body,
-        long connectTimeoutMillis, long readTimeoutMillis);
+        long connectTimeoutMillis, long readTimeoutMillis, boolean followRedirects, int maxRedirects);
     private static native String nativeLastError();
     private static native int nativeStatus(long handle);
     private static native String[] nativeHeaders(long handle);
@@ -29,6 +30,7 @@ public final class LegacyHttpClient {
     private static native byte[][] nativeTlsCertificates(long handle);
     private static native String nativeTlsProtocol(long handle);
     private static native String nativeTlsCipherSuite(long handle);
+    private static native String nativeFinalUrl(long handle);
     private static native void nativeRelease(long handle);
 
     private String[] flattenHeaders(Map<String, String> headers) {
@@ -54,7 +56,7 @@ public final class LegacyHttpClient {
         }
         byte[] body = nativeBody(handle);
         if (body == null) throw new LegacyHttpException("native response body unavailable");
-        return new LegacyHttpResponse(status, headers, body,
+        return new LegacyHttpResponse(nativeFinalUrl(handle), status, headers, body,
             new LegacyTlsInfo(nativeTlsProtocol(handle), nativeTlsCipherSuite(handle), nativeTlsCertificates(handle)));
     }
 }

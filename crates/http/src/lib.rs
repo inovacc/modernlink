@@ -22,6 +22,34 @@ pub fn execute(request: &Request) -> Result<Response, Error> {
 }
 
 async fn execute_async(request: &Request) -> Result<Response, Error> {
+    let mut current = request.clone();
+    let mut redirects = 0u32;
+    loop {
+        let response = execute_once_async(&current).await?;
+        let location = response.headers.get("location").cloned();
+        let redirect_status = matches!(response.status, 301 | 302 | 303 | 307 | 308);
+        if !current.follow_redirects || !redirect_status || location.is_none() {
+            return Ok(response);
+        }
+        if redirects >= current.max_redirects {
+            return Ok(response);
+        }
+        let target = url::Url::parse(location.as_ref().unwrap())
+            .or_else(|_| url::Url::parse(&current.url).and_then(|base| base.join(location.as_ref().unwrap())))
+            .map_err(|error| Error::InvalidRequest(error.to_string()))?;
+        if target.scheme() != "https" {
+            return Err(Error::InvalidRequest("redirect target must use https://".to_string()));
+        }
+        current.url = target.to_string();
+        if response.status == 301 || response.status == 302 || response.status == 303 {
+            current.method = "GET".to_string();
+            current.body.clear();
+        }
+        redirects += 1;
+    }
+}
+
+async fn execute_once_async(request: &Request) -> Result<Response, Error> {
     let parsed = url::Url::parse(&request.url).map_err(|error| Error::InvalidRequest(error.to_string()))?;
     let host = parsed.host_str().ok_or_else(|| Error::InvalidRequest("URL has no host".to_string()))?;
     let port = parsed.port_or_known_default().ok_or_else(|| Error::InvalidRequest("URL has no port".to_string()))?;
@@ -69,10 +97,10 @@ async fn execute_async(request: &Request) -> Result<Response, Error> {
     } else {
         sender.send_request(outgoing).await
     }.map_err(|error| Error::Transport(error.to_string()))?;
-    collect_response(response, tls_info, request.read_timeout).await
+    collect_response(response, tls_info, request.read_timeout, request.url.clone()).await
 }
 
-async fn collect_response(response: hyper::Response<Incoming>, tls: TlsInfo, read_timeout: Option<Duration>) -> Result<Response, Error> {
+async fn collect_response(response: hyper::Response<Incoming>, tls: TlsInfo, read_timeout: Option<Duration>, final_url: String) -> Result<Response, Error> {
     let status = response.status().as_u16();
     let mut headers = std::collections::BTreeMap::new();
     for (name, value) in response.headers() {
@@ -81,5 +109,5 @@ async fn collect_response(response: hyper::Response<Incoming>, tls: TlsInfo, rea
     let body = if let Some(duration) = read_timeout {
         timeout(duration, response.collect()).await.map_err(|_| Error::Transport("read timeout".to_string()))?
     } else { response.collect().await }.map_err(|error| Error::Transport(error.to_string()))?.to_bytes().to_vec();
-    Ok(Response { status, headers, body, tls: Some(tls) })
+    Ok(Response { final_url, status, headers, body, tls: Some(tls) })
 }

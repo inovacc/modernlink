@@ -31,6 +31,8 @@ pub struct Request {
     pub body: Vec<u8>,
     pub connect_timeout: Option<Duration>,
     pub read_timeout: Option<Duration>,
+    pub follow_redirects: bool,
+    pub max_redirects: u32,
 }
 
 impl Request {
@@ -48,12 +50,15 @@ impl Request {
             body: Vec::new(),
             connect_timeout: None,
             read_timeout: None,
+            follow_redirects: true,
+            max_redirects: 10,
         })
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct Response {
+    pub final_url: String,
     pub status: u16,
     pub headers: BTreeMap<String, String>,
     pub body: Vec<u8>,
@@ -81,5 +86,7 @@ mod tests {
     fn request_accepts_https_url_with_get_as_default() {
         let request = Request::new("https://example.com").unwrap();
         assert_eq!(request.method, "GET");
+        assert!(request.follow_redirects);
+        assert_eq!(request.max_redirects, 10);
     }
 }

@@ -11,6 +11,8 @@ public final class LegacyHttpRequest {
     private byte[] body = new byte[0];
     private long connectTimeoutMillis;
     private long readTimeoutMillis;
+    private boolean followRedirects = true;
+    private int maxRedirects = 10;
 
     public LegacyHttpRequest(String url) {
         if (url == null || url.trim().length() == 0) {
@@ -68,4 +70,19 @@ public final class LegacyHttpRequest {
 
     public long getConnectTimeoutMillis() { return connectTimeoutMillis; }
     public long getReadTimeoutMillis() { return readTimeoutMillis; }
+
+    public LegacyHttpRequest followRedirects(boolean follow) {
+        followRedirects = follow;
+        return this;
+    }
+
+    public boolean getFollowRedirects() { return followRedirects; }
+
+    public LegacyHttpRequest maxRedirects(int max) {
+        if (max < 0) throw new IllegalArgumentException("maximum redirects must not be negative");
+        maxRedirects = max;
+        return this;
+    }
+
+    public int getMaxRedirects() { return maxRedirects; }
 }
