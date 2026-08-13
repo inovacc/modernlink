@@ -34,9 +34,7 @@ async fn execute_async(request: &Request) -> Result<Response, Error> {
         if redirects >= current.max_redirects {
             return Ok(response);
         }
-        let target = url::Url::parse(location.as_ref().unwrap())
-            .or_else(|_| url::Url::parse(&current.url).and_then(|base| base.join(location.as_ref().unwrap())))
-            .map_err(|error| Error::InvalidRequest(error.to_string()))?;
+        let target = redirect_target(&current.url, location.as_ref().unwrap())?;
         if target.scheme() != "https" {
             return Err(Error::InvalidRequest("redirect target must use https://".to_string()));
         }
@@ -47,6 +45,16 @@ async fn execute_async(request: &Request) -> Result<Response, Error> {
         }
         redirects += 1;
     }
+}
+
+fn redirect_target(current_url: &str, location: &str) -> Result<url::Url, Error> {
+    let target = url::Url::parse(location)
+        .or_else(|_| url::Url::parse(current_url).and_then(|base| base.join(location)))
+        .map_err(|error| Error::InvalidRequest(error.to_string()))?;
+    if target.scheme() != "https" {
+        return Err(Error::InvalidRequest("redirect target must use https://".to_string()));
+    }
+    Ok(target)
 }
 
 async fn execute_once_async(request: &Request) -> Result<Response, Error> {
@@ -112,4 +120,28 @@ async fn collect_response(response: hyper::Response<Incoming>, tls: TlsInfo, rea
         timeout(duration, response.collect()).await.map_err(|_| Error::Transport("read timeout".to_string()))?
     } else { response.collect().await }.map_err(|error| Error::Transport(error.to_string()))?.to_bytes().to_vec();
     Ok(Response { final_url, status, headers, body, tls: Some(tls) })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redirect_target;
+    use core::Error;
+
+    #[test]
+    fn resolves_relative_https_redirects() {
+        let target = redirect_target("https://example.com/path/start", "/next").unwrap();
+        assert_eq!(target.as_str(), "https://example.com/next");
+    }
+
+    #[test]
+    fn rejects_non_https_redirects() {
+        let error = redirect_target("https://example.com/path", "http://example.com/next");
+        assert_eq!(error, Err(Error::InvalidRequest("redirect target must use https://".to_string())));
+    }
+
+    #[test]
+    fn resolves_query_only_redirects() {
+        let target = redirect_target("https://example.com/path?old=1", "?new=2").unwrap();
+        assert_eq!(target.as_str(), "https://example.com/path?new=2");
+    }
 }

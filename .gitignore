@@ -1,3 +1,4 @@
 /target/
 /build/
 /crates/core/.git-generated-backup/
+/docs/.project/
