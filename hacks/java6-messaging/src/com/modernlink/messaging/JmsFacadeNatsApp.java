@@ -12,8 +12,11 @@ public final class JmsFacadeNatsApp {
     public static void main(String[] args) throws Exception {
         String url = args.length > 0 ? args[0] : "nats://127.0.0.1:4222";
         String subject = args.length > 1 ? args[1] : "modernlink.java6.jms.facade";
+        ModernMessagingProvider provider = args.length > 2
+            ? ModernMessagingProvider.valueOf(args[2].toUpperCase())
+            : ModernMessagingProvider.NATS;
         ModernConnectionFactory factory = new ModernConnectionFactory(url, subject,
-            ModernMessagingMode.REDIRECT, ModernMessagingProvider.NATS);
+            ModernMessagingMode.REDIRECT, provider);
         ModernConnection connection = factory.createConnection();
         try {
             MBeanServer server = ManagementFactory.getPlatformMBeanServer();

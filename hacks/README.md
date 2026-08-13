@@ -73,10 +73,11 @@ the shared `ModernMessagingMetricsMBean`:
 
 ```powershell
 java -cp hacks/java6-messaging/classes com.modernlink.messaging.JmsFacadeNatsApp
+java -cp hacks/java6-messaging/classes com.modernlink.messaging.JmsFacadeNatsApp nats://127.0.0.1:4222 modernlink.java6.jms.jetstream NATS_JETSTREAM
 ```
 
-The facade currently supports the NATS provider path. Other provider adapters,
-JNDI lookup, transactions, selectors, and durable acknowledgements remain
+The facade currently supports both `NATS` and `NATS_JETSTREAM` provider paths.
+Other provider adapters, JNDI lookup, transactions, and selectors remain
 explicit capability gaps.
 
 ## Java 6 fixture

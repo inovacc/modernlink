@@ -104,7 +104,8 @@ acknowledgement receipts, and trace context, and exposes read-only counters via
 `ModernMessagingMetricsMBean`. This is a concrete NATS path, not completion of
 the provider-neutral compatibility scope below. The Rust messaging crate also
 contains a JetStream transport that uses a durable pull consumer and server-side
-acknowledgement; its Java/JNI selection surface is still pending.
+acknowledgement, and the Java/JNI provider selection surface accepts
+`NATS_JETSTREAM`.
 
 ## Backlog items
 

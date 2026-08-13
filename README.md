@@ -44,6 +44,10 @@ Executable cross-application contract fixtures live under [`hacks/`](hacks/READM
 
 The packaged JAR also provides `com.modernlink.ModernHttpsURLConnection`, a Java 6-compatible `HttpsURLConnection`-style facade over the ModernLink request API. It supports request methods and properties, connect/read timeouts covering TCP connection and TLS handshake, buffered request output, response streams, status and headers, redirect policy inherited from `LegacyHttpRequest`, and TLS cipher/certificate access.
 
+The messaging facade can select `NATS` or durable `NATS_JETSTREAM` through the
+same Java 6 connection factory; provider selection remains explicit and does
+not imply Kafka, Pulsar, or RabbitMQ support.
+
 The adapter is created explicitly with `new ModernHttpsURLConnection(new URL("https://..."))`; it does not register a global URL handler. The Docker build produces the distributable artifact at `/workspace/modernlink.jar`, with the platform native library embedded under the JAR's native resource path.
 
 The response model preserves the HTTP status reason phrase, exposed as `LegacyHttpResponse.getStatusMessage()` and `ModernHttpsURLConnection.getResponseMessage()`. The adapter also exposes indexed headers and typed content metadata through `getHeaderField(int)`, `getHeaderFieldKey(int)`, `getContentType()`, and `getContentLength()`. Header access lazily connects and exposes the HTTP status line at indexed header `0`, matching the Java URL-connection convention.

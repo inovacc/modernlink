@@ -5,5 +5,6 @@ public enum ModernMessagingProvider {
     KAFKA,
     PULSAR,
     NATS,
+    NATS_JETSTREAM,
     RABBITMQ
 }

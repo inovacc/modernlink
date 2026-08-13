@@ -4,7 +4,7 @@ use jni::sys::{jbyteArray, jint, jlong, jobjectArray};
 use jni::JNIEnv;
 use messaging::{
     AcknowledgementMode, DeliveryReceipt, DeliveryState, MessageEnvelope, MessageTransport, Mode,
-    NatsTransport, Payload, Provider, RouteConfig, TraceContext,
+    NatsTransport, NatsTransportKind, Payload, Provider, RouteConfig, TraceContext,
 };
 use std::cell::RefCell;
 use std::time::Duration;
@@ -27,7 +27,7 @@ pub extern "C" fn getauxval(_kind: usize) -> usize {
 struct NativeResponse(Response);
 
 struct NativeMessagingClient {
-    transport: NatsTransport,
+    transport: NatsTransportKind,
     route: RouteConfig,
 }
 
@@ -54,6 +54,20 @@ fn messaging_string_error(message: String) -> jni::sys::jstring {
     std::ptr::null_mut()
 }
 
+fn jetstream_name(subject: &str, suffix: &str) -> String {
+    let mut name = String::from("MODERNLINK_");
+    for character in subject.chars() {
+        if character.is_ascii_alphanumeric() {
+            name.push(character.to_ascii_uppercase());
+        } else {
+            name.push('_');
+        }
+    }
+    name.push('_');
+    name.push_str(suffix);
+    name
+}
+
 fn messaging_mode(value: &str) -> Result<Mode, String> {
     match value {
         "TRANSPARENT" => Ok(Mode::Transparent),
@@ -69,6 +83,7 @@ fn messaging_provider(value: &str) -> Result<Provider, String> {
         "KAFKA" => Ok(Provider::Kafka),
         "PULSAR" => Ok(Provider::Pulsar),
         "NATS" => Ok(Provider::Nats),
+        "NATS_JETSTREAM" => Ok(Provider::NatsJetStream),
         "RABBITMQ" => Ok(Provider::RabbitMq),
         _ => Err(format!("unsupported messaging provider: {}", value)),
     }
@@ -90,6 +105,7 @@ fn messaging_provider_name(provider: Provider) -> &'static str {
         Provider::Kafka => "KAFKA",
         Provider::Pulsar => "PULSAR",
         Provider::Nats => "NATS",
+        Provider::NatsJetStream => "NATS_JETSTREAM",
         Provider::RabbitMq => "RABBITMQ",
     }
 }
@@ -179,9 +195,6 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
         Ok(value) => value,
         Err(error) => return messaging_error(error),
     };
-    if selected_provider != Provider::Nats {
-        return messaging_error("native messaging client currently supports NATS only".to_string());
-    }
     let route = RouteConfig {
         default_mode: selected_mode,
         default_provider: selected_provider,
@@ -194,9 +207,25 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
     if let Err(error) = route.decide(&route_probe) {
         return messaging_error(error.to_string());
     }
-    let transport = match NatsTransport::connect(&values[0], &values[1]) {
-        Ok(value) => value,
-        Err(error) => return messaging_error(error.to_string()),
+    let transport = match selected_provider {
+        Provider::Nats => match NatsTransport::connect(&values[0], &values[1]) {
+            Ok(value) => NatsTransportKind::Core(value),
+            Err(error) => return messaging_error(error.to_string()),
+        },
+        Provider::NatsJetStream => match messaging::NatsJetStreamTransport::connect(
+            &values[0],
+            &values[1],
+            &jetstream_name(&values[1], "STREAM"),
+            &jetstream_name(&values[1], "CONSUMER"),
+        ) {
+            Ok(value) => NatsTransportKind::JetStream(value),
+            Err(error) => return messaging_error(error.to_string()),
+        },
+        _ => {
+            return messaging_error(
+                "native messaging client currently supports NATS providers only".to_string(),
+            )
+        }
     };
     Box::into_raw(Box::new(NativeMessagingClient { transport, route })) as jlong
 }

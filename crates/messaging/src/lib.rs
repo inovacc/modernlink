@@ -20,6 +20,7 @@ pub enum Provider {
     Kafka,
     Pulsar,
     Nats,
+    NatsJetStream,
     RabbitMq,
 }
 
@@ -509,7 +510,7 @@ impl Drop for NatsJetStreamTransport {
 
 impl MessageTransport for NatsJetStreamTransport {
     fn provider(&self) -> Provider {
-        Provider::Nats
+        Provider::NatsJetStream
     }
 
     fn publish(&self, message: MessageEnvelope) -> Result<DeliveryReceipt, DomainError> {
@@ -534,7 +535,7 @@ impl MessageTransport for NatsJetStreamTransport {
         })?;
         Ok(DeliveryReceipt {
             message_id,
-            provider: Provider::Nats,
+            provider: Provider::NatsJetStream,
             state: DeliveryState::Published,
             trace_id,
         })
@@ -573,7 +574,7 @@ impl MessageTransport for NatsJetStreamTransport {
             .map_err(|error| DomainError::Serialization(error.to_string()))?;
         let receipt = DeliveryReceipt {
             message_id: message.message_id.clone(),
-            provider: Provider::Nats,
+            provider: Provider::NatsJetStream,
             state: DeliveryState::Received,
             trace_id: message.tracing.trace_id.clone(),
         };
@@ -589,7 +590,7 @@ impl MessageTransport for NatsJetStreamTransport {
     }
 
     fn acknowledge(&self, receipt: &DeliveryReceipt) -> Result<DeliveryReceipt, DomainError> {
-        if receipt.provider != Provider::Nats {
+        if receipt.provider != Provider::NatsJetStream {
             return Err(DomainError::Transport(
                 "receipt provider does not match NATS JetStream".to_string(),
             ));
@@ -618,6 +619,41 @@ impl MessageTransport for NatsJetStreamTransport {
             state: DeliveryState::Acknowledged,
             ..receipt.clone()
         })
+    }
+}
+
+pub enum NatsTransportKind {
+    Core(NatsTransport),
+    JetStream(NatsJetStreamTransport),
+}
+
+impl MessageTransport for NatsTransportKind {
+    fn provider(&self) -> Provider {
+        match self {
+            Self::Core(transport) => transport.provider(),
+            Self::JetStream(transport) => transport.provider(),
+        }
+    }
+
+    fn publish(&self, message: MessageEnvelope) -> Result<DeliveryReceipt, DomainError> {
+        match self {
+            Self::Core(transport) => transport.publish(message),
+            Self::JetStream(transport) => transport.publish(message),
+        }
+    }
+
+    fn receive(&self) -> Result<Option<ReceivedMessage>, DomainError> {
+        match self {
+            Self::Core(transport) => transport.receive(),
+            Self::JetStream(transport) => transport.receive(),
+        }
+    }
+
+    fn acknowledge(&self, receipt: &DeliveryReceipt) -> Result<DeliveryReceipt, DomainError> {
+        match self {
+            Self::Core(transport) => transport.acknowledge(receipt),
+            Self::JetStream(transport) => transport.acknowledge(receipt),
+        }
     }
 }
 
