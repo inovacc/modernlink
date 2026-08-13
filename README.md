@@ -145,3 +145,16 @@ crates/jni   - JNI entry points and native library
 ```
 
 The Java facade is under `java/src/main/java/com/modernlink`. The native artifact remains `modernlink`.
+
+## Java 6 container
+
+The Java compatibility container is defined in `docker/java6/Dockerfile`. Docker Hub lists the legacy `java:6b38-jdk` tag, but the legacy Java image family is deprecated and may no longer be available from every registry. citeturn3search6turn3search2
+
+With a running Docker daemon, build and run it from the repository root:
+
+```text
+docker build -f docker/java6/Dockerfile -t modernlink-java6 .
+docker run --rm modernlink-java6
+```
+
+The image compiles the Java facade and test sources with `-source 1.6 -target 1.6`, then reports the container's Java version. Native loading and the Java-to-Rust HTTPS path require a later image step that includes the packaged `modernlink` library.
