@@ -36,6 +36,12 @@ Rust native library
 
 The JAR should expose a small, stable API to Java 6 code. Modern implementation details are encapsulated in Rust, and platform-specific native binaries are distributed alongside the JAR.
 
+## Java 6 HTTPS adapter
+
+The packaged JAR also provides `com.modernlink.ModernHttpsURLConnection`, a Java 6-compatible `HttpsURLConnection`-style facade over the ModernLink request API. It supports request methods and properties, connect/read timeouts, buffered request output, response streams, status and headers, redirect policy inherited from `LegacyHttpRequest`, and TLS cipher/certificate access.
+
+The adapter is created explicitly with `new ModernHttpsURLConnection(new URL("https://..."))`; it does not register a global URL handler. The Docker build produces the distributable artifact at `/workspace/modernlink.jar`, with the platform native library embedded under the JAR's native resource path.
+
 This architecture is still a design hypothesis. The final integration approach—embedded JNI or an external sidecar process—has not yet been decided.
 
 ## Integration alternatives
