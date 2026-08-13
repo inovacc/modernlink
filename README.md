@@ -54,7 +54,7 @@ Native extraction writes to a unique temporary file and renames it into a determ
 
 TLS policy defaults to a minimum of TLS 1.2. Java callers may select `LegacyHttpRequest.TLS_1_2` or `LegacyHttpRequest.TLS_1_3` with `minimumTlsVersion(...)`; unsupported protocol values are rejected before the native request is started.
 
-`ModernHttpsURLConnection` forwards its instance redirect flag. Custom Java `HostnameVerifier` and `SSLSocketFactory` instances are explicitly rejected because the connection is terminated and verified by Rust; accepting those objects while ignoring them would create a misleading security contract.
+`ModernHttpsURLConnection` forwards its instance redirect flag and exposes `maxRedirects(int)`. Custom Java `HostnameVerifier` and `SSLSocketFactory` instances are explicitly rejected because the connection is terminated and verified by Rust; accepting those objects while ignoring them would create a misleading security contract.
 
 This architecture is still a design hypothesis. The final integration approach—embedded JNI or an external sidecar process—has not yet been decided.
 

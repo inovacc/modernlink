@@ -29,6 +29,7 @@ public final class ModernHttpsURLConnection extends HttpsURLConnection {
     private final ByteArrayOutputStream requestBody = new ByteArrayOutputStream();
     private LegacyHttpResponse response;
     private int minimumTlsVersion = LegacyHttpRequest.TLS_1_2;
+    private int maxRedirects = 10;
 
     public ModernHttpsURLConnection(URL url) {
         super(url);
@@ -52,6 +53,15 @@ public final class ModernHttpsURLConnection extends HttpsURLConnection {
 
     public int getMinimumTlsVersion() { return minimumTlsVersion; }
 
+    public ModernHttpsURLConnection maxRedirects(int max) {
+        if (connected) throw new IllegalStateException("cannot change redirect limit after connect");
+        if (max < 0) throw new IllegalArgumentException("maximum redirects must not be negative");
+        maxRedirects = max;
+        return this;
+    }
+
+    public int getMaxRedirects() { return maxRedirects; }
+
     public void connect() throws IOException {
         if (connected) return;
         LegacyHttpRequest request = new LegacyHttpRequest(url.toExternalForm())
@@ -59,6 +69,7 @@ public final class ModernHttpsURLConnection extends HttpsURLConnection {
             .connectTimeoutMillis(getConnectTimeout())
             .readTimeoutMillis(getReadTimeout())
             .followRedirects(getInstanceFollowRedirects())
+            .maxRedirects(maxRedirects)
             .minimumTlsVersion(minimumTlsVersion);
         Map<String, List<String>> properties = getRequestProperties();
         for (Map.Entry<String, List<String>> entry : properties.entrySet()) {

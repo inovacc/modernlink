@@ -7,7 +7,16 @@ import java.security.cert.Certificate;
 public final class ModernHttpsURLConnectionTest {
     public static void main(String[] args) throws Exception {
         ModernHttpsURLConnection connection = new ModernHttpsURLConnection(new URL("https://example.com"))
-            .minimumTlsVersion(LegacyHttpRequest.TLS_1_3);
+            .minimumTlsVersion(LegacyHttpRequest.TLS_1_3)
+            .maxRedirects(2);
+        if (connection.getMaxRedirects() != 2) throw new AssertionError("redirect limit was not retained");
+        boolean limitRejected = false;
+        try {
+            connection.maxRedirects(-1);
+        } catch (IllegalArgumentException expected) {
+            limitRejected = true;
+        }
+        if (!limitRejected) throw new AssertionError("negative redirect limit was accepted");
         connection.setInstanceFollowRedirects(false);
         if (connection.getInstanceFollowRedirects()) throw new AssertionError("redirect policy was not retained");
         boolean verifierRejected = false;
