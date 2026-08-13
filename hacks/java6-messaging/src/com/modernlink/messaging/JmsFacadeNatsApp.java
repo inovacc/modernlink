@@ -1,10 +1,5 @@
 package com.modernlink.messaging;
 
-import java.lang.management.ManagementFactory;
-import javax.management.MBeanServer;
-import javax.management.ObjectName;
-import javax.management.StandardMBean;
-
 /** JMS-shaped Java 6 fixture using the shared JMX contract and native NATS. */
 public final class JmsFacadeNatsApp {
     private JmsFacadeNatsApp() { }
@@ -19,9 +14,6 @@ public final class JmsFacadeNatsApp {
             ModernMessagingMode.REDIRECT, provider);
         ModernConnection connection = factory.createConnection();
         try {
-            MBeanServer server = ManagementFactory.getPlatformMBeanServer();
-            server.registerMBean(new StandardMBean(connection.getMetrics(), ModernMessagingMetricsMBean.class),
-                new ObjectName("com.modernlink.messaging:type=Metrics,role=JmsFacade"));
             ModernSession session = connection.createSession(ModernAcknowledgementMode.CLIENT);
             ModernMessageProducer producer = session.createProducer(subject);
             ModernMessageConsumer consumer = session.createConsumer(subject);

@@ -5,7 +5,6 @@ import javax.management.MBeanServer;
 import javax.management.ObjectName;
 import javax.management.StandardMBean;
 
-import com.modernlink.LegacyHttpException;
 import com.modernlink.ModernUuid;
 import com.modernlink.ModernBase64;
 
