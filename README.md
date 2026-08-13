@@ -50,7 +50,7 @@ The current JAR contains Linux x86_64 and Linux ARM64 native resources:
 - `native/linux-aarch64/libmodernlink.so`
 - `native/windows-x86_64/modernlink.dll`
 
-Native extraction writes to a unique temporary file and renames it into a deterministic per-resource path before loading. A later JVM process can reuse the extracted file; temporary files are removed when extraction or loading fails.
+Native extraction hashes the embedded bytes with SHA-256, writes to a unique temporary file, and renames it into a deterministic content-addressed path before loading. A later JVM process can reuse the extracted file; temporary files are removed when extraction or loading fails.
 
 TLS policy defaults to a minimum of TLS 1.2. Java callers may select `LegacyHttpRequest.TLS_1_2` or `LegacyHttpRequest.TLS_1_3` with `minimumTlsVersion(...)`; unsupported protocol values are rejected before the native request is started.
 
