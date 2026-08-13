@@ -9,8 +9,10 @@ public final class LegacyHttpClient {
     public LegacyHttpResponse execute(LegacyHttpRequest request) throws LegacyHttpException {
         if (request == null) throw new IllegalArgumentException("request is required");
         if (LOAD_NATIVE) NativeLoader.load();
-        long handle = nativeGet(request.getUrl());
-        if (handle == 0L) throw new LegacyHttpException("native request failed");
+        String[] headers = flattenHeaders(request.getHeaders());
+        long handle = nativeExecute(request.getUrl(), request.getMethod(), headers, request.getBody(),
+            request.getConnectTimeoutMillis(), request.getReadTimeoutMillis());
+        if (handle == 0L) throw new LegacyHttpException(nativeLastError());
         try {
             return decode(handle);
         } finally {
@@ -18,11 +20,23 @@ public final class LegacyHttpClient {
         }
     }
 
-    private static native long nativeGet(String url);
+    private static native long nativeExecute(String url, String method, String[] headers, byte[] body,
+        long connectTimeoutMillis, long readTimeoutMillis);
+    private static native String nativeLastError();
     private static native int nativeStatus(long handle);
     private static native String[] nativeHeaders(long handle);
     private static native byte[] nativeBody(long handle);
     private static native void nativeRelease(long handle);
+
+    private String[] flattenHeaders(Map<String, String> headers) {
+        String[] result = new String[headers.size() * 2];
+        int index = 0;
+        for (Map.Entry<String, String> entry : headers.entrySet()) {
+            result[index++] = entry.getKey();
+            result[index++] = entry.getValue();
+        }
+        return result;
+    }
 
     private LegacyHttpResponse decode(long handle) throws LegacyHttpException {
         int status = nativeStatus(handle);
