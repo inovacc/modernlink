@@ -5,7 +5,7 @@ use jni::JNIEnv;
 use messaging::{
     AcknowledgementMode, DeliveryReceipt, DeliveryState, KafkaTransport, MessageEnvelope,
     MessageTransport, MessageTransportKind, Mode, NatsTransport, NatsTransportKind, Payload,
-    Provider, RabbitMqTransport, RouteConfig, TraceContext,
+    Provider, PulsarTransport, RabbitMqTransport, RouteConfig, TraceContext,
 };
 use std::cell::RefCell;
 use std::time::Duration;
@@ -236,9 +236,18 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
             Ok(value) => MessageTransportKind::RabbitMq(value),
             Err(error) => return messaging_error(error.to_string()),
         },
+        Provider::Pulsar => match PulsarTransport::connect(
+            &values[0],
+            &values[1],
+            &jetstream_name(&values[1], "PULSAR_SUBSCRIPTION"),
+        ) {
+            Ok(value) => MessageTransportKind::Pulsar(value),
+            Err(error) => return messaging_error(error.to_string()),
+        },
         _ => {
             return messaging_error(
-                "native messaging client currently supports NATS, Kafka, and RabbitMQ".to_string(),
+                "native messaging client currently supports NATS, Kafka, Pulsar, and RabbitMQ"
+                    .to_string(),
             )
         }
     };

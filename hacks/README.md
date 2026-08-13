@@ -2,8 +2,8 @@
 
 This directory contains executable compatibility fixtures. They are not part
 of the distributable JAR. The NATS fixtures exercise a real external NATS
-broker; Kafka and RabbitMQ now have Cargo-backed fixtures. Pulsar and JMS broker
-interoperability remain open.
+broker; Kafka, RabbitMQ, and Pulsar have Cargo-backed fixtures. JMS broker
+interoperability remains open.
 
 ## Rust cross-application fixture
 
@@ -118,6 +118,18 @@ docker rm -f modernlink-rabbitmq
 The default URI is `amqp://guest:guest@127.0.0.1:5672/%2f`; override it with
 `RABBITMQ_URI` and the queue with `RABBITMQ_QUEUE`. The Java facade accepts
 `RABBITMQ` through the same provider selection surface.
+
+## Pulsar broker fixture
+
+The Cargo-backed Pulsar adapter publishes the uniform JSON envelope to a
+topic, consumes it through a subscription, and acknowledges the delivery:
+
+```powershell
+docker run --rm -d --name modernlink-pulsar -p 6650:6650 -p 8080:8080 `
+  apachepulsar/pulsar:3.3.2 bin/pulsar standalone
+cargo run --manifest-path hacks/messaging-demo/Cargo.toml --bin pulsar-app
+docker rm -f modernlink-pulsar
+```
 
 ## Java 6 fixture
 
