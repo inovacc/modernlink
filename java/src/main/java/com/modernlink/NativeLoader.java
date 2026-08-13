@@ -28,18 +28,33 @@ final class NativeLoader {
         } else {
             throw new LegacyHttpException("unsupported native platform: " + os + "/" + arch);
         }
+        File directory = new File(System.getProperty("java.io.tmpdir"));
+        File extracted = new File(directory, "modernlink-" + resource.hashCode() + "-" + filename);
+        if (extracted.isFile()) {
+            try {
+                System.load(extracted.getAbsolutePath());
+                loaded = true;
+                return;
+            } catch (UnsatisfiedLinkError error) {
+                throw new LegacyHttpException("native load failed: " + error.getMessage());
+            }
+        }
         InputStream input = NativeLoader.class.getResourceAsStream(resource);
         if (input == null) throw new LegacyHttpException("native resource not found: " + resource);
-        File extracted = new File(System.getProperty("java.io.tmpdir"), "modernlink-" + resource.hashCode() + "-" + filename);
+        File temporary = null;
         try {
-            FileOutputStream output = new FileOutputStream(extracted);
+            temporary = File.createTempFile("modernlink-", ".tmp", directory);
+            FileOutputStream output = new FileOutputStream(temporary);
             try {
                 byte[] buffer = new byte[8192];
                 int read;
                 while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
             } finally {
                 output.close();
-                input.close();
+            }
+            if (!temporary.renameTo(extracted)) {
+                if (!extracted.isFile()) throw new IOException("native extraction rename failed");
+                if (!temporary.delete()) throw new IOException("native temporary file cleanup failed");
             }
             System.load(extracted.getAbsolutePath());
             loaded = true;
@@ -47,6 +62,13 @@ final class NativeLoader {
             throw new LegacyHttpException("native extraction failed: " + error.getMessage());
         } catch (UnsatisfiedLinkError error) {
             throw new LegacyHttpException("native load failed: " + error.getMessage());
+        } finally {
+            try {
+                input.close();
+            } catch (IOException ignored) {
+                // Preserve the native-load error when cleanup also fails.
+            }
+            if (temporary != null && temporary.exists()) temporary.delete();
         }
     }
 }

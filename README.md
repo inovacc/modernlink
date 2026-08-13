@@ -48,6 +48,8 @@ The current JAR contains Linux x86_64 and Linux ARM64 native resources:
 - `native/linux-aarch64/libmodernlink.so`
 - `native/windows-x86_64/modernlink.dll`
 
+Native extraction writes to a unique temporary file and renames it into a deterministic per-resource path before loading. A later JVM process can reuse the extracted file; temporary files are removed when extraction or loading fails.
+
 TLS policy defaults to a minimum of TLS 1.2. Java callers may select `LegacyHttpRequest.TLS_1_2` or `LegacyHttpRequest.TLS_1_3` with `minimumTlsVersion(...)`; unsupported protocol values are rejected before the native request is started.
 
 `ModernHttpsURLConnection` forwards its instance redirect flag. Custom Java `HostnameVerifier` and `SSLSocketFactory` instances are explicitly rejected because the connection is terminated and verified by Rust; accepting those objects while ignoring them would create a misleading security contract.

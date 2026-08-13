@@ -16,7 +16,7 @@ jobs:
       - name: Test workspace
         run: cargo test --workspace
       - name: Check JNI crate
-        run: cargo check -p jni
+        run: cargo check -p jni@0.1.0
 
   java6-jar:
     name: Java 6 JAR integration
