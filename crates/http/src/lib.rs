@@ -1,15 +1,7 @@
 use core::{Error, Request, Response};
 
 pub fn execute(request: &Request) -> Result<Response, Error> {
-    let mut builder = reqwest::blocking::Client::builder();
-    if let Some(timeout) = request.connect_timeout {
-        builder = builder.connect_timeout(timeout);
-    }
-    if let Some(timeout) = request.read_timeout {
-        builder = builder.timeout(timeout);
-    }
-    let client = builder
-        .build()
+    let client = tls::build_client(tls::TlsConfig::secure_default(), request.connect_timeout, request.read_timeout)
         .map_err(|error| Error::Transport(error.to_string()))?;
     let method = request
         .method

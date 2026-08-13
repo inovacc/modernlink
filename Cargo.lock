@@ -201,7 +201,7 @@ name = "http"
 version = "0.1.0"
 dependencies = [
  "core",
- "reqwest",
+ "tls",
 ]
 
 [[package]]
@@ -979,6 +979,7 @@ name = "tls"
 version = "0.1.0"
 dependencies = [
  "core",
+ "reqwest",
 ]
 
 [[package]]
