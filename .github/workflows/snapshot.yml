@@ -1,41 +1,32 @@
-name: Snapshot Release
+name: Snapshot JAR
 
 on:
   push:
     branches:
       - main
     paths:
-      - '**.scala'
-      - '**.java'
-      - '**.sbt'
-      - 'src/main/resources/org/xerial/snappy/native/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'crates/**'
+      - 'docker/java6/Dockerfile'
+      - 'java/**'
       - '.github/workflows/snapshot.yml'
-    tag:
-      - '!*'
   workflow_dispatch:
 
 jobs:
-  publish_snapshots:
-    name: Publish snapshots
+  snapshot:
+    name: Build snapshot JAR
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Build container
+        run: docker build -f docker/java6/Dockerfile -t modernlink-java6-https .
+      - name: Extract JAR
+        run: |
+          container_id=$(docker create modernlink-java6-https)
+          trap 'docker rm "$container_id"' EXIT
+          docker cp "$container_id:/workspace/modernlink.jar" modernlink-snapshot.jar
+      - uses: actions/upload-artifact@v4
         with:
-          fetch-depth: 10000
-       # Fetch all tags so that sbt-dynver can find the previous release version
-      - run: git fetch --tags
-      - uses: actions/setup-java@v5
-        with:
-          distribution: 'zulu'
-          java-version: '21'
-      - uses: actions/cache@v5
-        with:
-          path: ~/.cache
-          key: ${{ runner.os }}-snapshot-${{ hashFiles('**/*.sbt') }}
-          restore-keys: ${{ runner.os }}-snapshot-
-      - name: Publish snapshots
-        env:
-          SONATYPE_USERNAME: '${{ secrets.SONATYPE_USERNAME }}'
-          SONATYPE_PASSWORD: '${{ secrets.SONATYPE_PASSWORD }}'
-        run: ./sbt publish
-
+          name: modernlink-snapshot-${{ github.sha }}
+          path: modernlink-snapshot.jar

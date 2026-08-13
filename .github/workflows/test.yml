@@ -7,62 +7,27 @@ on:
       - main
 
 jobs:
-  changes:
-    runs-on: ubuntu-latest
-    outputs:
-      code: ${{ steps.filter.outputs.code }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            code:
-              - '**.scala'
-              - '**.java'
-              - '**.sbt'
-              - '.github/workflows/*.yml'
-              - '**.so'
-              - '**.dll'
-              - 'src/main/resources/**'
-              - 'project/build.properties'
-              - '.scalafmt.conf'
-              - 'sbt'
-              - 'sbt.bat'
-  code_format:
-    name: code format
-    needs: changes
-    if: ${{ needs.changes.outputs.code == 'true' }}
+  rust:
+    name: Rust workspace
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: scalafmt test
-        run: ./sbt scalafmtCheckAll
-  test-jdk:
-    strategy:
-      matrix:
-        version: [ '8', '11', '17', '21', '25' ]
-    name: test jdk${{ matrix.version }}
-    needs: changes
-    if: ${{ needs.changes.outputs.code == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-java@v5
-        with:
-          distribution: 'zulu'
-          java-version: ${{ matrix.version }}
-      - uses: actions/cache@v5
-        with:
-          path: ~/.cache
-          key: ${{ runner.os }}-jdk${{ matrix.version }}-${{ hashFiles('**/*.sbt') }}
-          restore-keys: ${{ runner.os }}-jdk${{ matrix.version }}-
-      - name: Test
-        run: |
-          if [ "${{ matrix.version }}" -ge "24" ]; then
-            export _JAVA_OPTIONS="--enable-native-access=ALL-UNNAMED"
-          fi
-          ./sbt test
-      - name: JAR Integration Test
-        run: ./script/test-jar-integration.sh
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test workspace
+        run: cargo test --workspace
+      - name: Check JNI crate
+        run: cargo check -p jni
 
+  java6-jar:
+    name: Java 6 JAR integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build Java 6 distributable JAR
+        run: docker build -f docker/java6/Dockerfile -t modernlink-java6-https .
+      - name: Exercise packaged JAR
+        run: |
+          docker run --rm modernlink-java6-https sh -c \
+            "java -cp /workspace/modernlink.jar com.modernlink.LegacyHttpResponseStructuredTest && \
+             java -cp /workspace/modernlink.jar com.modernlink.ModernHttpsURLConnectionTest && \
+             java -cp /workspace/modernlink.jar com.modernlink.LegacyHttpsTest"

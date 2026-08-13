@@ -23,7 +23,7 @@ categories:
       - 'internal'
       - 'kaizen'
       - 'test-library-update'
-      - 'sbt-plugin-update'
+      - 'toolchain-update'
   - title: '📚 Docs'
     labels:
       - 'doc'
@@ -53,4 +53,3 @@ autolabeler:
   - label: 'deprecation'
     title:
       - '/deprecate/i'
-

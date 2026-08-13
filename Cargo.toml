@@ -6,3 +6,6 @@ members = [
     "crates/jni",
 ]
 resolver = "2"
+
+[workspace.package]
+license = "Apache-2.0"
