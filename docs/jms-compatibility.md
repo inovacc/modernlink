@@ -13,7 +13,7 @@ expects a specific JMS provider implementation.
 | `MessageProducer` | `ModernMessageProducer` | Synchronous send to one destination; returns a typed delivery receipt. |
 | `MessageConsumer` | `ModernMessageConsumer` | Synchronous receive, optional listener start, and explicit acknowledgement. |
 | `TextMessage` | `ModernTextMessage` | UTF-8 text payload plus provider-neutral message metadata. |
-| `MessageListener` | `ModernMessageListener` | Java 6 callback shape; listener execution is controlled by `Connection.start()`. |
+| `MessageListener` | `ModernMessageListener` | Java 6 callback shape; listener execution is controlled by `Connection.start()` and continues until consumer close. |
 | JMS acknowledgement | `ModernAcknowledgementMode` | `AUTO`, `CLIENT`, and `DUPS_OK` are represented in the envelope boundary. |
 | JMS tracing headers | `ModernTraceContext` | Trace ID, span ID, parent span, trace state, and sampled flag are typed fields. |
 

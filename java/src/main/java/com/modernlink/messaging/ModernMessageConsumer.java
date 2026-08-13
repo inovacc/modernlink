@@ -44,12 +44,26 @@ public final class ModernMessageConsumer {
         final ModernMessageListener callback = listener;
         Thread thread = new Thread(new Runnable() {
             public void run() {
-                try {
-                    ModernReceivedMessage received = receive();
-                    ModernTextMessage message = new ModernTextMessage(received.getMessage());
-                    callback.onMessage(message, received.getReceipt());
-                } catch (Exception ignored) {
-                    // Listener failures are isolated from the legacy application thread.
+                while (true) {
+                    synchronized (ModernMessageConsumer.this) {
+                        if (closed) return;
+                    }
+                    try {
+                        ModernReceivedMessage received = receive();
+                        ModernTextMessage message = new ModernTextMessage(received.getMessage());
+                        callback.onMessage(message, received.getReceipt());
+                    } catch (Exception ignored) {
+                        // Listener failures are isolated from the legacy application thread.
+                        synchronized (ModernMessageConsumer.this) {
+                            if (closed) return;
+                        }
+                        try {
+                            Thread.sleep(100L);
+                        } catch (InterruptedException interrupted) {
+                            Thread.currentThread().interrupt();
+                            return;
+                        }
+                    }
                 }
             }
         }, "modernlink-messaging-listener");
