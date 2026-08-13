@@ -32,14 +32,14 @@ public final class ModernMessagingClient {
             message.getTracing().getParentSpanId() == null ? "" : message.getTracing().getParentSpanId(),
             message.getTracing().getTraceState() == null ? "" : message.getTracing().getTraceState(),
             message.getTracing().isSampled(), message.getAcknowledgementMode().name());
-        if (value == null) throw new LegacyHttpException("native messaging publish unavailable");
+        if (value == null) throw nativeError("native messaging publish unavailable");
         return ModernDeliveryReceipt.decode(value);
     }
 
     public synchronized ModernReceivedMessage receive() throws Exception {
         requireOpen();
         String value = nativeReceive(handle);
-        if (value == null) throw new LegacyHttpException("native messaging receive unavailable");
+        if (value == null) throw nativeError("native messaging receive unavailable");
         String[] fields = value.split("\\n", 2);
         if (fields.length != 2) throw new IllegalArgumentException("invalid native messaging frame");
         return new ModernReceivedMessage(ModernMessage.decode(fields[0]), ModernDeliveryReceipt.decode(fields[1]));
@@ -50,7 +50,7 @@ public final class ModernMessagingClient {
         if (receipt == null) throw new IllegalArgumentException("receipt is required");
         String value = nativeAcknowledge(handle, receipt.getMessageId(), receipt.getProvider().name(),
             receipt.getState().name(), receipt.getTraceId());
-        if (value == null) throw new LegacyHttpException("native messaging acknowledgement unavailable");
+        if (value == null) throw nativeError("native messaging acknowledgement unavailable");
         return ModernDeliveryReceipt.decode(value);
     }
 
@@ -65,6 +65,11 @@ public final class ModernMessagingClient {
         if (handle == 0) throw new LegacyHttpException("messaging client is closed");
     }
 
+    private LegacyHttpException nativeError(String fallback) {
+        String detail = nativeLastError();
+        return new LegacyHttpException(detail == null || detail.length() == 0 ? fallback : detail);
+    }
+
     private static native long nativeOpen(String url, String subject, String mode, String provider);
     private static native String nativePublish(long handle, String messageId, String destination, String payload,
         String traceId, String spanId, String parentSpanId, String traceState, boolean sampled,
@@ -73,4 +78,5 @@ public final class ModernMessagingClient {
     private static native String nativeAcknowledge(long handle, String messageId, String provider,
         String state, String traceId);
     private static native void nativeClose(long handle);
+    private static native String nativeLastError();
 }

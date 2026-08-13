@@ -80,6 +80,27 @@ The facade currently supports both `NATS` and `NATS_JETSTREAM` provider paths.
 Other provider adapters, JNDI lookup, transactions, and selectors remain
 explicit capability gaps.
 
+## Kafka-compatible broker fixture
+
+The Cargo-backed Kafka adapter uses `rdkafka`/`librdkafka`, disables consumer
+auto-commit, and commits the consumed partition offset only after the uniform
+receipt is acknowledged. A local Redpanda broker can exercise it:
+
+```powershell
+docker run --rm -d --name modernlink-redpanda -p 19092:19092 `
+  docker.redpanda.com/redpandadata/redpanda:v24.3.5 `
+  redpanda start --overprovisioned --smp 1 --memory 1G --reserve-memory 0M `
+  --node-id 0 --check=false --kafka-addr 0.0.0.0:19092 `
+  --advertise-kafka-addr 127.0.0.1:19092
+cargo run --manifest-path hacks/messaging-demo/Cargo.toml --bin kafka-app
+docker rm -f modernlink-redpanda
+```
+
+The native Java facade accepts `KAFKA` through the same `ModernConnectionFactory`
+selection used by the NATS fixtures. Kafka provider selection requires the
+broker address in the URL field and derives a stable consumer group from the
+destination for this compatibility fixture.
+
 ## Java 6 fixture
 
 `java6-messaging/src` contains the Java 6 publisher and modern-provider

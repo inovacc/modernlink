@@ -3,8 +3,9 @@ use jni::objects::{JByteArray, JClass, JObjectArray, JString};
 use jni::sys::{jbyteArray, jint, jlong, jobjectArray};
 use jni::JNIEnv;
 use messaging::{
-    AcknowledgementMode, DeliveryReceipt, DeliveryState, MessageEnvelope, MessageTransport, Mode,
-    NatsTransport, NatsTransportKind, Payload, Provider, RouteConfig, TraceContext,
+    AcknowledgementMode, DeliveryReceipt, DeliveryState, KafkaTransport, MessageEnvelope,
+    MessageTransport, MessageTransportKind, Mode, NatsTransport, NatsTransportKind, Payload,
+    Provider, RouteConfig, TraceContext,
 };
 use std::cell::RefCell;
 use std::time::Duration;
@@ -27,7 +28,7 @@ pub extern "C" fn getauxval(_kind: usize) -> usize {
 struct NativeResponse(Response);
 
 struct NativeMessagingClient {
-    transport: NatsTransportKind,
+    transport: MessageTransportKind,
     route: RouteConfig,
 }
 
@@ -66,6 +67,10 @@ fn jetstream_name(subject: &str, suffix: &str) -> String {
     name.push('_');
     name.push_str(suffix);
     name
+}
+
+fn kafka_group(subject: &str) -> String {
+    jetstream_name(subject, "KAFKA_GROUP")
 }
 
 fn messaging_mode(value: &str) -> Result<Mode, String> {
@@ -209,7 +214,7 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
     }
     let transport = match selected_provider {
         Provider::Nats => match NatsTransport::connect(&values[0], &values[1]) {
-            Ok(value) => NatsTransportKind::Core(value),
+            Ok(value) => MessageTransportKind::Nats(NatsTransportKind::Core(value)),
             Err(error) => return messaging_error(error.to_string()),
         },
         Provider::NatsJetStream => match messaging::NatsJetStreamTransport::connect(
@@ -218,12 +223,18 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
             &jetstream_name(&values[1], "STREAM"),
             &jetstream_name(&values[1], "CONSUMER"),
         ) {
-            Ok(value) => NatsTransportKind::JetStream(value),
+            Ok(value) => MessageTransportKind::Nats(NatsTransportKind::JetStream(value)),
             Err(error) => return messaging_error(error.to_string()),
         },
+        Provider::Kafka => {
+            match KafkaTransport::connect(&values[0], &values[1], &kafka_group(&values[1])) {
+                Ok(value) => MessageTransportKind::Kafka(value),
+                Err(error) => return messaging_error(error.to_string()),
+            }
+        }
         _ => {
             return messaging_error(
-                "native messaging client currently supports NATS providers only".to_string(),
+                "native messaging client currently supports NATS and Kafka".to_string(),
             )
         }
     };
@@ -387,6 +398,18 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
         unsafe {
             drop(Box::from_raw(handle as *mut NativeMessagingClient));
         }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativeLastError(
+    env: JNIEnv,
+    _class: JClass,
+) -> jni::sys::jstring {
+    let message = LAST_ERROR.with(|value| value.borrow().clone());
+    match env.new_string(message) {
+        Ok(value) => value.into_raw(),
+        Err(_) => std::ptr::null_mut(),
     }
 }
 

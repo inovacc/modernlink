@@ -1,4 +1,10 @@
 use futures_util::StreamExt;
+use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
+use rdkafka::client::DefaultClientContext;
+use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
+use rdkafka::producer::{FutureProducer, FutureRecord};
+use rdkafka::types::RDKafkaErrorCode;
+use rdkafka::{ClientConfig, Message as KafkaMessage, Offset, TopicPartitionList};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
@@ -625,6 +631,222 @@ impl MessageTransport for NatsJetStreamTransport {
 pub enum NatsTransportKind {
     Core(NatsTransport),
     JetStream(NatsJetStreamTransport),
+}
+
+pub struct KafkaTransport {
+    producer: Option<FutureProducer>,
+    consumer: Option<StreamConsumer>,
+    runtime: Option<tokio::runtime::Runtime>,
+    topic: String,
+    pending_acknowledgements: Mutex<BTreeMap<String, TopicPartitionList>>,
+}
+
+impl KafkaTransport {
+    pub fn connect(brokers: &str, topic: &str, group_id: &str) -> Result<Self, DomainError> {
+        if brokers.trim().is_empty() || topic.trim().is_empty() || group_id.trim().is_empty() {
+            return Err(DomainError::InvalidEnvelope(
+                "Kafka brokers, topic, and group ID are required".to_string(),
+            ));
+        }
+        let runtime = tokio::runtime::Runtime::new()
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        let _runtime_guard = runtime.enter();
+        let admin = ClientConfig::new()
+            .set("bootstrap.servers", brokers)
+            .create::<AdminClient<DefaultClientContext>>()
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        let new_topic = NewTopic::new(topic, 1, TopicReplication::Fixed(1));
+        let topic_results = runtime
+            .block_on(admin.create_topics(&[new_topic], &AdminOptions::new()))
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        for result in topic_results {
+            if let Err((_, code)) = result {
+                if code != RDKafkaErrorCode::TopicAlreadyExists {
+                    return Err(DomainError::Transport(format!(
+                        "Kafka topic creation failed: {:?}",
+                        code
+                    )));
+                }
+            }
+        }
+        let producer = ClientConfig::new()
+            .set("bootstrap.servers", brokers)
+            .set("message.timeout.ms", "10000")
+            .create::<FutureProducer>()
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        let consumer = ClientConfig::new()
+            .set("bootstrap.servers", brokers)
+            .set("group.id", group_id)
+            .set("enable.auto.commit", "false")
+            .set("auto.offset.reset", "earliest")
+            .create::<StreamConsumer>()
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        consumer
+            .subscribe(&[topic])
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        Ok(Self {
+            producer: Some(producer),
+            consumer: Some(consumer),
+            runtime: Some(runtime),
+            topic: topic.to_string(),
+            pending_acknowledgements: Mutex::new(BTreeMap::new()),
+        })
+    }
+}
+
+impl Drop for KafkaTransport {
+    fn drop(&mut self) {
+        let producer = self.producer.take();
+        let consumer = self.consumer.take();
+        if let Some(runtime) = self.runtime.take() {
+            runtime.block_on(async move {
+                drop(producer);
+                drop(consumer);
+            });
+        }
+    }
+}
+
+impl MessageTransport for KafkaTransport {
+    fn provider(&self) -> Provider {
+        Provider::Kafka
+    }
+
+    fn publish(&self, message: MessageEnvelope) -> Result<DeliveryReceipt, DomainError> {
+        let message_id = message.message_id.clone();
+        let trace_id = message.tracing.trace_id.clone();
+        let payload = serde_json::to_vec(&message)
+            .map_err(|error| DomainError::Serialization(error.to_string()))?;
+        let runtime = self
+            .runtime
+            .as_ref()
+            .ok_or_else(|| DomainError::Transport("Kafka runtime is unavailable".to_string()))?;
+        let producer = self
+            .producer
+            .as_ref()
+            .ok_or_else(|| DomainError::Transport("Kafka producer is unavailable".to_string()))?;
+        runtime
+            .block_on(
+                producer.send(
+                    FutureRecord::to(&self.topic)
+                        .key(&message_id)
+                        .payload(&payload),
+                    std::time::Duration::from_secs(10),
+                ),
+            )
+            .map_err(|(error, _)| DomainError::Transport(error.to_string()))
+            .map(|_| DeliveryReceipt {
+                message_id,
+                provider: Provider::Kafka,
+                state: DeliveryState::Published,
+                trace_id,
+            })
+    }
+
+    fn receive(&self) -> Result<Option<ReceivedMessage>, DomainError> {
+        let runtime = self
+            .runtime
+            .as_ref()
+            .ok_or_else(|| DomainError::Transport("Kafka runtime is unavailable".to_string()))?;
+        let consumer = self
+            .consumer
+            .as_ref()
+            .ok_or_else(|| DomainError::Transport("Kafka consumer is unavailable".to_string()))?;
+        let message = runtime
+            .block_on(consumer.recv())
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        let payload = message.payload().ok_or_else(|| {
+            DomainError::Serialization("Kafka message has no payload".to_string())
+        })?;
+        let envelope: MessageEnvelope = serde_json::from_slice(payload)
+            .map_err(|error| DomainError::Serialization(error.to_string()))?;
+        let mut offsets = TopicPartitionList::new();
+        offsets
+            .add_partition_offset(
+                message.topic(),
+                message.partition(),
+                Offset::Offset(message.offset() + 1),
+            )
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        let receipt = DeliveryReceipt {
+            message_id: envelope.message_id.clone(),
+            provider: Provider::Kafka,
+            state: DeliveryState::Received,
+            trace_id: envelope.tracing.trace_id.clone(),
+        };
+        self.pending_acknowledgements
+            .lock()
+            .map_err(|_| {
+                DomainError::Transport("Kafka acknowledgement store is unavailable".to_string())
+            })?
+            .insert(envelope.message_id.clone(), offsets);
+        Ok(Some(ReceivedMessage {
+            message: envelope,
+            receipt,
+        }))
+    }
+
+    fn acknowledge(&self, receipt: &DeliveryReceipt) -> Result<DeliveryReceipt, DomainError> {
+        if receipt.provider != Provider::Kafka {
+            return Err(DomainError::Transport(
+                "receipt provider does not match Kafka".to_string(),
+            ));
+        }
+        let offsets = self
+            .pending_acknowledgements
+            .lock()
+            .map_err(|_| {
+                DomainError::Transport("Kafka acknowledgement store is unavailable".to_string())
+            })?
+            .remove(&receipt.message_id)
+            .ok_or_else(|| {
+                DomainError::Transport("no pending Kafka acknowledgement for receipt".to_string())
+            })?;
+        self.consumer
+            .as_ref()
+            .ok_or_else(|| DomainError::Transport("Kafka consumer is unavailable".to_string()))?
+            .commit(&offsets, CommitMode::Sync)
+            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        Ok(DeliveryReceipt {
+            state: DeliveryState::Acknowledged,
+            ..receipt.clone()
+        })
+    }
+}
+
+pub enum MessageTransportKind {
+    Nats(NatsTransportKind),
+    Kafka(KafkaTransport),
+}
+
+impl MessageTransport for MessageTransportKind {
+    fn provider(&self) -> Provider {
+        match self {
+            Self::Nats(transport) => transport.provider(),
+            Self::Kafka(transport) => transport.provider(),
+        }
+    }
+
+    fn publish(&self, message: MessageEnvelope) -> Result<DeliveryReceipt, DomainError> {
+        match self {
+            Self::Nats(transport) => transport.publish(message),
+            Self::Kafka(transport) => transport.publish(message),
+        }
+    }
+
+    fn receive(&self) -> Result<Option<ReceivedMessage>, DomainError> {
+        match self {
+            Self::Nats(transport) => transport.receive(),
+            Self::Kafka(transport) => transport.receive(),
+        }
+    }
+
+    fn acknowledge(&self, receipt: &DeliveryReceipt) -> Result<DeliveryReceipt, DomainError> {
+        match self {
+            Self::Nats(transport) => transport.acknowledge(receipt),
+            Self::Kafka(transport) => transport.acknowledge(receipt),
+        }
+    }
 }
 
 impl MessageTransport for NatsTransportKind {
