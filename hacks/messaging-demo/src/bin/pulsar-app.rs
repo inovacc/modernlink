@@ -9,12 +9,12 @@ fn main() {
 }
 
 fn run() -> Result<(), String> {
-    let service_url = std::env::var("PULSAR_URL")
-        .unwrap_or_else(|_| "pulsar://127.0.0.1:6650".to_string());
+    let service_url =
+        std::env::var("PULSAR_URL").unwrap_or_else(|_| "pulsar://127.0.0.1:6650".to_string());
     let topic = std::env::var("PULSAR_TOPIC")
         .unwrap_or_else(|_| "persistent://public/default/modernlink.orders".to_string());
-    let subscription = std::env::var("PULSAR_SUBSCRIPTION")
-        .unwrap_or_else(|_| "modernlink-fixture".to_string());
+    let subscription =
+        std::env::var("PULSAR_SUBSCRIPTION").unwrap_or_else(|_| "modernlink-fixture".to_string());
     let transport = PulsarTransport::connect(&service_url, &topic, &subscription)
         .map_err(|error| error.to_string())?;
     let timestamp = SystemTime::now()
