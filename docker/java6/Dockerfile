@@ -5,7 +5,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY hacks/messaging-demo ./hacks/messaging-demo
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends cmake libcurl4-openssl-dev python3-pip \
+    && apt-get install -y --no-install-recommends cmake libcurl4-openssl-dev protobuf-compiler python3-pip \
     && pip3 install --break-system-packages --no-cache-dir ziglang \
     && cargo install cargo-zigbuild \
     && rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-pc-windows-gnu
