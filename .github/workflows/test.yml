@@ -13,10 +13,27 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
+      # BUGS B-001: crates/messaging declares no [features], so rdkafka (cmake-build),
+      # pulsar, lapin and async-nats are unconditional — every workspace build compiles
+      # a native Kafka client. Without these packages the job dies on a missing
+      # curl/curl.h before the test suite is ever reached. Kept in step with
+      # docker/java6/Dockerfile, which carries the same recipe.
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake libcurl4-openssl-dev libsasl2-dev protobuf-compiler
       - name: Test workspace
         run: cargo test --workspace
       - name: Check JNI crate
         run: cargo check -p jni@0.1.0
+      # SC-04. Previously deferred because BACKLOG assumed these already passed; they
+      # did not — clippy reported six findings, including two MutexGuards held across
+      # an await point. Those are fixed, so the gate can be enforced from here on.
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Lint
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
   java6-jar:
     name: Java 6 JAR integration
@@ -25,9 +42,30 @@ jobs:
       - uses: actions/checkout@v6
       - name: Build Java 6 distributable JAR
         run: docker build -f docker/java6/Dockerfile -t modernlink-java6-https .
+      # VER-03: run every test class from the packaged JAR. Previously only three of
+      # ten ran, so a test the workflow did not name never executed. VER-05
+      # (NativeLoadSmokeTest) and VER-06 (LegacyJmsMessagingTest) are included and
+      # need no network or broker.
       - name: Exercise packaged JAR
         run: |
-          docker run --rm modernlink-java6-https sh -c \
-            "java -cp /workspace/modernlink.jar com.modernlink.LegacyHttpResponseStructuredTest && \
-             java -cp /workspace/modernlink.jar com.modernlink.ModernHttpsURLConnectionTest && \
-             java -cp /workspace/modernlink.jar com.modernlink.LegacyHttpsTest"
+          docker run --rm modernlink-java6-https sh -c '
+            set -e
+            for test in \
+              NativeLoadSmokeTest \
+              ModernUtilityStandaloneTest \
+              LegacyHttpCapabilitiesTest \
+              LegacyHttpRequestTest \
+              LegacyHttpRequestConfigurationTest \
+              LegacyHttpRequestRedirectTest \
+              LegacyHttpResponseStructuredTest \
+              LegacyHttpsTest \
+              LegacyHttpsPostTest \
+              ModernHttpsURLConnectionTest \
+              ModernHttpsURLConnectionPostTest
+            do
+              echo "==== com.modernlink.$test"
+              java -cp /workspace/modernlink.jar "com.modernlink.$test"
+            done
+            echo "==== com.modernlink.messaging.LegacyJmsMessagingTest"
+            java -cp /workspace/modernlink.jar com.modernlink.messaging.LegacyJmsMessagingTest
+          '
