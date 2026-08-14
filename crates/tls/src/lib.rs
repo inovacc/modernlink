@@ -1,3 +1,10 @@
+//! The TLS policy boundary for ModernLink, backed by rustls with webpki roots.
+//!
+//! TLS terminates and is verified here rather than in Java, which is why the Java facade
+//! rejects custom `HostnameVerifier` and `SSLSocketFactory` instances instead of silently
+//! ignoring them (`docs/ISSUES.md` I-008). The floor is TLS 1.2; callers may select 1.2 or
+//! 1.3, and unsupported values are rejected before a request starts.
+
 pub use core::TlsVersion;
 use rustls::{ClientConfig, RootCertStore};
 use std::sync::Arc;

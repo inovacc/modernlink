@@ -1,3 +1,9 @@
+//! Shared request, response, TLS metadata, and error types for ModernLink.
+//!
+//! Every other crate in the workspace depends on this one; it holds no I/O. Note that the
+//! package is named `core`, which shadows Rust's built-in `core` crate — see
+//! `docs/ISSUES.md` I-002.
+
 use base64::Engine;
 use std::collections::BTreeMap;
 use std::fmt;

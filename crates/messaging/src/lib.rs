@@ -1,3 +1,14 @@
+//! The provider-neutral message domain and its transports.
+//!
+//! One uniform transport boundary ([`MessageTransportKind`]) fronts `InMemoryTransport`
+//! (the in-process `LEGACY_JMS` compatibility path), NATS, NATS JetStream, Kafka, Pulsar, and
+//! RabbitMQ, so the JNI surface never names a provider-specific type. Trace context is
+//! first-class envelope data, not a user property: adapters must not replace or discard it.
+//!
+//! Unsupported guarantees fail closed — a capability gap is an explicit error, never a silent
+//! degradation. Only the in-process transport has been exercised; every broker-backed path is
+//! a source-level claim (`docs/ISSUES.md` I-010).
+
 use futures_util::StreamExt;
 use lapin::acker::Acker;
 use lapin::options::{BasicAckOptions, BasicGetOptions, BasicPublishOptions, QueueDeclareOptions};

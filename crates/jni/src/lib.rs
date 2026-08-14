@@ -1,3 +1,16 @@
+//! The JNI boundary — 25 `Java_*` entry points that build `libmodernlink`.
+//!
+//! This is the only crate the Java 6 facade in `java/src/main/java/com/modernlink` talks to.
+//! It exposes HTTPS execution, the messaging client, and the UUID/Base64/JSON utilities, and
+//! keeps the surface provider-neutral by going through the uniform transport boundary in
+//! `messaging`.
+//!
+//! Every function here is an unsafe boundary that must stay in sync with its Java caller, and
+//! a panic on this side can terminate the host JVM (`docs/adr/0001-jni-boundary-over-sidecar.md`).
+//!
+//! The package is named `jni` and depends on the external `jni` crate, so cargo needs
+//! `-p jni@0.1.0` to disambiguate — see `docs/ISSUES.md` I-001.
+
 use core::{Request, Response, TlsVersion};
 use jni::objects::{JByteArray, JClass, JObjectArray, JString};
 use jni::sys::{jbyteArray, jint, jlong, jobjectArray};

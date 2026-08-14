@@ -1,3 +1,9 @@
+//! HTTPS execution for ModernLink, over hyper's HTTP/1.1 client.
+//!
+//! Takes a [`core::Request`], drives the connection through the TLS policy in the `tls` crate,
+//! and returns a [`core::Response`] carrying status, reason phrase, headers, body, and the
+//! negotiated [`core::TlsInfo`]. Timeouts cover both TCP connection and the TLS handshake.
+
 use bytes::Bytes;
 use core::{Error, Request, Response, TlsInfo};
 use http_body_util::{BodyExt, Full};
