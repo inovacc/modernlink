@@ -73,6 +73,20 @@ public final class ModernConnection {
         }
     }
 
+    /**
+     * Evaluate the routing policy for a hypothetical message without publishing it.
+     * A denied route comes back as a decision, so callers can report which rule denied it.
+     */
+    public synchronized ModernRouteDecision evaluateRoute(String destination, String tenant,
+        String headerName, String headerValue) throws LegacyHttpException {
+        requireOpen();
+        return client.dryRun(destination, tenant, headerName, headerValue);
+    }
+
+    public synchronized ModernRouteDecision evaluateRoute(String destination) throws LegacyHttpException {
+        return evaluateRoute(destination, null, null, null);
+    }
+
     public synchronized boolean isStarted() { return started; }
     public ModernMessagingMetrics getMetrics() { return metrics; }
     public ObjectName getMetricsObjectName() { return metricsObjectName; }

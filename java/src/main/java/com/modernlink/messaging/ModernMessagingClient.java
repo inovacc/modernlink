@@ -11,14 +11,53 @@ public final class ModernMessagingClient {
 
     public ModernMessagingClient(String url, String subject, ModernMessagingMode mode,
         ModernMessagingProvider provider) throws LegacyHttpException {
+        this(url, subject, mode, provider, null);
+    }
+
+    /**
+     * Open with a routing policy. Rules are evaluated in order, first match wins;
+     * a null or empty array behaves exactly like the unrouted constructor.
+     */
+    public ModernMessagingClient(String url, String subject, ModernMessagingMode mode,
+        ModernMessagingProvider provider, ModernRouteRule[] rules) throws LegacyHttpException {
         if (url == null || subject == null || mode == null || provider == null) {
             throw new IllegalArgumentException("messaging connection fields are required");
         }
         NativeLoader.load();
         this.mode = mode;
         this.provider = provider;
-        this.handle = nativeOpen(url, subject, mode.name(), provider.name());
+        if (rules == null || rules.length == 0) {
+            this.handle = nativeOpen(url, subject, mode.name(), provider.name());
+        } else {
+            String[] encoded = new String[rules.length];
+            for (int index = 0; index < rules.length; index++) {
+                if (rules[index] == null) throw new IllegalArgumentException("routing rule " + index + " is null");
+                encoded[index] = rules[index].encode();
+            }
+            this.handle = nativeOpenRouted(url, subject, mode.name(), provider.name(), encoded);
+        }
         if (this.handle == 0) throw nativeError("native messaging client unavailable");
+    }
+
+    /**
+     * Evaluate the routing policy for a hypothetical message without publishing it.
+     *
+     * A denied route is returned as a decision, not an exception, so the caller can
+     * report which rule denied it.
+     */
+    public synchronized ModernRouteDecision dryRun(String destination, String tenant,
+        String headerName, String headerValue) throws LegacyHttpException {
+        requireOpen();
+        if (destination == null || destination.length() == 0) {
+            throw new IllegalArgumentException("destination is required");
+        }
+        if ((headerName == null) != (headerValue == null)) {
+            throw new IllegalArgumentException("header name and value must be supplied together");
+        }
+        String value = nativeDryRun(handle, destination, tenant == null ? "" : tenant,
+            headerName == null ? "" : headerName, headerValue == null ? "" : headerValue);
+        if (value == null) throw nativeError("native route evaluation unavailable");
+        return ModernRouteDecision.decode(value);
     }
 
     public ModernMessagingMode getMode() { return mode; }
@@ -71,6 +110,10 @@ public final class ModernMessagingClient {
     }
 
     private static native long nativeOpen(String url, String subject, String mode, String provider);
+    private static native long nativeOpenRouted(String url, String subject, String mode, String provider,
+        String[] rules);
+    private static native String nativeDryRun(long handle, String destination, String tenant,
+        String headerName, String headerValue);
     private static native String nativePublish(long handle, String messageId, String destination, String payload,
         String traceId, String spanId, String parentSpanId, String traceState, boolean sampled,
         String acknowledgementMode);

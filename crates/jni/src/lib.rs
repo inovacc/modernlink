@@ -19,7 +19,7 @@ use messaging::{
     AcknowledgementMode, DeliveryReceipt, DeliveryState, InMemoryTransport, KafkaTransport,
     MessageEnvelope, MessageTransport, MessageTransportKind, Mode, NatsTransport,
     NatsTransportKind, Payload, Provider, PulsarTransport, RabbitMqTransport, RouteConfig,
-    TraceContext,
+    RouteRule, TraceContext,
 };
 use std::cell::RefCell;
 use std::time::Duration;
@@ -116,6 +116,116 @@ fn messaging_acknowledgement(value: &str) -> Result<AcknowledgementMode, String>
         "TRANSACTED" => Ok(AcknowledgementMode::Transacted),
         _ => Err(format!("unsupported acknowledgement mode: {}", value)),
     }
+}
+
+fn messaging_mode_name(mode: Mode) -> &'static str {
+    match mode {
+        Mode::Transparent => "TRANSPARENT",
+        Mode::Transform => "TRANSFORM",
+        Mode::Redirect => "REDIRECT",
+    }
+}
+
+/// Decode one pipe-delimited route rule supplied by the Java facade.
+///
+/// Field order matches `ModernRouteRule.encode()`:
+/// `id|destination|destinationPrefix|tenant|headerName|headerValue|mode|provider|allowed`.
+/// An empty string means "not constrained"; `allowed` is `1` or `0`.
+///
+/// This is strict on purpose. A malformed rule is rejected rather than skipped —
+/// silently dropping a routing rule would change delivery behaviour without saying so,
+/// which is exactly what the fail-closed rule forbids.
+fn parse_route_rule(encoded: &str) -> Result<RouteRule, String> {
+    let fields: Vec<&str> = encoded.split('|').collect();
+    if fields.len() != 9 {
+        return Err(format!(
+            "route rule must have 9 pipe-delimited fields, found {}",
+            fields.len()
+        ));
+    }
+    if fields[0].is_empty() {
+        return Err("route rule id must not be empty".to_string());
+    }
+    let optional = |value: &str| {
+        if value.is_empty() {
+            None
+        } else {
+            Some(value.to_string())
+        }
+    };
+    if fields[4].is_empty() != fields[5].is_empty() {
+        return Err(format!(
+            "route rule {} must set both header name and header value, or neither",
+            fields[0]
+        ));
+    }
+    let allowed = match fields[8] {
+        "1" => true,
+        "0" => false,
+        other => {
+            return Err(format!(
+                "route rule {} has an invalid allowed flag: {}",
+                fields[0], other
+            ))
+        }
+    };
+    Ok(RouteRule {
+        id: fields[0].to_string(),
+        destination: optional(fields[1]),
+        destination_prefix: optional(fields[2]),
+        tenant: optional(fields[3]),
+        header_name: optional(fields[4]),
+        header_value: optional(fields[5]),
+        mode: messaging_mode(fields[6])?,
+        provider: messaging_provider(fields[7])?,
+        allowed,
+    })
+}
+
+/// Connect the transport for a provider. Shared by `nativeOpen` and `nativeOpenRouted`.
+fn build_transport(
+    provider: Provider,
+    url: &str,
+    subject: &str,
+) -> Result<MessageTransportKind, String> {
+    Ok(match provider {
+        Provider::LegacyJms => {
+            MessageTransportKind::LegacyJms(InMemoryTransport::new(Provider::LegacyJms))
+        }
+        Provider::Nats => MessageTransportKind::Nats(NatsTransportKind::Core(Box::new(
+            NatsTransport::connect(url, subject).map_err(|error| error.to_string())?,
+        ))),
+        Provider::NatsJetStream => {
+            MessageTransportKind::Nats(NatsTransportKind::JetStream(Box::new(
+                messaging::NatsJetStreamTransport::connect(
+                    url,
+                    subject,
+                    &jetstream_name(subject, "STREAM"),
+                    &jetstream_name(subject, "CONSUMER"),
+                )
+                .map_err(|error| error.to_string())?,
+            )))
+        }
+        Provider::Kafka => MessageTransportKind::Kafka(
+            KafkaTransport::connect(url, subject, &kafka_group(subject))
+                .map_err(|error| error.to_string())?,
+        ),
+        Provider::RabbitMq => MessageTransportKind::RabbitMq(Box::new(
+            RabbitMqTransport::connect(url, subject).map_err(|error| error.to_string())?,
+        )),
+        Provider::Pulsar => MessageTransportKind::Pulsar(
+            PulsarTransport::connect(
+                url,
+                subject,
+                &jetstream_name(subject, "PULSAR_SUBSCRIPTION"),
+            )
+            .map_err(|error| error.to_string())?,
+        ),
+        // No `_` arm on purpose. Every Provider variant is handled above, so a
+        // catch-all would be dead code today and harmful tomorrow: it would turn a
+        // newly added provider into a runtime error message instead of a compile
+        // error. Exhaustiveness is the fail-closed behaviour this boundary wants.
+    })
 }
 
 fn messaging_provider_name(provider: Provider) -> &'static str {
@@ -226,48 +336,129 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
     if let Err(error) = route.decide(&route_probe) {
         return messaging_error(error.to_string());
     }
-    let transport = match selected_provider {
-        Provider::LegacyJms => {
-            MessageTransportKind::LegacyJms(InMemoryTransport::new(Provider::LegacyJms))
-        }
-        Provider::Nats => match NatsTransport::connect(&values[0], &values[1]) {
-            Ok(value) => MessageTransportKind::Nats(NatsTransportKind::Core(Box::new(value))),
-            Err(error) => return messaging_error(error.to_string()),
-        },
-        Provider::NatsJetStream => match messaging::NatsJetStreamTransport::connect(
-            &values[0],
-            &values[1],
-            &jetstream_name(&values[1], "STREAM"),
-            &jetstream_name(&values[1], "CONSUMER"),
-        ) {
-            Ok(value) => MessageTransportKind::Nats(NatsTransportKind::JetStream(Box::new(value))),
-            Err(error) => return messaging_error(error.to_string()),
-        },
-        Provider::Kafka => {
-            match KafkaTransport::connect(&values[0], &values[1], &kafka_group(&values[1])) {
-                Ok(value) => MessageTransportKind::Kafka(value),
-                Err(error) => return messaging_error(error.to_string()),
-            }
-        }
-        Provider::RabbitMq => match RabbitMqTransport::connect(&values[0], &values[1]) {
-            Ok(value) => MessageTransportKind::RabbitMq(Box::new(value)),
-            Err(error) => return messaging_error(error.to_string()),
-        },
-        Provider::Pulsar => match PulsarTransport::connect(
-            &values[0],
-            &values[1],
-            &jetstream_name(&values[1], "PULSAR_SUBSCRIPTION"),
-        ) {
-            Ok(value) => MessageTransportKind::Pulsar(value),
-            Err(error) => return messaging_error(error.to_string()),
-        },
-        // No `_` arm on purpose. Every Provider variant is handled above, so a
-        // catch-all is dead code today (it produced an `unreachable_patterns`
-        // warning) and harmful tomorrow: it would turn a newly added provider into
-        // a runtime error message instead of a compile error. Exhaustiveness is the
-        // fail-closed behaviour this boundary wants.
+    let transport = match build_transport(selected_provider, &values[0], &values[1]) {
+        Ok(value) => value,
+        Err(error) => return messaging_error(error),
     };
     Box::into_raw(Box::new(NativeMessagingClient { transport, route })) as jlong
+}
+
+/// Open a messaging client WITH a routing policy.
+///
+/// `nativeOpen` builds a `RouteConfig` with no rules, so the policy engine in
+/// `messaging` was unreachable from Java (BUGS B-002). This is the routed variant:
+/// `rules` carries pipe-delimited rules in `ModernRouteRule.encode()` form, evaluated
+/// in order, first match wins. It is additive — `nativeOpen` keeps its exact behaviour
+/// for callers that do not route.
+#[no_mangle]
+pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativeOpenRouted(
+    mut env: JNIEnv,
+    _class: JClass,
+    url: JString,
+    subject: JString,
+    mode: JString,
+    provider: JString,
+    rules: JObjectArray,
+) -> jlong {
+    let values = [&url, &subject, &mode, &provider]
+        .iter()
+        .map(|value| java_string(&mut env, value))
+        .collect::<Option<Vec<_>>>();
+    let values = match values {
+        Some(values) => values,
+        None => return messaging_error("invalid messaging connection string".to_string()),
+    };
+    let selected_mode = match messaging_mode(&values[2]) {
+        Ok(value) => value,
+        Err(error) => return messaging_error(error),
+    };
+    let selected_provider = match messaging_provider(&values[3]) {
+        Ok(value) => value,
+        Err(error) => return messaging_error(error),
+    };
+    let encoded_rules = match java_string_array(&mut env, &rules) {
+        Some(value) => value,
+        None => return messaging_error("invalid routing rule array".to_string()),
+    };
+    let mut parsed = Vec::with_capacity(encoded_rules.len());
+    for encoded in &encoded_rules {
+        match parse_route_rule(encoded) {
+            Ok(rule) => parsed.push(rule),
+            Err(error) => return messaging_error(error),
+        }
+    }
+    let route = RouteConfig {
+        default_mode: selected_mode,
+        default_provider: selected_provider,
+        rules: parsed,
+    };
+    let route_probe = match MessageEnvelope::new(&values[1], Payload::Text(String::new()), 0) {
+        Ok(value) => value,
+        Err(error) => return messaging_error(error.to_string()),
+    };
+    if let Err(error) = route.decide(&route_probe) {
+        return messaging_error(error.to_string());
+    }
+    let transport = match build_transport(selected_provider, &values[0], &values[1]) {
+        Ok(value) => value,
+        Err(error) => return messaging_error(error),
+    };
+    Box::into_raw(Box::new(NativeMessagingClient { transport, route })) as jlong
+}
+
+/// Evaluate the routing policy for a hypothetical message WITHOUT publishing it.
+///
+/// Returns `mode#provider#ruleId#allowed`, with an empty `ruleId` when the default
+/// route applied. This is the dry-run path (`RouteConfig::dry_run`) surfaced to Java —
+/// a denied route comes back as a decision so the caller can explain *why*, rather
+/// than as an error.
+#[no_mangle]
+pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativeDryRun(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    destination: JString,
+    tenant: JString,
+    header_name: JString,
+    header_value: JString,
+) -> jni::sys::jstring {
+    let client = match unsafe { messaging_client(handle) } {
+        Some(client) => client,
+        None => return messaging_string_error("messaging client is closed".to_string()),
+    };
+    let values = [&destination, &tenant, &header_name, &header_value]
+        .iter()
+        .map(|value| java_string(&mut env, value))
+        .collect::<Option<Vec<_>>>();
+    let values = match values {
+        Some(values) => values,
+        None => return messaging_string_error("invalid dry-run arguments".to_string()),
+    };
+    let mut probe = match MessageEnvelope::new(&values[0], Payload::Text(String::new()), 0) {
+        Ok(value) => value,
+        Err(error) => return messaging_string_error(error.to_string()),
+    };
+    if !values[1].is_empty() {
+        probe.tenant = Some(values[1].clone());
+    }
+    if !values[2].is_empty() {
+        probe.headers.insert(values[2].clone(), values[3].clone());
+    }
+    let decision = match client.route.dry_run(&probe) {
+        Ok(value) => value,
+        Err(error) => return messaging_string_error(error.to_string()),
+    };
+    let frame = format!(
+        "{}#{}#{}#{}",
+        messaging_mode_name(decision.mode),
+        messaging_provider_name(decision.provider),
+        decision.rule_id.unwrap_or_default(),
+        if decision.allowed { "1" } else { "0" }
+    );
+    match env.new_string(frame) {
+        Ok(value) => value.into_raw(),
+        Err(error) => messaging_string_error(error.to_string()),
+    }
 }
 
 #[no_mangle]

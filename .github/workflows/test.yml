@@ -66,6 +66,9 @@ jobs:
               echo "==== com.modernlink.$test"
               java -cp /workspace/modernlink.jar "com.modernlink.$test"
             done
-            echo "==== com.modernlink.messaging.LegacyJmsMessagingTest"
-            java -cp /workspace/modernlink.jar com.modernlink.messaging.LegacyJmsMessagingTest
+            for test in LegacyJmsMessagingTest RoutingPolicyTest
+            do
+              echo "==== com.modernlink.messaging.$test"
+              java -cp /workspace/modernlink.jar "com.modernlink.messaging.$test"
+            done
           '
