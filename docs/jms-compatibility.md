@@ -17,11 +17,12 @@ expects a specific JMS provider implementation.
 | JMS acknowledgement | `ModernAcknowledgementMode` | `AUTO`, `CLIENT`, and `DUPS_OK` are represented in the envelope boundary. |
 | JMS tracing headers | `ModernTraceContext` | Trace ID, span ID, parent span, trace state, and sampled flag are typed fields. |
 
-Transparent mode remains an integration gap: the native transport selection
-currently rejects `LEGACY_JMS`, so an application-server-specific JMS bridge
-must be added before existing vendor connections can be intercepted without
-source changes. Transactions, selectors, rollback/redelivery, and
-dead-letter semantics are intentionally not claimed by this façade yet.
+Transparent mode now has an in-process `LEGACY_JMS` compatibility transport so
+the façade contract can be exercised without a modern broker. This is not a
+vendor JMS broker adapter: an application-server-specific bridge is still
+required before existing vendor connections can be intercepted without source
+changes. Transactions, selectors, rollback/redelivery, and dead-letter
+semantics are intentionally not claimed by this prototype.
 
 The Java 6 distributable must keep these classes free of Java 8 language and
 library requirements. Provider clients stay behind the native boundary so the

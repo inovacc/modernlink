@@ -38,15 +38,15 @@ The JAR should expose a small, stable API to Java 6 code. Modern implementation 
 
 The messaging compatibility backlog is documented in [`docs/BACKLOG.md`](docs/BACKLOG.md). It separates the JMS application contract from JMX management and defines transparent pass-through, transform, and redirect modes for legacy infrastructure and modern providers.
 
-Executable cross-application contract fixtures live under [`hacks/`](hacks/README.md). They include a JMS/JMX-shaped publisher, a provider-neutral consumer, and a native NATS broker probe, with first-class trace ID and span ID propagation. The NATS probe is the only external-broker path currently implemented.
+Executable cross-application contract fixtures live under [`hacks/`](hacks/README.md). They include a JMS/JMX-shaped publisher, a provider-neutral consumer, and native broker probes for NATS, Kafka, Pulsar, and RabbitMQ, with first-class trace ID and span ID propagation. The `LEGACY_JMS` transparent fixture uses an in-process compatibility transport; it is not a vendor JMS broker bridge.
 
 ## Java 6 HTTPS adapter
 
 The packaged JAR also provides `com.modernlink.ModernHttpsURLConnection`, a Java 6-compatible `HttpsURLConnection`-style facade over the ModernLink request API. It supports request methods and properties, connect/read timeouts covering TCP connection and TLS handshake, buffered request output, response streams, status and headers, redirect policy inherited from `LegacyHttpRequest`, and TLS cipher/certificate access.
 
-The messaging facade can select `NATS` or durable `NATS_JETSTREAM` through the
-same Java 6 connection factory; provider selection remains explicit and does
-not imply Kafka, Pulsar, or RabbitMQ support.
+The messaging facade can select `LEGACY_JMS`, `NATS`, durable `NATS_JETSTREAM`,
+Kafka, Pulsar, or RabbitMQ through the same Java 6 connection factory; provider
+selection remains explicit and does not imply vendor-level JMS compatibility.
 
 The adapter is created explicitly with `new ModernHttpsURLConnection(new URL("https://..."))`; it does not register a global URL handler. The Docker build produces the distributable artifact at `/workspace/modernlink.jar`, with the platform native library embedded under the JAR's native resource path.
 

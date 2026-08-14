@@ -3,9 +3,10 @@ use jni::objects::{JByteArray, JClass, JObjectArray, JString};
 use jni::sys::{jbyteArray, jint, jlong, jobjectArray};
 use jni::JNIEnv;
 use messaging::{
-    AcknowledgementMode, DeliveryReceipt, DeliveryState, KafkaTransport, MessageEnvelope,
-    MessageTransport, MessageTransportKind, Mode, NatsTransport, NatsTransportKind, Payload,
-    Provider, PulsarTransport, RabbitMqTransport, RouteConfig, TraceContext,
+    AcknowledgementMode, DeliveryReceipt, DeliveryState, InMemoryTransport, KafkaTransport,
+    MessageEnvelope, MessageTransport, MessageTransportKind, Mode, NatsTransport,
+    NatsTransportKind, Payload, Provider, PulsarTransport, RabbitMqTransport, RouteConfig,
+    TraceContext,
 };
 use std::cell::RefCell;
 use std::time::Duration;
@@ -213,6 +214,9 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
         return messaging_error(error.to_string());
     }
     let transport = match selected_provider {
+        Provider::LegacyJms => MessageTransportKind::LegacyJms(InMemoryTransport::new(
+            Provider::LegacyJms,
+        )),
         Provider::Nats => match NatsTransport::connect(&values[0], &values[1]) {
             Ok(value) => MessageTransportKind::Nats(NatsTransportKind::Core(value)),
             Err(error) => return messaging_error(error.to_string()),
@@ -246,7 +250,7 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
         },
         _ => {
             return messaging_error(
-                "native messaging client currently supports NATS, Kafka, Pulsar, and RabbitMQ"
+                "native messaging client currently supports Legacy JMS, NATS, Kafka, Pulsar, and RabbitMQ"
                     .to_string(),
             )
         }

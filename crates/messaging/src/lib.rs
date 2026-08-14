@@ -1181,6 +1181,7 @@ impl MessageTransport for KafkaTransport {
 }
 
 pub enum MessageTransportKind {
+    LegacyJms(InMemoryTransport),
     Nats(NatsTransportKind),
     Kafka(KafkaTransport),
     RabbitMq(RabbitMqTransport),
@@ -1190,6 +1191,7 @@ pub enum MessageTransportKind {
 impl MessageTransport for MessageTransportKind {
     fn provider(&self) -> Provider {
         match self {
+            Self::LegacyJms(transport) => transport.provider(),
             Self::Nats(transport) => transport.provider(),
             Self::Kafka(transport) => transport.provider(),
             Self::RabbitMq(transport) => transport.provider(),
@@ -1199,6 +1201,7 @@ impl MessageTransport for MessageTransportKind {
 
     fn publish(&self, message: MessageEnvelope) -> Result<DeliveryReceipt, DomainError> {
         match self {
+            Self::LegacyJms(transport) => transport.publish(message),
             Self::Nats(transport) => transport.publish(message),
             Self::Kafka(transport) => transport.publish(message),
             Self::RabbitMq(transport) => transport.publish(message),
@@ -1208,6 +1211,7 @@ impl MessageTransport for MessageTransportKind {
 
     fn receive(&self) -> Result<Option<ReceivedMessage>, DomainError> {
         match self {
+            Self::LegacyJms(transport) => transport.receive(),
             Self::Nats(transport) => transport.receive(),
             Self::Kafka(transport) => transport.receive(),
             Self::RabbitMq(transport) => transport.receive(),
@@ -1217,6 +1221,7 @@ impl MessageTransport for MessageTransportKind {
 
     fn acknowledge(&self, receipt: &DeliveryReceipt) -> Result<DeliveryReceipt, DomainError> {
         match self {
+            Self::LegacyJms(transport) => transport.acknowledge(receipt),
             Self::Nats(transport) => transport.acknowledge(receipt),
             Self::Kafka(transport) => transport.acknowledge(receipt),
             Self::RabbitMq(transport) => transport.acknowledge(receipt),
@@ -1471,6 +1476,25 @@ mod tests {
         let received = transport.receive().unwrap().unwrap();
         assert_eq!(received.message.message_id, message_id);
         let acknowledged = transport.acknowledge(&received.receipt).unwrap();
+        assert_eq!(acknowledged.state, DeliveryState::Acknowledged);
+    }
+
+    #[test]
+    fn legacy_jms_transport_preserves_message_and_acknowledgement_contract() {
+        let transport =
+            super::MessageTransportKind::LegacyJms(InMemoryTransport::new(Provider::LegacyJms));
+        let message = message();
+        let message_id = message.message_id.clone();
+        let trace_id = message.tracing.trace_id.clone();
+
+        let published = transport.publish(message).unwrap();
+        let received = transport.receive().unwrap().unwrap();
+        let acknowledged = transport.acknowledge(&received.receipt).unwrap();
+
+        assert_eq!(published.provider, Provider::LegacyJms);
+        assert_eq!(published.state, DeliveryState::Published);
+        assert_eq!(received.message.message_id, message_id);
+        assert_eq!(received.message.tracing.trace_id, trace_id);
         assert_eq!(acknowledged.state, DeliveryState::Acknowledged);
     }
 

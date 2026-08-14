@@ -74,10 +74,18 @@ the shared `ModernMessagingMetricsMBean`:
 
 ```powershell
 java -cp hacks/java6-messaging/classes com.modernlink.messaging.JmsFacadeNatsApp
-java -cp hacks/java6-messaging/classes com.modernlink.messaging.JmsFacadeNatsApp nats://127.0.0.1:4222 modernlink.java6.jms.jetstream NATS_JETSTREAM
+java -cp hacks/java6-messaging/classes com.modernlink.messaging.JmsFacadeNatsApp nats://127.0.0.1:4222 modernlink.java6.jms.jetstream NATS_JETSTREAM REDIRECT
 ```
 
-The facade currently supports both `NATS` and `NATS_JETSTREAM` provider paths.
+The fourth argument selects `TRANSPARENT`, `TRANSFORM`, or `REDIRECT`; it
+defaults to `REDIRECT`. `LEGACY_JMS TRANSPARENT` uses the in-process
+compatibility transport and is intended to exercise the legacy contract
+without claiming vendor JMS-broker interoperability:
+
+```powershell
+java -cp hacks/java6-messaging/classes com.modernlink.messaging.JmsFacadeNatsApp legacy://in-process modernlink.java6.jms.facade LEGACY_JMS TRANSPARENT
+```
+
 Other provider adapters, JNDI lookup, transactions, and selectors remain
 explicit capability gaps.
 

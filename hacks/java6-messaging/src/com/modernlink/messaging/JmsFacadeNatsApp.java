@@ -1,6 +1,6 @@
 package com.modernlink.messaging;
 
-/** JMS-shaped Java 6 fixture using the shared JMX contract and native NATS. */
+/** JMS-shaped Java 6 fixture using the shared JMX contract and native transport. */
 public final class JmsFacadeNatsApp {
     private JmsFacadeNatsApp() { }
 
@@ -10,8 +10,11 @@ public final class JmsFacadeNatsApp {
         ModernMessagingProvider provider = args.length > 2
             ? ModernMessagingProvider.valueOf(args[2].toUpperCase())
             : ModernMessagingProvider.NATS;
+        ModernMessagingMode mode = args.length > 3
+            ? ModernMessagingMode.valueOf(args[3].toUpperCase())
+            : ModernMessagingMode.REDIRECT;
         ModernConnectionFactory factory = new ModernConnectionFactory(url, subject,
-            ModernMessagingMode.REDIRECT, provider);
+            mode, provider);
         ModernConnection connection = factory.createConnection();
         try {
             ModernSession session = connection.createSession(ModernAcknowledgementMode.CLIENT);
@@ -26,7 +29,7 @@ public final class JmsFacadeNatsApp {
                 || !published.getTraceId().equals(received.getMessage().getTracing().getTraceId())) {
                 throw new IllegalStateException("JMS-shaped facade changed message identity or tracing");
             }
-            System.out.println("provider=" + factoryProvider(connection) + " mode=REDIRECT"
+            System.out.println("provider=" + factoryProvider(connection) + " mode=" + mode
                 + " destination=" + subject + " message-id=" + received.getMessage().getMessageId()
                 + " trace-id=" + received.getMessage().getTracing().getTraceId()
                 + " published=" + published.getState() + " received=" + received.getReceipt().getState()

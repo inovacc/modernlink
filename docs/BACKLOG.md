@@ -105,10 +105,14 @@ acknowledgement receipts, and trace context, and exposes read-only counters via
 the provider-neutral compatibility scope below. The Rust messaging crate also
 contains a JetStream transport that uses a durable pull consumer and server-side
 acknowledgement, and the Java/JNI provider selection surface accepts
-`NATS_JETSTREAM`. Kafka and RabbitMQ adapters are now available through the same
-uniform transport boundary and Java/JNI provider selection. Pulsar adapter
-implementation is now present on the isolated Pulsar worktree and still
-requires broker-runtime evidence before it can be treated as delivered.
+`NATS_JETSTREAM`. Kafka, RabbitMQ, and Pulsar adapters are available through the
+same uniform transport boundary and Java/JNI provider selection; their broker
+fixtures remain separate runtime evidence paths.
+
+The `LEGACY_JMS` provider now has an in-process compatibility transport for
+transparent-mode contract fixtures. It is not yet a vendor-broker JMS bridge;
+JNDI, transactions, selectors, rollback/redelivery, and dead-letter behavior
+remain provider-adapter work.
 
 ## Backlog items
 
