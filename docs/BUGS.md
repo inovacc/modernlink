@@ -1,17 +1,46 @@
 # Bugs
-<!-- rev:002 (RFC 3339) 2026-08-14T02:22:19Z -->
+<!-- rev:004 (RFC 3339) 2026-08-14T08:05:00Z -->
 
 Behaviour that is **wrong and should be fixed**. Deliberate constraints belong in
 [ISSUES.md](ISSUES.md); planned work belongs in [BACKLOG.md](BACKLOG.md).
 
 | ID | Severity | Status | Summary |
 |---|---|---|---|
-| B-001 | high | open | CI `Rust workspace` job cannot build `rdkafka-sys`; the Rust suite never runs in CI |
-| B-002 | high | open | The routing policy engine is unreachable from Java — every `RouteConfig` is built with zero rules |
+| B-001 | high | **resolved** `dd080b2` | CI `Rust workspace` job could not build `rdkafka-sys`; the Rust suite never ran in CI |
+| B-002 | high | **resolved** `ad4bd2f` | The routing policy engine was unreachable from Java — every `RouteConfig` was built with zero rules |
 
 ## Open
 
-### B-001 — CI `Rust workspace` job fails before reaching the tests
+None.
+
+## Resolved — B-001
+
+### B-001 — CI `Rust workspace` job failed before reaching the tests — **RESOLVED**
+
+**Resolved by `dd080b2`, confirmed by run
+[31781200582](https://github.com/inovacc/modernlink/actions/runs/31781200582) on 2026-08-14** —
+the first execution of the fixed workflow, after the branch was pushed. Both jobs succeeded, and
+the per-step detail answers the question the bug actually asked — *did it reach the tests?*
+
+```
+Rust workspace:
+  4. Install native build dependencies -> success
+  5. Test workspace                    -> success   <- previously died before this step
+  6. Check JNI crate                   -> success
+  7. Format                            -> success
+  8. Lint                              -> success
+Java 6 JAR integration                 -> success
+```
+
+The fix was the symptom-level one: install `libcurl4-openssl-dev`, `libsasl2-dev`, `cmake` and
+`protobuf-compiler` in the job. **The root-layer issue remains open as SC-07**: `crates/messaging`
+still declares no `[features]`, so every workspace build anywhere compiles a native Kafka client
+for tests that touch no broker. That is now a cost and a portability problem rather than a broken
+gate.
+
+The original report follows.
+
+### The original report
 
 - **Severity:** high — this is a broken verification gate, not just a red build. Several docs
   cited this job as proof the Rust suite is exercised, so the failure was manufacturing false
@@ -43,7 +72,25 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 - **Decide the root layer before patching the symptom.** A broker-free unit-test run should not
   require a native Kafka toolchain on every machine that touches the repo.
 
-### B-002 — the routing policy engine cannot be reached from the Java facade
+This is not a claim that the rest of the code is correct. Beyond B-001, **no failing test,
+crash, or incorrect-output case has been observed and written down**. The honest state of
+verification is recorded under "Verification reach" below.
+
+## Resolved
+
+### B-002 — the routing policy engine could not be reached from the Java facade
+
+**Resolved in `ad4bd2f`.** `crates/jni/src/lib.rs:354` adds `nativeOpenRouted`, which parses a
+rule set at `:379-393`; `:447` adds `nativeDryRun` for policy evaluation without publishing.
+The Java side gained `ModernRouteRule`, `ModernRouteDecision`, factory/client overloads and
+`ModernConnection.evaluateRoute`. `RoutingPolicyTest` covers default fallthrough, exact and
+prefix matching, tenant constraints, denial-by-rule, first-match-wins and the rejection paths.
+
+**Falsified before acceptance:** forcing `rules` back to `Vec::new()` made the test fail with
+`expected exact-hit, got null`; reverting made it pass. The regression test does fail against
+the pre-fix code, so it is real evidence rather than a test that cannot fail.
+
+The original report follows, unedited, because a resolved bug's history is the useful part.
 
 - **Severity:** high — a documented capability is not wired to its only caller. This is a
   partial-delivery defect: the engine was built, the surface that exposes it was not.
@@ -62,26 +109,40 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
   policy…`; corrected to `[~]` in the same revision that filed this bug. Follow-on work is
   tracked as **MSG-06** in [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md).
 
-This is not a claim that the rest of the code is correct. Beyond B-001 and B-002, **no failing
-test, crash, or incorrect-output case has been observed and written down**. The honest state of
-verification:
+## Verification reach
 
-- `cargo test --workspace` is CI-gated on ubuntu, **but that gate is currently failing before the
-  tests run (B-001)** — so the Rust suite is *not* being exercised in CI. It has been observed to
-  pass locally on Windows; that is a machine result on one platform, not proof of correctness.
-- The Java facade is only compiled and run inside `docker/java6/Dockerfile`; CI executes three
-  of the ten test classes (`LegacyHttpResponseStructuredTest`, `ModernHttpsURLConnectionTest`,
-  `LegacyHttpsTest`).
-- **No broker-backed messaging behavior has ever been exercised.** Everything in
-  `crates/messaging` beyond `InMemoryTransport` is a source-level claim — a defect there would
-  not currently be detected by anything. See ISSUES I-010.
-- No run against the real Java 6 host product has been recorded.
+What the suites actually cover, so absence of bugs is not mistaken for evidence of correctness:
 
-A bug found in those unexercised areas belongs here the moment it is observed.
+- `cargo test --workspace`, `cargo check -p jni@0.1.0`, `cargo fmt --all -- --check` and
+  `cargo clippy … -D warnings` **all passed in CI** on ubuntu, run
+  [31781200582](https://github.com/inovacc/modernlink/actions/runs/31781200582), 2026-08-14 —
+  and the Rust job reached its test step rather than dying in a build step. Also observed exit 0
+  locally on Windows (Codex-run).
+- **The Java 6 runtime is now exercised.** In the same run, all **13** test classes ran from the
+  packaged JAR on a real Java 6 JVM — `native-smoke-jvm=1.6.0_38`, `Linux/amd64` — including
+  `native-smoke-load=ok` (so the **linux-x86_64** native loads under Java 6),
+  `tls-protocol=TLSv1_3` for live HTTPS, `legacy-jms-messaging=PASS` and `routing-policy=PASS`.
+  That also demonstrates the new test classes are genuinely Java 6-compatible: they compiled
+  under `javac -source 1.6 -target 1.6`.
+- **Still not exercised:** `linux-aarch64` has never been loaded on any JVM.
+- **Broker-backed messaging has now been exercised, for three providers.** On 2026-08-14
+  `cargo test -p messaging --test broker_backed -- --ignored` exited 0 with
+  `nats_core_send_receive_ack`, `nats_jetstream_send_receive_ack` and `rabbitmq_send_receive_ack`
+  all passing against live NATS/JetStream/RabbitMQ. That retires the blanket "no broker-backed
+  behavior has ever been exercised" claim — **but only for send/receive/ack on those three.**
+  Kafka and Pulsar still have no broker-backed test, and durability, reconnect, ordering,
+  concurrency, failure and redelivery remain unexercised everywhere. See ISSUES I-010.
+- The Java facade is compiled and run only inside `docker/java6/Dockerfile`. All **13** test
+  classes are enumerated and, as of run 31781200582, all 13 executed and passed.
+- `cargo fmt --all -- --check` passes in CI but **fails locally**: three diffs in
+  `crates/messaging/tests/broker_backed.rs` (lines 75, 85, 143). CI does not see them because
+  that file is still untracked — so the gate is green only by virtue of the evidence being
+  invisible to it.
+- **No run against the real vendor host product** has been recorded. Java 6 the *runtime* is now
+  exercised; the locked *product* the layer exists to serve is not, and neither is its JMS
+  implementation (I-009, I-011).
 
-## Resolved
-
-None recorded.
+A bug found in the unexercised areas belongs here the moment it is observed.
 
 ## How to file
 

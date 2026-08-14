@@ -1,5 +1,5 @@
 # ModernLink Messaging Compatibility Backlog
-<!-- rev:003 (RFC 3339) 2026-08-14T02:22:19Z -->
+<!-- rev:004 (RFC 3339) 2026-08-14T07:27:46Z -->
 
 ## Objective
 
@@ -250,7 +250,10 @@ Added 2026-08-14 from a docs/state reconciliation. Tasks are broken out in
 [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md); the constraints behind them are in
 [ISSUES.md](ISSUES.md).
 
-### P1 — no crate declares `publish = false` (SC-01)
+### ~~P1 — no crate declares `publish = false` (SC-01)~~ — **DONE `315fe87`**
+
+All six manifests now carry `publish = false`. Original text retained below for history.
+
 
 None of the six manifests blocks publication, and the crate names (`core`, `http`, `tls`,
 `jni`) are exactly the ones most likely to collide on crates.io. One line per manifest.
@@ -275,15 +278,26 @@ coverage tooling at all, since there is no Maven or Gradle build.
 
 `.github/workflows/test.yml` runs only `cargo test --workspace` and `cargo check -p jni@0.1.0`.
 
-**Correction (2026-08-14):** an earlier revision claimed `cargo fmt --all -- --check` and
-`cargo clippy --workspace --all-targets -- -D warnings` "both pass today". That claim was
-unverified and is very likely false — the P2 item below records an `unreachable_patterns`
-warning at `crates/jni/src/lib.rs:264`, reproduced in this session's local `cargo check -p
-jni@0.1.0`, and `-D warnings` promotes exactly that to an error. **Neither command has been run
-to completion and recorded.** Adding them as gates is still worth doing, but it is not free:
-expect the clippy gate to fail on first run until that warning is resolved.
+**Correction history (2026-08-14).** An earlier revision claimed both commands "pass today"
+while the same file recorded an `unreachable_patterns` warning that `-D warnings` would promote
+to an error — an unverified claim the file itself contradicted. Both were then actually run:
+clippy reported **six** findings, including two `MutexGuard`s held across an `.await` in the
+Pulsar transport (a real deadlock risk), all fixed in `242cb3c`. The gates were added to CI in
+`dd080b2`.
 
-### P2 — seven of ten Java test classes never run (VER-03)
+**Current state:** `cargo clippy --workspace --all-targets -- -D warnings` → exit 0 and
+`cargo check -p jni@0.1.0` → exit 0 (2026-08-14, **self-verified same-model** — Codex could not
+run them: its sandbox hit a persistent `.cargo-build-lock` permission fault, and its clippy
+invocation dropped the `--` separator). `cargo fmt --all -- --check` → **exit 1**, three diffs in
+the untracked `crates/messaging/tests/broker_backed.rs` (lines 75, 85, 143) — confirmed
+independently by Codex and locally. Expect the format gate to be red on its first real run.
+
+### ~~P2 — seven of ten Java test classes never run (VER-03)~~ — **DONE `dd080b2`**
+
+The workflow now enumerates all **13** classes (the count grew from ten: VER-05 added the native
+smoke test, VER-08 added two messaging tests). Configured but never executed — the commit is
+unpushed. Original text retained below for history.
+
 
 CI executes `LegacyHttpResponseStructuredTest`, `ModernHttpsURLConnectionTest`, and
 `LegacyHttpsTest`. The other seven under `java/src/test/java/com/modernlink/` are compiled into

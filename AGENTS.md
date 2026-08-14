@@ -1,5 +1,5 @@
 # AGENTS.md — ModernLink
-<!-- rev:002 (RFC 3339) 2026-08-14T02:22:19Z -->
+<!-- rev:004 (RFC 3339) 2026-08-14T08:05:00Z -->
 
 Canonical cross-tool agent instructions for the ModernLink repo (read by Claude Code,
 Codex, Cursor, Gemini, etc. — Claude Code imports this from `CLAUDE.md`). Must-know
@@ -45,8 +45,10 @@ The distributable is one JAR with per-platform native resources embedded
 - **`cargo check -p jni` is ambiguous — always use `-p jni@0.1.0`.** The workspace crate `jni`
   collides with the external `jni` crate it depends on. The same applies to `core`, which
   shadows Rust's built-in `core`. See [docs/ISSUES.md](docs/ISSUES.md).
-- **Do not publish to crates.io.** No manifest currently carries `publish = false` — treat
-  every crate as non-publishable regardless, and do not run `cargo publish`.
+- **Do not publish to crates.io.** All six manifests now carry `publish = false`
+  (`crates/{core,http,tls,jni,messaging}/Cargo.toml:6`, `hacks/messaging-demo/Cargo.toml:6`,
+  landed in `315fe87`), so publication is blocked mechanically rather than by convention.
+  Do not run `cargo publish` regardless.
 
 ## Build & test commands
 
@@ -63,10 +65,20 @@ they mirror `.github/workflows/test.yml`.
 | Build the Java 6 JAR | `docker build -f docker/java6/Dockerfile -t modernlink-java6 .` |
 | Run a packaged Java test | `docker run --rm modernlink-java6 sh -c "java -cp /workspace/modernlink.jar com.modernlink.LegacyHttpsTest"` |
 
-**Only `cargo test --workspace` and `cargo check -p jni@0.1.0` are CI-gated** for Rust; `fmt`,
-`clippy`, and coverage are available but not enforced by a workflow. The Java side has **no
+**`cargo test --workspace`, `cargo check -p jni@0.1.0`, `cargo fmt --all -- --check` and
+`cargo clippy --workspace --all-targets -- -D warnings` are all CI-gated** for Rust as of
+`dd080b2` (`.github/workflows/test.yml`). Coverage is still not gated. The Java side has **no
 Maven or Gradle build** — `javac` runs inside `docker/java6/Dockerfile`, which is the only
 supported way to compile and package the facade.
+
+**All four gates passed in CI** on run
+[31781200582](https://github.com/inovacc/modernlink/actions/runs/31781200582) (2026-08-14), which
+also resolved [docs/BUGS.md](docs/BUGS.md) B-001 — the Rust job reached its test step instead of
+dying in the `rdkafka-sys` build.
+
+Caveat worth knowing before you trust the format gate: `cargo fmt --all -- --check` **fails
+locally** on three spots in `crates/messaging/tests/broker_backed.rs`. CI is green only because
+that file is still untracked, so the gate cannot see it. Run `cargo fmt --all` before committing it.
 
 > **The Rust CI gate is currently RED and has been for five consecutive pushes.** The
 > `Rust workspace` job dies building `rdkafka-sys` on a missing `curl/curl.h` and never reaches
@@ -92,8 +104,10 @@ neither does the CI runner today, which is exactly B-001.
 
 - Rust tests must pass before merge: `cargo test --workspace`.
 - Java tests are **standalone `main`-style classes** run from the packaged JAR, not JUnit —
-  see `java/src/test/java/com/modernlink/*Test.java`. CI runs three of them; add new ones the
-  same way and wire them into `.github/workflows/test.yml`.
+  see `java/src/test/java/com/modernlink/` (11 classes) and
+  `java/src/test/java/com/modernlink/messaging/` (2 classes), **13 in total**. As of `dd080b2`
+  the workflow enumerates and runs all of them; add new ones the same way and wire them into
+  `.github/workflows/test.yml`, because a class the workflow does not name never runs.
 - The fixtures under `hacks/` are deterministic contract probes. They are **not** evidence of
   broker-backed behavior — real broker integration remains unproven.
 

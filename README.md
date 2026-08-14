@@ -1,5 +1,5 @@
 # ModernLink
-<!-- rev:002 (RFC 3339) 2026-08-14T02:22:19Z -->
+<!-- rev:004 (RFC 3339) 2026-08-14T08:05:00Z -->
 
 *(formerly "Legacy Exit Gateway SDK" — the product name is ModernLink, matching `AGENTS.md`,
 the `modernlink` native library, and the `inovacc/modernlink` repository.)*
@@ -72,7 +72,13 @@ TLS policy defaults to a minimum of TLS 1.2. Java callers may select `LegacyHttp
 
 `ModernHttpsURLConnection` forwards its instance redirect flag and exposes `maxRedirects(int)`. Custom Java `HostnameVerifier` and `SSLSocketFactory` instances are explicitly rejected because the connection is terminated and verified by Rust; accepting those objects while ignoring them would create a misleading security contract.
 
-This architecture is still a design hypothesis in the sense that **none of it has been validated at runtime**. The integration approach itself is no longer open: embedded JNI was chosen over an external sidecar process, recorded in [`docs/adr/0001-jni-boundary-over-sidecar.md`](docs/adr/0001-jni-boundary-over-sidecar.md) (Status: Accepted). The section below is retained as the rationale behind that decision, not as an open question.
+**What has and has not been validated at runtime**, as of 2026-08-14 — see [`docs/evidence/2026-08-14-native-runtime.md`](docs/evidence/2026-08-14-native-runtime.md):
+
+- **Executed on a real Java 6 JVM** (`1.6.0_38`, `linux-x86_64`, from the packaged JAR in CI run [31781200582](https://github.com/inovacc/modernlink/actions/runs/31781200582)): the native library loads through the real `NativeLoader` path (resource selection, SHA-256 extraction, `System.load`); a live HTTPS request negotiates TLSv1_3 with TLS terminated in Rust; the JMS-shaped messaging facade and the routing policy both pass. All 13 test classes ran.
+- **Executed on a modern JVM** (Windows, JVM 21): the same native path on **windows-x86_64**, `status=200` with a 4-certificate chain, and a send → receive → acknowledge round trip against **live NATS, NATS JetStream and RabbitMQ**.
+- **Not executed:** the **vendor host product** itself, and its JMS implementation — `LEGACY_JMS` is an in-process transport, not a vendor bridge. **linux-aarch64** has never been loaded on any JVM. **Kafka and Pulsar** have no broker-backed test. Durability, reconnect, ordering, concurrency, failure and redelivery semantics are unexercised for every provider.
+
+The integration approach itself is no longer open: embedded JNI was chosen over an external sidecar process, recorded in [`docs/adr/0001-jni-boundary-over-sidecar.md`](docs/adr/0001-jni-boundary-over-sidecar.md) (Status: Accepted). The section below is retained as the rationale behind that decision, not as an open question.
 
 ## Integration alternatives
 
@@ -169,7 +175,7 @@ Xerial SQLite JDBC is the primary reference for this pattern: its documentation 
 
 ## Document status
 
-This document describes a research direction and a candidate architecture. It is not yet an implementation specification, and it is not evidence that the integration works with the legacy product. Validation must later be performed with the Java 6 runtime, target platforms, and real services.
+This document describes a research direction and a candidate architecture. The Java 6 runtime and two of the three target platforms are now exercised, but it is still **not** evidence that the integration works with the legacy product: the vendor's own application, its JMS implementation, and the real services it talks to have never been part of any run.
 
 ## Current implementation layout
 

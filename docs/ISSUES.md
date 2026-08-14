@@ -1,5 +1,5 @@
 # Known Issues and Limitations
-<!-- rev:002 (RFC 3339) 2026-08-14T02:22:19Z -->
+<!-- rev:003 (RFC 3339) 2026-08-14T07:27:46Z -->
 
 Constraints accepted on purpose or imposed by the platform. Defects that should be fixed live
 in [BUGS.md](BUGS.md); future work lives in [BACKLOG.md](BACKLOG.md).
@@ -94,13 +94,27 @@ The `LEGACY_JMS` provider is backed by `InMemoryTransport` for transparent-mode 
 fixtures. JNDI, transactions, selectors, rollback/redelivery, and dead-letter behavior are
 **not** implemented. The name is about the contract shape, not broker interoperability.
 
-### I-010 — broker-backed behavior is unproven at runtime
+### I-010 — broker-backed behavior is largely unproven at runtime (narrowed 2026-08-14)
 
 Kafka, Pulsar, NATS, JetStream, and RabbitMQ transports exist in `crates/messaging` and are
-selectable through the JNI provider surface. Durability, acknowledgement, reconnect,
-concurrency, ordering, and failure semantics are **source-level claims only** — no
-broker-backed integration evidence has been recorded. The fixtures under `hacks/` are
-deterministic contract probes, not integration tests.
+selectable through the JNI provider surface.
+
+**What is now proven:** a single send → receive → acknowledge round trip against **live NATS
+core, NATS JetStream and RabbitMQ**, asserting that message id, destination, payload, trace
+context and delivery state survive the broker
+(`crates/messaging/tests/broker_backed.rs`; all three passed 2026-08-14). This is the first
+broker-backed evidence the project has ever had.
+
+**What is still a source-level claim:**
+- **Kafka and Pulsar have no broker-backed test at all.**
+- Durability, reconnect, concurrency, ordering, failure and redelivery semantics are
+  unexercised for **every** provider, including the three above. One happy-path round trip is
+  not delivery semantics.
+- The tests are `#[ignore]`d so a normal `cargo test` does not run them, and they require
+  brokers on `127.0.0.1:4222` / `:5672`. They are deliberately not self-skipping: with no
+  broker they fail loudly rather than reporting a hollow pass.
+
+The fixtures under `hacks/` remain deterministic contract probes, not integration tests.
 
 ### I-011 — no JMS version or vendor has been identified
 
@@ -109,15 +123,17 @@ decision, so the compatibility surface cannot yet be pinned. See BACKLOG "Open d
 
 ## Supply chain
 
-### I-012 — no crate declares `publish = false`
+### I-012 — ~~no crate declares `publish = false`~~ **RESOLVED `315fe87`**
 
-None of the six manifests (`crates/core`, `crates/http`, `crates/tls`, `crates/jni`,
-`crates/messaging`, `hacks/messaging-demo`) sets `publish = false`, so nothing mechanically
+All six manifests now set `publish = false` (`crates/{core,http,tls,jni,messaging}/Cargo.toml:6`,
+`hacks/messaging-demo/Cargo.toml:6`), so publication is blocked mechanically rather than by
+convention. Retained here for history; the original text follows.
+
+~~None of the six manifests sets `publish = false`, so nothing mechanically
 prevents a `cargo publish`. Given the crate names are `core`, `http`, `tls`, and `jni`, an
-accidental publish attempt is also guaranteed to collide with existing crates.io names.
+accidental publish attempt is also guaranteed to collide with existing crates.io names.~~
 
-**Workaround:** do not run `cargo publish`.
-**Fix:** add `publish = false` to all six — tracked as a P1 in [BACKLOG.md](BACKLOG.md).
+**Status:** fixed in `315fe87`. Still do not run `cargo publish`.
 
 ### I-013 — the `hacks/java6-messaging` fixtures are in no build path
 
@@ -126,7 +142,10 @@ accidental publish attempt is also guaranteed to collide with existing crates.io
 a JMX metrics MBean" is not exercised by any build. The `java6-classes/` directory in that tree
 is stale local output, not build evidence.
 
-**Status:** unresolved. Tracked as **VER-07** in
+**Status:** a fix exists but is **UNCOMMITTED** — `docker/java6/Dockerfile` now compiles the
+fixtures into a separate `build/fixtures` tree (kept out of the distributable JAR) and
+`.github/workflows/test.yml` runs `LegacyJmsJmxDemo`. Both changes sit in the working tree only,
+so this issue is **not** closed and a `git clean` would reopen it. Tracked as **VER-07** in
 [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md).
 
 ### I-014 — the project's ambition tier is contradictory across documents
@@ -146,8 +165,10 @@ No claim in this repository has been validated against the real Java 6 runtime, 
 platforms, or real services. The README states this explicitly, and it remains true.
 
 **Documented reach of the test suites**, so this is not mistaken for coverage:
-- The 20 Rust tests observed passing locally on 2026-08-14 exercise `InMemoryTransport` only;
-  no test touches a real broker.
-- Zero Java tests cover messaging — all ten classes under `java/src/test` are HTTP/utility.
-  Tracked as **VER-06**.
-- The Rust CI gate is red and has never run the suite ([BUGS.md](BUGS.md) B-001).
+- The 20 Rust tests in the default `cargo test --workspace` run exercise `InMemoryTransport`
+  only. Three additional `#[ignore]`d tests do reach live brokers when run explicitly — see
+  I-010 for exactly how far that goes.
+- **13** Java test classes now exist and two of them cover messaging
+  (`LegacyJmsMessagingTest`, `RoutingPolicyTest`), closing **VER-08**. Both use the in-process
+  `LEGACY_JMS` transport, so they exercise the facade and the JNI boundary, not a broker.
+- The Rust CI gate has never executed — the fixing commit is unpushed ([BUGS.md](BUGS.md) B-001).

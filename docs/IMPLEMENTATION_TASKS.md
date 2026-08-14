@@ -1,5 +1,5 @@
 # Implementation Tasks
-<!-- rev:002 (RFC 3339) 2026-08-14T02:22:19Z -->
+<!-- rev:003 (RFC 3339) 2026-08-14T07:27:46Z -->
 
 Granular tasks derived from [BACKLOG.md](BACKLOG.md), [FEATURES.md](FEATURES.md), and
 [ISSUES.md](ISSUES.md). Effort: **S** ≤ half a day · **M** ≤ two days · **L** > two days.
@@ -9,10 +9,10 @@ Task IDs are referenced from [ROADMAP.md](ROADMAP.md) and [MILESTONES.md](MILEST
 
 | ID | What | Files | Deps | Effort |
 |---|---|---|---|---|
-| SC-01 | Add `publish = false` to all six manifests (ISSUES I-012) | `crates/{core,http,tls,jni,messaging}/Cargo.toml`, `hacks/messaging-demo/Cargo.toml` | — | S |
+| ~~SC-01~~ | ~~Add `publish = false` to all six manifests~~ — **DONE `315fe87`** | `crates/{core,http,tls,jni,messaging}/Cargo.toml`, `hacks/messaging-demo/Cargo.toml` | — | S |
 | SC-02 | Pin the toolchain with `rust-toolchain.toml` so CI and the packaging image agree | `rust-toolchain.toml` | — | S |
 | SC-03 | Declare an MSRV (`rust-version`) in `[workspace.package]` | `Cargo.toml` | SC-02 | S |
-| SC-04 | Add `cargo fmt --check` + `cargo clippy -D warnings` jobs to CI | `.github/workflows/test.yml` | — | S |
+| ~~SC-04~~ | ~~Add `cargo fmt --check` + `cargo clippy -D warnings` jobs to CI~~ — **DONE `dd080b2`** (configured; never executed, and `fmt --check` currently fails on the untracked `broker_backed.rs`) | `.github/workflows/test.yml` | — | S |
 | SC-05 | Rename `crates/jni` → a non-colliding package name, dropping the `@0.1.0` workaround (I-001) | `crates/jni/Cargo.toml`, `Cargo.toml`, `.github/workflows/test.yml`, `docker/java6/Dockerfile` | SC-04 | M |
 | SC-06 | Rename `crates/core` so it stops shadowing Rust's built-in `core` (I-002) | `crates/core/Cargo.toml`, all dependents | SC-05 | M |
 | SC-07 | **Unblock the red CI Rust job (BUGS B-001).** Preferred: feature-gate the providers — `crates/messaging/Cargo.toml` has no `[features]`, so `rdkafka`/`pulsar`/`lapin`/`async-nats` are unconditional and every workspace test/clippy/coverage run must build a native Kafka client; gating them also fixes the Windows `llvm-cov` failure. Fallback: add `libcurl4-openssl-dev` (+ likely `libsasl2-dev`) to the job, per `docker/java6/Dockerfile:8` | `crates/messaging/Cargo.toml`, `.github/workflows/test.yml` | — | M |
@@ -30,14 +30,14 @@ Task IDs are referenced from [ROADMAP.md](ROADMAP.md) and [MILESTONES.md](MILEST
 
 | ID | What | Files | Deps | Effort |
 |---|---|---|---|---|
-| MSG-06 | **Expose the routing policy engine across the JNI boundary** — let Java supply a rule set instead of the hardcoded `rules: Vec::new()` at `crates/jni/src/lib.rs:217-221`, and surface dry-run + `rule_id` receipts. Closes BUGS B-002 | `crates/jni/src/lib.rs`, `java/src/main/java/com/modernlink/messaging/` | — | M |
+| ~~MSG-06~~ | ~~Expose the routing policy engine across the JNI boundary~~ — **DONE `ad4bd2f`**, closes BUGS B-002. `nativeOpenRouted` (`crates/jni/src/lib.rs:354`) takes a rule set; `nativeDryRun` (`:447`) evaluates policy without publishing; `ModernRouteRule` / `ModernRouteDecision` / `evaluateRoute` expose it. Falsified before acceptance | `crates/jni/src/lib.rs`, `java/src/main/java/com/modernlink/messaging/` | — | M |
 | VER-01 | Stand up broker fixtures in CI (testcontainers or compose) for NATS, Kafka, Pulsar, RabbitMQ | `.github/workflows/test.yml`, `docker/` | — | L |
-| VER-06 | **Add Java-side messaging tests — there are currently zero.** All ten classes in `java/src/test` cover HTTP/utility only; the ~18-class JMS-shaped facade has no test at all, so VER-03 ("run all ten") would still leave messaging at zero Java coverage | `java/src/test/java/com/modernlink/messaging/`, `.github/workflows/test.yml` | — | M |
-| VER-07 | Put `hacks/java6-messaging/` into a build path — `docker/java6/Dockerfile:22,28-31` compiles only `java/src`, so the BACKLOG acceptance criterion "the Java 6 fixture registers a JMX metrics MBean" is not exercised by anything | `docker/java6/Dockerfile`, `hacks/java6-messaging/` | — | S |
-| VER-02 | Broker-backed send/receive/ack integration test per provider (closes I-010) | `crates/messaging/tests/` | VER-01 | L |
-| VER-03 | Run **all ten** Java test classes in CI, not the current three | `.github/workflows/test.yml` | — | S |
-| VER-04 | Record a real Java 6 run of the packaged JAR against a live HTTPS endpoint | `docs/evidence/` | — | M |
-| VER-05 | Native-load smoke test per platform resource (linux-x86_64, linux-aarch64, windows-x86_64) | `java/src/test/java/com/modernlink/` | VER-03 | M |
+| ~~VER-08~~ | ~~Add Java-side messaging tests — there are currently zero.~~ — **DONE `5da1ec2` + `ad4bd2f`**: `LegacyJmsMessagingTest` (round trip, CLIENT-ack, JMX register/unregister with no payload leak, async listener) and `RoutingPolicyTest`. Both use in-process `LEGACY_JMS`, so they cover the facade and the JNI boundary, not a broker. *(Renumbered from VER-06, which the base-image task below already owned — an ID collision introduced 2026-08-14 and corrected the same day.)* | `java/src/test/java/com/modernlink/messaging/`, `.github/workflows/test.yml` | — | M |
+| VER-07 | Put `hacks/java6-messaging/` into a build path — **fix written but UNCOMMITTED**: `docker/java6/Dockerfile` now compiles the fixtures into a separate `build/fixtures` tree and `test.yml` runs `LegacyJmsJmxDemo`. Not closed until committed | `docker/java6/Dockerfile`, `hacks/java6-messaging/` | — | S |
+| VER-02 | Broker-backed send/receive/ack per provider (closes I-010) — **partially DONE**: NATS core, JetStream and RabbitMQ pass against live brokers (2026-08-14, Codex-verified); **Kafka and Pulsar remain untested**, only the happy path is covered, and `crates/messaging/tests/` is **untracked** | `crates/messaging/tests/` | VER-01 | L |
+| ~~VER-03~~ | ~~Run all ten Java test classes in CI, not the current three~~ — **DONE `dd080b2`**: the workflow enumerates all **13**. Configured, never executed (unpushed) | `.github/workflows/test.yml` | — | S |
+| VER-04 | Record a real **Java 6** run of the packaged JAR against a live HTTPS endpoint — **partially DONE `632eaa7`**: `docs/evidence/2026-08-14-native-runtime.md` records `status=200` over TLSv1_3 with 4 peer certs, but on a **Java 21** JVM. The Java 6 half is still open | `docs/evidence/` | — | M |
+| VER-05 | Native-load smoke test per platform — **windows-x86_64 DONE `632eaa7`** (`NativeLoadSmokeTest`); linux-x86_64 and linux-aarch64 natives are cross-compiled but never loaded (deferred: Windows first) | `java/src/test/java/com/modernlink/` | VER-03 | M |
 | VER-06 | Self-hosted or vendored Java 6 base image so the JAR build stops depending on a deprecated tag (I-004) | `docker/java6/` | — | M |
 
 ## Domain: message domain (BACKLOG M1)

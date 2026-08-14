@@ -1,5 +1,5 @@
 # Milestones
-<!-- rev:002 (RFC 3339) 2026-08-14T02:22:19Z -->
+<!-- rev:004 (RFC 3339) 2026-08-14T08:05:00Z -->
 
 Version milestones for ModernLink. **No git tags exist yet** — nothing has been released, so
 every version below is a target, not a shipped artifact. Phases are detailed in
@@ -18,15 +18,24 @@ just implemented.
 - [x] Single-JAR packaging with three platform natives
 - [x] HTTPS facade with TLS 1.2/1.3, redirects, certificates, capability bitmask
 - [x] Crate-level `//!` documentation
-- [ ] CI: `cargo test --workspace`, `cargo check -p jni@0.1.0`, JAR build + 3 Java tests —
-      the JAR build and the 3 Java tests pass; the **Rust job is RED** and has never reached the
-      test suite. See [BUGS.md](BUGS.md) B-001.
-- [ ] `publish = false` on all six manifests — **SC-01**
+- [x] CI: `cargo test --workspace`, `cargo check -p jni@0.1.0`, `fmt`, `clippy`, JAR build + all
+      13 Java tests — **all green** on run
+      [31781200582](https://github.com/inovacc/modernlink/actions/runs/31781200582) (2026-08-14),
+      which resolved [BUGS.md](BUGS.md) B-001.
+- [x] `publish = false` on all six manifests — **SC-01**, `315fe87`
 - [ ] Toolchain pin and declared MSRV — **SC-02**, **SC-03**
-- [ ] `fmt` + `clippy` enforced in CI — **SC-04**
-- [ ] All ten Java test classes running in CI — **VER-03**
-- [ ] A recorded Java 6 run against a live HTTPS endpoint — **VER-04**
-- [ ] Native-load smoke test per platform — **VER-05**
+- [x] `fmt` + `clippy` enforced in CI — **SC-04**, `dd080b2` (configured, never run)
+- [x] All **13** Java test classes running in CI — **VER-03**, `dd080b2`; all 13 executed and
+      passed on run 31781200582.
+- [x] A recorded **Java 6** run against a live HTTPS endpoint — **VER-04**. Run 31781200582
+      executed the suite on a real Java 6 JVM (`native-smoke-jvm=1.6.0_38`, `Linux/amd64`) from
+      the packaged JAR, reaching `tls-protocol=TLSv1_3` against a live endpoint. The earlier local
+      record ([docs/evidence/2026-08-14-native-runtime.md](evidence/2026-08-14-native-runtime.md),
+      `status=200`, 4 peer certs) used JVM 21 and covered the JNI boundary only; CI supplies the
+      Java 6 half.
+- [~] Native-load smoke test per platform — **VER-05**. **windows-x86_64** (local, JVM 21) and
+      **linux-x86_64** (CI, `native-smoke-load=ok` on JVM 1.6.0_38) both load. **linux-aarch64 has
+      never been loaded on any JVM** — that is the only platform left.
 - [ ] A working coverage measurement (blocked: llvm-cov fails on Windows)
 
 **Coverage target:** establish a baseline at all. There is no number today; see ROADMAP.
@@ -36,8 +45,11 @@ just implemented.
 Converts Phase 2 from claim to fact. This is the milestone that matters most: the transports are
 already written, so the entire value of this release is proof.
 
-- [ ] Broker fixtures in CI for NATS, Kafka, Pulsar, RabbitMQ — **VER-01**
-- [ ] Broker-backed send / receive / acknowledge test per provider — **VER-02**
+- [ ] Broker fixtures in CI for NATS, Kafka, Pulsar, RabbitMQ — **VER-01** (local docker only
+      so far, nothing in CI)
+- [~] Broker-backed send / receive / acknowledge test per provider — **VER-02**. NATS core,
+      JetStream and RabbitMQ pass (2026-08-14, verified by Codex); **Kafka and Pulsar have none**,
+      and only the happy path is covered.
 - [ ] Per-adapter guarantee declarations, queryable before traffic moves — **MSG-04**
 - [ ] Documented per-provider guarantees — **DOC-03**
 - [ ] Payload categories beyond text — **MSG-05**

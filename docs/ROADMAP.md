@@ -1,7 +1,7 @@
 # Roadmap
-<!-- rev:002 (RFC 3339) 2026-08-14T02:22:19Z -->
+<!-- rev:004 (RFC 3339) 2026-08-14T08:05:00Z -->
 
-Status at HEAD `af02427` on `main`. Phases follow the M1/M2 structure in
+Status at HEAD `ad4bd2f` on `main` (**8 commits unpushed**). Phases follow the M1/M2 structure in
 [BACKLOG.md](BACKLOG.md); tasks are broken out in
 [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md).
 
@@ -63,16 +63,23 @@ until then this file is written against the production bar because that is the s
 - [x] JMS-shaped Java facade: ConnectionFactory / Connection / Session / Producer / Consumer
 - [x] Typed delivery receipts and acknowledgement modes across the boundary
 - [x] Trace context as a first-class envelope field, preserved across modes
-- [~] Routing dispatch with provider-mismatch rejection and auditable receipt — **but the policy
-      engine is unreachable from Java.** `crates/jni/src/lib.rs:217-221` constructs every
-      `RouteConfig` with `rules: Vec::new()`, and no Java source references `RouteRule`,
-      `RouteConfig`, or `dry_run` (0 matches under `java/`). Rule matching, allow/deny,
-      predicates, dry-run and `rule_id` receipts exist only inside Rust. See [BUGS.md](BUGS.md)
-      B-002 and **MSG-06**.
+- [x] Routing dispatch with policy, provider-mismatch rejection and auditable receipt —
+      **reachable from Java** as of `ad4bd2f` (**MSG-06**, closes [BUGS.md](BUGS.md) B-002).
+      `nativeOpenRouted` accepts a rule set (`crates/jni/src/lib.rs:354`, parsing at `:379-393`)
+      and `nativeDryRun` (`:447`) evaluates policy without publishing; `ModernRouteRule` /
+      `ModernRouteDecision` / `ModernConnection.evaluateRoute` expose it, covered by
+      `RoutingPolicyTest`. Falsified before acceptance: forcing `rules: Vec::new()` back made the
+      test fail, reverting made it pass.
 - [x] Read-only JMX metrics MBean, Java 6-compatible
 - [x] Contract fixtures under `hacks/` for publisher/consumer across providers
-- [ ] **Broker fixtures in CI** — **VER-01** ← the gap that makes everything above a claim
-- [ ] **Broker-backed send/receive/ack test per provider** — **VER-02**
+- [ ] **Broker fixtures in CI** — **VER-01**. Brokers were stood up *locally* (docker `ml-nats`,
+      `ml-rabbitmq`) to produce the VER-02 evidence below; nothing is wired into CI yet, so the
+      evidence is not reproducible by anyone but the operator who runs the containers.
+- [~] **Broker-backed send/receive/ack test per provider** — **VER-02**. Done for **NATS core,
+      NATS JetStream and RabbitMQ** (`crates/messaging/tests/broker_backed.rs`, all three passed
+      2026-08-14, verified by Codex). **Kafka and Pulsar still have none.** One happy-path round
+      trip only — durability, reconnect, ordering, concurrency and failure semantics remain
+      unexercised for every provider. The test file is currently **untracked**.
 - [ ] Per-adapter guarantee declarations — **MSG-04**, **DOC-03**
 - [ ] Payload categories beyond text (map, stream, bytes, object) — **MSG-05**
 
@@ -105,15 +112,20 @@ until then this file is written against the production bar because that is the s
 ## Engineering hygiene · `[PARTIAL]`
 
 - [x] Apache-2.0 LICENSE
-- [ ] CI running `cargo test --workspace` + `cargo check -p jni@0.1.0` — **configured, but RED
-      for five consecutive pushes**; the job dies building `rdkafka-sys` and never reaches the
-      tests. See [BUGS.md](BUGS.md) B-001. Configured is not passing.
+- [x] CI running `cargo test --workspace` + `cargo check -p jni@0.1.0` — **passing** as of run
+      [31781200582](https://github.com/inovacc/modernlink/actions/runs/31781200582) (2026-08-14),
+      after five consecutive red pushes. The job now reaches and runs the tests instead of dying
+      in the `rdkafka-sys` build. [BUGS.md](BUGS.md) B-001 resolved.
 - [x] CI building and exercising the packaged JAR (the `Java 6 JAR integration` job passes)
 - [x] Crate-level `//!` docs on all five crates
-- [ ] `publish = false` on all six manifests — **SC-01** ← live hard-rule violation
+- [x] `publish = false` on all six manifests — **SC-01**, `315fe87`
 - [ ] Toolchain pin + declared MSRV — **SC-02**, **SC-03**
-- [ ] `fmt` and `clippy` enforced in CI — **SC-04**
-- [ ] All ten Java test classes run in CI (three run today) — **VER-03**
+- [x] `fmt` and `clippy` enforced in CI — **SC-04**, `dd080b2` (configured; the workflow has
+      never run — see B-001. `fmt --check` currently fails on the untracked
+      `crates/messaging/tests/broker_backed.rs`)
+- [x] All **13** Java test classes enumerated in CI — **VER-03**, `dd080b2` (was three of ten;
+      the count changed because VER-08 added two messaging tests and VER-05 added the native
+      smoke test)
 - [ ] Crate-name collisions resolved — **SC-05**, **SC-06**
 - [ ] Working coverage measurement — see below
 
@@ -127,11 +139,12 @@ until then this file is written against the production bar because that is the s
 No percentage is reported here rather than an estimated one.
 
 What is known instead:
-- `cargo test --workspace` is CI-gated on ubuntu-latest, **but the gate is failing before the
-  tests run** ([BUGS.md](BUGS.md) B-001), so the Rust suite is not being exercised in CI. It has
-  been observed to exit 0 locally on Windows (20 tests passed, 2026-08-14) — one platform, one
-  machine result, not a coverage figure and not proof of correctness.
-- Three of the ten Java test classes execute in CI.
+- `cargo test --workspace` now runs and passes in CI on ubuntu-latest (run 31781200582), plus
+  `check`, `fmt` and `clippy`. Also exit 0 locally on Windows. Two platforms, still machine
+  results rather than a coverage figure.
+- All 13 Java test classes ran and passed in CI from the packaged JAR on a **Java 6** JVM
+  (`1.6.0_38`, `Linux/amd64`), including the native load, live HTTPS at TLSv1_3, the messaging
+  facade and the routing policy.
 - The Java facade has no coverage tooling at all — no Maven/Gradle means no JaCoCo.
 
 Wiring a coverage measurement that works is tracked as **SC-04** / P2 in
