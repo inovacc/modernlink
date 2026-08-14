@@ -524,10 +524,9 @@ impl Drop for NatsJetStreamTransport {
                 drop(stream);
             });
         }
-        self.pending_acknowledgements
-            .lock()
-            .ok()
-            .map(|mut acknowledgements| acknowledgements.clear());
+        if let Ok(mut acknowledgements) = self.pending_acknowledgements.lock() {
+            acknowledgements.clear();
+        }
         self.context.take();
         self.client.take();
     }
@@ -647,9 +646,13 @@ impl MessageTransport for NatsJetStreamTransport {
     }
 }
 
+// Both variants are boxed deliberately. NatsJetStreamTransport is ~792 bytes and
+// NatsTransport ~312, and this enum is nested inside MessageTransportKind, so the
+// larger of the two set the size of EVERY transport variant. Boxing both keeps this
+// enum one pointer wide and stops NATS from inflating Kafka, RabbitMQ and Pulsar.
 pub enum NatsTransportKind {
-    Core(NatsTransport),
-    JetStream(NatsJetStreamTransport),
+    Core(Box<NatsTransport>),
+    JetStream(Box<NatsJetStreamTransport>),
 }
 
 pub struct KafkaTransport {
@@ -783,10 +786,15 @@ impl MessageTransport for PulsarTransport {
     fn receive(&self) -> Result<Option<ReceivedMessage>, DomainError> {
         let consumer = self.consumer.clone();
         let delivery = self.run_on_worker(move |runtime| {
+            // Take the guard on the worker thread BEFORE entering the async block.
+            // Holding a std::sync MutexGuard across an .await is a deadlock risk the
+            // moment anything else on this runtime wants the consumer; scoping it to
+            // the synchronous worker frame keeps the lock and the blocking wait in
+            // the same, obviously-serialized place.
+            let mut consumer = consumer.lock().map_err(|_| {
+                DomainError::Transport("Pulsar consumer is unavailable".to_string())
+            })?;
             runtime.block_on(async {
-                let mut consumer = consumer.lock().map_err(|_| {
-                    DomainError::Transport("Pulsar consumer is unavailable".to_string())
-                })?;
                 consumer
                     .next()
                     .await
@@ -835,10 +843,12 @@ impl MessageTransport for PulsarTransport {
             })?;
         let consumer = self.consumer.clone();
         self.run_on_worker(move |runtime| {
+            // Same reason as `receive`: acquire the guard synchronously on the worker
+            // thread rather than holding it across the .await inside block_on.
+            let mut consumer = consumer.lock().map_err(|_| {
+                DomainError::Transport("Pulsar consumer is unavailable".to_string())
+            })?;
             runtime.block_on(async {
-                let mut consumer = consumer.lock().map_err(|_| {
-                    DomainError::Transport("Pulsar consumer is unavailable".to_string())
-                })?;
                 consumer
                     .ack(&delivery)
                     .await
@@ -1191,11 +1201,13 @@ impl MessageTransport for KafkaTransport {
     }
 }
 
+// RabbitMqTransport is boxed for the same reason NATS is: at ~432 bytes it was more
+// than double the next variant, so every transport paid for it. See NatsTransportKind.
 pub enum MessageTransportKind {
     LegacyJms(InMemoryTransport),
     Nats(NatsTransportKind),
     Kafka(KafkaTransport),
-    RabbitMq(RabbitMqTransport),
+    RabbitMq(Box<RabbitMqTransport>),
     Pulsar(PulsarTransport),
 }
 

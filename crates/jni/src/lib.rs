@@ -25,7 +25,7 @@ use std::cell::RefCell;
 use std::time::Duration;
 
 thread_local! {
-    static LAST_ERROR: RefCell<String> = RefCell::new(String::new());
+    static LAST_ERROR: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
 fn set_error(message: String) -> jlong {
@@ -227,11 +227,11 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
         return messaging_error(error.to_string());
     }
     let transport = match selected_provider {
-        Provider::LegacyJms => MessageTransportKind::LegacyJms(InMemoryTransport::new(
-            Provider::LegacyJms,
-        )),
+        Provider::LegacyJms => {
+            MessageTransportKind::LegacyJms(InMemoryTransport::new(Provider::LegacyJms))
+        }
         Provider::Nats => match NatsTransport::connect(&values[0], &values[1]) {
-            Ok(value) => MessageTransportKind::Nats(NatsTransportKind::Core(value)),
+            Ok(value) => MessageTransportKind::Nats(NatsTransportKind::Core(Box::new(value))),
             Err(error) => return messaging_error(error.to_string()),
         },
         Provider::NatsJetStream => match messaging::NatsJetStreamTransport::connect(
@@ -240,7 +240,7 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
             &jetstream_name(&values[1], "STREAM"),
             &jetstream_name(&values[1], "CONSUMER"),
         ) {
-            Ok(value) => MessageTransportKind::Nats(NatsTransportKind::JetStream(value)),
+            Ok(value) => MessageTransportKind::Nats(NatsTransportKind::JetStream(Box::new(value))),
             Err(error) => return messaging_error(error.to_string()),
         },
         Provider::Kafka => {
@@ -250,7 +250,7 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
             }
         }
         Provider::RabbitMq => match RabbitMqTransport::connect(&values[0], &values[1]) {
-            Ok(value) => MessageTransportKind::RabbitMq(value),
+            Ok(value) => MessageTransportKind::RabbitMq(Box::new(value)),
             Err(error) => return messaging_error(error.to_string()),
         },
         Provider::Pulsar => match PulsarTransport::connect(
@@ -261,12 +261,11 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
             Ok(value) => MessageTransportKind::Pulsar(value),
             Err(error) => return messaging_error(error.to_string()),
         },
-        _ => {
-            return messaging_error(
-                "native messaging client currently supports Legacy JMS, NATS, Kafka, Pulsar, and RabbitMQ"
-                    .to_string(),
-            )
-        }
+        // No `_` arm on purpose. Every Provider variant is handled above, so a
+        // catch-all is dead code today (it produced an `unreachable_patterns`
+        // warning) and harmful tomorrow: it would turn a newly added provider into
+        // a runtime error message instead of a compile error. Exhaustiveness is the
+        // fail-closed behaviour this boundary wants.
     };
     Box::into_raw(Box::new(NativeMessagingClient { transport, route })) as jlong
 }

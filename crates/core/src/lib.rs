@@ -92,7 +92,7 @@ pub fn base64_decode(value: &str) -> Result<Vec<u8>, Error> {
 }
 
 pub fn json_object(fields: &[String]) -> Result<String, Error> {
-    if fields.len() % 2 != 0 {
+    if !fields.len().is_multiple_of(2) {
         return Err(Error::InvalidRequest(
             "JSON object fields must be name/value pairs".to_string(),
         ));
