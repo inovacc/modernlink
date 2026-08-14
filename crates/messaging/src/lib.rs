@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::Duration;
 
 pub const ENVELOPE_VERSION: u16 = 1;
@@ -657,9 +658,9 @@ pub struct RabbitMqTransport {
 }
 
 pub struct PulsarTransport {
-    client: Option<Pulsar<TokioExecutor>>,
-    consumer: Mutex<PulsarConsumer<Vec<u8>, TokioExecutor>>,
-    runtime: Option<tokio::runtime::Runtime>,
+    client: Pulsar<TokioExecutor>,
+    consumer: Arc<Mutex<PulsarConsumer<Vec<u8>, TokioExecutor>>>,
+    runtime: Arc<tokio::runtime::Runtime>,
     topic: String,
     pending_acknowledgements: Mutex<BTreeMap<String, PulsarMessage<Vec<u8>>>>,
 }
@@ -678,37 +679,57 @@ impl PulsarTransport {
                 "Pulsar service URL, topic, and subscription are required".to_string(),
             ));
         }
-        let runtime = tokio::runtime::Runtime::new()
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
-        let _runtime_guard = runtime.enter();
-        let client = runtime
-            .block_on(Pulsar::builder(service_url, TokioExecutor).build())
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
-        let consumer = runtime
-            .block_on(
-                client
-                    .consumer()
-                    .with_topic(topic)
-                    .with_subscription(subscription)
-                    .build::<Vec<u8>>(),
-            )
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        let service_url = service_url.to_string();
+        let topic = topic.to_string();
+        let subscription = subscription.to_string();
+        let transport_topic = topic.clone();
+        let (client, consumer, runtime) = thread::Builder::new()
+            .name("modernlink-pulsar-connect".to_string())
+            .stack_size(8 * 1024 * 1024)
+            .spawn(move || {
+                let runtime = tokio::runtime::Runtime::new()
+                    .map_err(|error| DomainError::Transport(error.to_string()))?;
+                let client = runtime
+                    .block_on(Pulsar::builder(service_url, TokioExecutor).build())
+                    .map_err(|error| DomainError::Transport(error.to_string()))?;
+                let consumer = runtime
+                    .block_on(
+                        client
+                            .consumer()
+                            .with_topic(topic)
+                            .with_subscription(subscription)
+                            .build::<Vec<u8>>(),
+                    )
+                    .map_err(|error| DomainError::Transport(error.to_string()))?;
+                Ok((client, consumer, runtime))
+            })
+            .map_err(|error| DomainError::Transport(error.to_string()))?
+            .join()
+            .map_err(|_| {
+                DomainError::Transport("Pulsar connection thread panicked".to_string())
+            })??;
         Ok(Self {
-            client: Some(client),
-            consumer: Mutex::new(consumer),
-            runtime: Some(runtime),
-            topic: topic.to_string(),
+            client,
+            consumer: Arc::new(Mutex::new(consumer)),
+            runtime: Arc::new(runtime),
+            topic: transport_topic,
             pending_acknowledgements: Mutex::new(BTreeMap::new()),
         })
     }
-}
 
-impl Drop for PulsarTransport {
-    fn drop(&mut self) {
-        self.client.take();
-        if let Some(runtime) = self.runtime.take() {
-            runtime.block_on(async {});
-        }
+    fn run_on_worker<F, T>(&self, operation: F) -> Result<T, DomainError>
+    where
+        F: FnOnce(Arc<tokio::runtime::Runtime>) -> Result<T, DomainError> + Send + 'static,
+        T: Send + 'static,
+    {
+        let runtime = self.runtime.clone();
+        thread::Builder::new()
+            .name("modernlink-pulsar-operation".to_string())
+            .stack_size(8 * 1024 * 1024)
+            .spawn(move || operation(runtime))
+            .map_err(|error| DomainError::Transport(error.to_string()))?
+            .join()
+            .map_err(|_| DomainError::Transport("Pulsar operation thread panicked".to_string()))?
     }
 }
 
@@ -722,27 +743,23 @@ impl MessageTransport for PulsarTransport {
         let trace_id = message.tracing.trace_id.clone();
         let payload = serde_json::to_vec(&message)
             .map_err(|error| DomainError::Serialization(error.to_string()))?;
-        let runtime = self
-            .runtime
-            .as_ref()
-            .ok_or_else(|| DomainError::Transport("Pulsar runtime is unavailable".to_string()))?;
-        let client = self
-            .client
-            .as_ref()
-            .ok_or_else(|| DomainError::Transport("Pulsar client is unavailable".to_string()))?;
-        runtime.block_on(async {
-            let send = client
-                .send(
-                    self.topic.clone(),
-                    PulsarProducerMessage {
-                        payload,
-                        ..Default::default()
-                    },
-                )
-                .await
-                .map_err(|error| DomainError::Transport(error.to_string()))?;
-            send.await
-                .map_err(|error| DomainError::Transport(error.to_string()))
+        let client = self.client.clone();
+        let topic = self.topic.clone();
+        self.run_on_worker(move |runtime| {
+            runtime.block_on(async {
+                let send = client
+                    .send(
+                        topic,
+                        PulsarProducerMessage {
+                            payload,
+                            ..Default::default()
+                        },
+                    )
+                    .await
+                    .map_err(|error| DomainError::Transport(error.to_string()))?;
+                send.await
+                    .map_err(|error| DomainError::Transport(error.to_string()))
+            })
         })?;
         Ok(DeliveryReceipt {
             message_id,
@@ -753,18 +770,19 @@ impl MessageTransport for PulsarTransport {
     }
 
     fn receive(&self) -> Result<Option<ReceivedMessage>, DomainError> {
-        let runtime = self
-            .runtime
-            .as_ref()
-            .ok_or_else(|| DomainError::Transport("Pulsar runtime is unavailable".to_string()))?;
-        let mut consumer = self
-            .consumer
-            .lock()
-            .map_err(|_| DomainError::Transport("Pulsar consumer is unavailable".to_string()))?;
-        let delivery = runtime
-            .block_on(consumer.next())
-            .transpose()
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        let consumer = self.consumer.clone();
+        let delivery = self.run_on_worker(move |runtime| {
+            runtime.block_on(async {
+                let mut consumer = consumer.lock().map_err(|_| {
+                    DomainError::Transport("Pulsar consumer is unavailable".to_string())
+                })?;
+                consumer
+                    .next()
+                    .await
+                    .transpose()
+                    .map_err(|error| DomainError::Transport(error.to_string()))
+            })
+        })?;
         let Some(delivery) = delivery else {
             return Ok(None);
         };
@@ -804,17 +822,18 @@ impl MessageTransport for PulsarTransport {
             .ok_or_else(|| {
                 DomainError::Transport("no pending Pulsar acknowledgement for receipt".to_string())
             })?;
-        let runtime = self
-            .runtime
-            .as_ref()
-            .ok_or_else(|| DomainError::Transport("Pulsar runtime is unavailable".to_string()))?;
-        let mut consumer = self
-            .consumer
-            .lock()
-            .map_err(|_| DomainError::Transport("Pulsar consumer is unavailable".to_string()))?;
-        runtime
-            .block_on(consumer.ack(&delivery))
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        let consumer = self.consumer.clone();
+        self.run_on_worker(move |runtime| {
+            runtime.block_on(async {
+                let mut consumer = consumer.lock().map_err(|_| {
+                    DomainError::Transport("Pulsar consumer is unavailable".to_string())
+                })?;
+                consumer
+                    .ack(&delivery)
+                    .await
+                    .map_err(|error| DomainError::Transport(error.to_string()))
+            })
+        })?;
         Ok(DeliveryReceipt {
             state: DeliveryState::Acknowledged,
             ..receipt.clone()
