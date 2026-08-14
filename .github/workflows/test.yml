@@ -72,3 +72,13 @@ jobs:
               java -cp /workspace/modernlink.jar "com.modernlink.messaging.$test"
             done
           '
+      # VER-07: exercise the Java 6 contract fixture that BACKLOG names as an
+      # acceptance criterion ("the Java 6 fixture registers a JMX metrics MBean").
+      # It needs no broker. The other fixtures require a live NATS and stay out of
+      # this job until VER-01 provides one.
+      - name: Exercise the Java 6 JMX fixture
+        run: |
+          docker run --rm modernlink-java6-https sh -c '
+            java -cp /workspace/modernlink.jar:/workspace/build/fixtures \
+              com.modernlink.messaging.LegacyJmsJmxDemo TRANSPARENT LEGACY_JMS
+          '

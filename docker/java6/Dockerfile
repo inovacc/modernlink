@@ -20,6 +20,7 @@ FROM java:6b38-jdk
 WORKDIR /workspace
 
 COPY java/src /workspace/java/src
+COPY hacks/java6-messaging/src /workspace/hacks/java6-messaging/src
 COPY --from=native-builder /native/target/x86_64-unknown-linux-gnu/release/libmodernlink.so /workspace/java/src/main/resources/native/linux-x86_64/libmodernlink.so
 COPY --from=native-builder /native/target/aarch64-unknown-linux-gnu/release/libmodernlink.so /workspace/java/src/main/resources/native/linux-aarch64/libmodernlink.so
 COPY --from=native-builder /native/target/x86_64-pc-windows-gnu/release/modernlink.dll /workspace/java/src/main/resources/native/windows-x86_64/modernlink.dll
@@ -38,5 +39,15 @@ RUN mkdir -p /workspace/build/classes /workspace/build/classes/native/linux-x86_
     && cp /workspace/java/src/main/resources/native/windows-x86_64/modernlink.dll \
        /workspace/build/classes/native/windows-x86_64/modernlink.dll \
     && jar cf /workspace/modernlink.jar -C /workspace/build/classes .
+
+# VER-07: the hacks/ contract fixtures were in no build path at all, so nothing
+# checked they still compiled — let alone under the Java 6 compiler that judges
+# everything else. Build them here, but into a SEPARATE output tree so demo classes
+# stay out of the distributable JAR.
+RUN mkdir -p /workspace/build/fixtures \
+    && find /workspace/hacks/java6-messaging/src -name '*.java' -print0 \
+       | xargs -0 javac -source 1.6 -target 1.6 \
+          -classpath /workspace/modernlink.jar \
+          -d /workspace/build/fixtures
 
 CMD ["java", "-version"]
