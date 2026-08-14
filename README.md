@@ -1,4 +1,8 @@
-# Legacy Exit Gateway SDK
+# ModernLink
+<!-- rev:002 (RFC 3339) 2026-08-14T02:22:19Z -->
+
+*(formerly "Legacy Exit Gateway SDK" — the product name is ModernLink, matching `AGENTS.md`,
+the `modernlink` native library, and the `inovacc/modernlink` repository.)*
 
 ## Purpose
 
@@ -31,7 +35,7 @@ Rust native library
         |
         +--> Modern TLS
         +--> Modern HTTP
-        +--> RabbitMQ / Kafka / NATS
+        +--> RabbitMQ / Kafka / NATS / JetStream / Pulsar
 ```
 
 The JAR should expose a small, stable API to Java 6 code. Modern implementation details are encapsulated in Rust, and platform-specific native binaries are distributed alongside the JAR.
@@ -56,7 +60,7 @@ The response model preserves the HTTP status reason phrase, exposed as `LegacyHt
 
 The Java facade also exposes independent Cargo-backed utilities: `ModernUuid.v4()`, `ModernUuid.v7()`, `ModernBase64.encode(byte[])`, `ModernBase64.decode(String)`, `ModernJson.object(...)`, `ModernJson.array(...)`, and `ModernJson.decode(String)`. JSON decode returns normalized JSON text because Java 6 has no standard JSON object model.
 
-The current JAR contains Linux x86_64 and Linux ARM64 native resources:
+The current JAR contains Linux x86_64, Linux ARM64, and Windows x86_64 native resources:
 
 - `native/linux-x86_64/libmodernlink.so`
 - `native/linux-aarch64/libmodernlink.so`
@@ -68,7 +72,7 @@ TLS policy defaults to a minimum of TLS 1.2. Java callers may select `LegacyHttp
 
 `ModernHttpsURLConnection` forwards its instance redirect flag and exposes `maxRedirects(int)`. Custom Java `HostnameVerifier` and `SSLSocketFactory` instances are explicitly rejected because the connection is terminated and verified by Rust; accepting those objects while ignoring them would create a misleading security contract.
 
-This architecture is still a design hypothesis. The final integration approach—embedded JNI or an external sidecar process—has not yet been decided.
+This architecture is still a design hypothesis in the sense that **none of it has been validated at runtime**. The integration approach itself is no longer open: embedded JNI was chosen over an external sidecar process, recorded in [`docs/adr/0001-jni-boundary-over-sidecar.md`](docs/adr/0001-jni-boundary-over-sidecar.md) (Status: Accepted). The section below is retained as the rationale behind that decision, not as an open question.
 
 ## Integration alternatives
 
@@ -147,11 +151,13 @@ Xerial SQLite JDBC is the primary reference for this pattern: its documentation 
 3. Study the JNI access model provided by JNI-RS.
 4. Evaluate Safer FFI for contracts between Rust and external code.
 5. Compare RabbitMQ, Kafka, and NATS by persistence, delivery, ordering, backpressure, security, and operations.
-6. Decide whether the gateway should be embedded, external, or support both modes.
+6. ~~Decide whether the gateway should be embedded, external, or support both modes.~~ —
+   **decided:** embedded JNI, see [ADR-0001](docs/adr/0001-jni-boundary-over-sidecar.md).
 
 ## Open decisions
 
-- Embedded JNI versus an external process.
+- ~~Embedded JNI versus an external process.~~ — **closed** by
+  [ADR-0001](docs/adr/0001-jni-boundary-over-sidecar.md) (Accepted).
 - Public gateway protocol.
 - Concurrency model compatible with Java 6 without relying on lambdas or the Streams API.
 - Retry, timeout, cancellation, and backpressure policies.
@@ -170,17 +176,26 @@ This document describes a research direction and a candidate architecture. It is
 The Rust workspace uses unprefixed internal crate names while retaining `ModernLink` as the public product name:
 
 ```text
-crates/core  - shared request, response, TLS metadata, and error types
-crates/http  - HTTPS execution
-crates/tls   - TLS policy boundary
-crates/jni   - JNI entry points and native library
+crates/core      - shared request, response, TLS metadata, and error types
+crates/http      - HTTPS execution
+crates/tls       - TLS policy boundary
+crates/messaging - provider-neutral message domain and transports
+crates/jni       - JNI entry points and native library
 ```
 
 The Java facade is under `java/src/main/java/com/modernlink`. The native artifact remains `modernlink`.
 
+Two crate names collide with well-known ones: `core` shadows Rust's built-in crate, and `jni`
+shadows the external `jni` dependency it uses — which is why every cargo invocation spells the
+JNI crate `-p jni@0.1.0`. See [`docs/ISSUES.md`](docs/ISSUES.md).
+
+Agent-facing build rules live in [`AGENTS.md`](AGENTS.md); the documentation index is
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/ROADMAP.md`](docs/ROADMAP.md), and
+[`docs/ISSUES.md`](docs/ISSUES.md).
+
 ## Java 6 container
 
-The Java compatibility container is defined in `docker/java6/Dockerfile`. Docker Hub lists the legacy `java:6b38-jdk` tag, but the legacy Java image family is deprecated and may no longer be available from every registry. citeturn3search6turn3search2
+The Java compatibility container is defined in `docker/java6/Dockerfile`. Docker Hub lists the legacy `java:6b38-jdk` tag, but the legacy Java image family is deprecated and may no longer be available from every registry.
 
 With a running Docker daemon, build and run it from the repository root:
 

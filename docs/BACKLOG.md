@@ -1,4 +1,5 @@
 # ModernLink Messaging Compatibility Backlog
+<!-- rev:003 (RFC 3339) 2026-08-14T02:22:19Z -->
 
 ## Objective
 
@@ -242,6 +243,74 @@ Acceptance criteria:
 - migration can be rehearsed without acknowledging the target as authoritative;
 - cutover and rollback are observable through JMX;
 - an operator can identify in-flight and duplicated messages.
+
+## Engineering hygiene and tech debt
+
+Added 2026-08-14 from a docs/state reconciliation. Tasks are broken out in
+[IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md); the constraints behind them are in
+[ISSUES.md](ISSUES.md).
+
+### P1 — no crate declares `publish = false` (SC-01)
+
+None of the six manifests blocks publication, and the crate names (`core`, `http`, `tls`,
+`jni`) are exactly the ones most likely to collide on crates.io. One line per manifest.
+_Evidence:_ no `publish` key in `crates/{core,http,tls,jni,messaging}/Cargo.toml` or
+`hacks/messaging-demo/Cargo.toml`. See ISSUES I-012.
+
+### P1 — no broker-backed evidence for any messaging transport (VER-01, VER-02)
+
+Kafka, Pulsar, NATS, JetStream, and RabbitMQ transports exist and are selectable, but nothing
+has ever exercised them against a broker. Durability, acknowledgement, reconnect, ordering,
+and failure semantics are source-level claims. This is the single largest gap in the project.
+See ISSUES I-010.
+
+### P2 — coverage cannot be measured (SC-04)
+
+`cargo llvm-cov --workspace --summary-only` fails on Windows: `combine`, `lapin`, `pulsar`, and
+`async-nats` all fail to compile under coverage instrumentation. No coverage number exists for
+this repo. Running llvm-cov inside the Linux container is the likely fix. The Java facade has no
+coverage tooling at all, since there is no Maven or Gradle build.
+
+### P2 — CI does not enforce formatting or lint (SC-04)
+
+`.github/workflows/test.yml` runs only `cargo test --workspace` and `cargo check -p jni@0.1.0`.
+
+**Correction (2026-08-14):** an earlier revision claimed `cargo fmt --all -- --check` and
+`cargo clippy --workspace --all-targets -- -D warnings` "both pass today". That claim was
+unverified and is very likely false — the P2 item below records an `unreachable_patterns`
+warning at `crates/jni/src/lib.rs:264`, reproduced in this session's local `cargo check -p
+jni@0.1.0`, and `-D warnings` promotes exactly that to an error. **Neither command has been run
+to completion and recorded.** Adding them as gates is still worth doing, but it is not free:
+expect the clippy gate to fail on first run until that warning is resolved.
+
+### P2 — seven of ten Java test classes never run (VER-03)
+
+CI executes `LegacyHttpResponseStructuredTest`, `ModernHttpsURLConnectionTest`, and
+`LegacyHttpsTest`. The other seven under `java/src/test/java/com/modernlink/` are compiled into
+the JAR but never invoked — a test the workflow does not call never runs.
+
+### P2 — unreachable match arm in the JNI provider dispatch
+
+`cargo check` reports `unreachable_patterns` at `crates/jni/src/lib.rs:264`: the `_ =>` fallback
+is dead because the `Provider` arms above it are already exhaustive. Either the fallback is
+redundant and should go, or an intended provider is missing from the match — worth reading
+before deleting.
+
+### P3 — no toolchain pin or declared MSRV (SC-02, SC-03)
+
+CI resolves `dtolnay/rust-toolchain@stable` while the packaging image pins `rust:1.96-bookworm`,
+so the two can drift apart. No crate declares `rust-version`.
+
+### P3 — crate names collide with well-known crates (SC-05, SC-06)
+
+`crates/jni` shadows the external `jni` crate it depends on, forcing `-p jni@0.1.0` in CI and
+the Dockerfile. `crates/core` shadows Rust's built-in `core`. Both work today; both are traps.
+See ISSUES I-001, I-002.
+
+### P3 — each crate is a single `lib.rs` (DOC-02)
+
+All five crates are one file. `crates/messaging` carries six transports plus the domain model in
+a single module, which is the hardest file in the repo to review.
 
 ## Cross-cutting constraints
 
