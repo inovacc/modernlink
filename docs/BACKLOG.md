@@ -1,5 +1,5 @@
 # ModernLink Messaging Compatibility Backlog
-<!-- rev:007 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:008 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 ## Objective
 
@@ -267,8 +267,10 @@ send/receive/ack round trip against live **NATS core, NATS JetStream and RabbitM
 remains open, and why this is still P1 and still the largest gap:
 
 - **Kafka and Pulsar have no broker-backed test at all.**
-- All three existing tests are `#[ignore]`d (`:117`, `:132`, `:149`), so **no CI run executes
-  them** — the evidence is one operator's manual run against local containers (VER-01).
+- The three existing tests are `#[ignore]`d (`:117`, `:132`, `:149`). A `Broker-backed
+  messaging` CI job now runs them explicitly against `nats:2.10 -js` and `rabbitmq:3.13`, but
+  **that job has never executed** — until it does, the only evidence remains one operator's
+  manual run against local containers.
 - Only the happy path is covered. Durability, acknowledgement under failure, reconnect,
   ordering, concurrency and redelivery remain source-level claims for **every** provider.
 

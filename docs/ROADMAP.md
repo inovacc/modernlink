@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:006 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:007 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Status at HEAD `d2479bd` on `main` (pushed; in sync with `origin/main`). Phases follow the M1/M2
 structure in [BACKLOG.md](BACKLOG.md); tasks are broken out in
@@ -74,9 +74,12 @@ until then this file is written against the production bar because that is the s
       test fail, reverting made it pass.
 - [x] Read-only JMX metrics MBean, Java 6-compatible
 - [x] Contract fixtures under `hacks/` for publisher/consumer across providers
-- [ ] **Broker fixtures in CI** — **VER-01**. Brokers were stood up *locally* (docker `ml-nats`,
-      `ml-rabbitmq`) to produce the VER-02 evidence below; nothing is wired into CI yet, so the
-      evidence is not reproducible by anyone but the operator who runs the containers.
+- [~] **Broker fixtures in CI** — **VER-01**. A `Broker-backed messaging` job in
+      `.github/workflows/test.yml` starts `nats:2.10 -js` and `rabbitmq:3.13`, waits on their
+      logs, and runs the three `#[ignore]`d tests explicitly, asserting all three actually ran.
+      **Kafka and Pulsar are not in it** — they have no broker-backed test (VER-02). **The job
+      has never executed**: a workflow edit cannot be verified locally, so this is implemented,
+      not proven.
 - [~] **Broker-backed send/receive/ack test per provider** — **VER-02**. Done for **NATS core,
       NATS JetStream and RabbitMQ** (`crates/messaging/tests/broker_backed.rs`, all three passed
       2026-08-14, verified by Codex). **Kafka and Pulsar still have none.** One happy-path round

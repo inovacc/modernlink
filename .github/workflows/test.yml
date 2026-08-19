@@ -102,3 +102,65 @@ jobs:
             java -cp /workspace/modernlink.jar:/workspace/build/fixtures \
               com.modernlink.messaging.LegacyJmsJmxDemo TRANSPARENT LEGACY_JMS
           '
+
+  broker-backed:
+    name: Broker-backed messaging (VER-01)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      # VER-01. Until now the three broker-backed tests existed but ran nowhere: they
+      # are #[ignore]d, so every green CI run asserted exactly nothing about a real
+      # broker, and the only evidence was one operator's manual run on one machine.
+      #
+      # `docker run` rather than `services:` on purpose - NATS needs the `-js` argument
+      # to enable JetStream, and a service container cannot override the image command.
+      # Mirrors .scripts/16-D_start_brokers.ps1 so local and CI runs stay comparable.
+      - name: Start brokers
+        run: |
+          docker run -d --name ml-nats     -p 4222:4222 nats:2.10 -js
+          docker run -d --name ml-rabbitmq -p 5672:5672 rabbitmq:3.13
+      # Readiness is log-based, not port-based. RabbitMQ accepts a TCP connection well
+      # before it will serve AMQP, so waiting on the port alone produces a flaky failure
+      # that looks like a transport defect.
+      - name: Wait for brokers
+        run: |
+          deadline=$(( $(date +%s) + 180 ))
+          nats_ready=0; rabbit_ready=0
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            if [ "$nats_ready" -eq 0 ] && docker logs ml-nats 2>&1 | grep -q 'Server is ready'; then
+              nats_ready=1; echo "nats: ready"
+            fi
+            if [ "$rabbit_ready" -eq 0 ] && docker logs ml-rabbitmq 2>&1 | grep -q 'Server startup complete'; then
+              rabbit_ready=1; echo "rabbitmq: ready"
+            fi
+            [ "$nats_ready" -eq 1 ] && [ "$rabbit_ready" -eq 1 ] && exit 0
+            sleep 2
+          done
+          echo "::error::brokers did not become ready within 180s"
+          docker logs ml-nats; docker logs ml-rabbitmq
+          exit 1
+      # Only the nats and rabbitmq features: both are pure Rust, so this job needs
+      # neither cmake nor protoc. Kafka and Pulsar have no broker-backed test yet
+      # (VER-02), which is why they are absent here rather than merely unstarted.
+      - name: Broker-backed send/receive/ack
+        env:
+          MODERNLINK_NATS_URL: nats://127.0.0.1:4222
+          MODERNLINK_RABBITMQ_URL: amqp://guest:guest@127.0.0.1:5672/%2f
+        run: |
+          set -o pipefail
+          cargo test -p messaging --test broker_backed             --no-default-features --features nats,rabbitmq             -- --ignored --test-threads=1 2>&1 | tee broker-result.txt
+      # A gate that can pass having run nothing is worse than no gate. cargo already
+      # errors if the required features are missing, but this also catches a test being
+      # renamed or dropped, which would otherwise shrink the gate silently.
+      - name: Assert all three broker tests actually ran
+        run: |
+          grep -q 'test result: ok. 3 passed' broker-result.txt || {
+            echo "::error::expected exactly 3 broker-backed tests to pass; see broker-result.txt"
+            cat broker-result.txt
+            exit 1
+          }
+      - name: Broker logs on failure
+        if: failure()
+        run: |
+          echo "=== nats ==="; docker logs ml-nats
+          echo "=== rabbitmq ==="; docker logs ml-rabbitmq

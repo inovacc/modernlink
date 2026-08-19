@@ -1,5 +1,5 @@
 # Milestones
-<!-- rev:006 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:007 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Version milestones for ModernLink. **No git tags exist yet** — nothing has been released, so
 every version below is a target, not a shipped artifact. Phases are detailed in
@@ -53,8 +53,10 @@ line, not a passing grade, and nothing enforces it yet.
 Converts Phase 2 from claim to fact. This is the milestone that matters most: the transports are
 already written, so the entire value of this release is proof.
 
-- [ ] Broker fixtures in CI for NATS, Kafka, Pulsar, RabbitMQ — **VER-01**. Local docker only;
-      the tests are `#[ignore]`d, so no CI run has ever executed one
+- [~] Broker fixtures in CI for NATS, Kafka, Pulsar, RabbitMQ — **VER-01**. A `Broker-backed
+      messaging` job now stands up NATS (JetStream) and RabbitMQ and runs the three `#[ignore]`d
+      tests; **Kafka and Pulsar are absent** because they have no test yet, and **the job has
+      never run** — unproven until it does
 - [~] Broker-backed send / receive / acknowledge test per provider — **VER-02**. NATS core,
       JetStream and RabbitMQ pass (2026-08-14, verified by Codex); **Kafka and Pulsar have none**,
       and only the happy path is covered.
