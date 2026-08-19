@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:012 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:013 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Status at HEAD `d2479bd` on `main` (pushed; in sync with `origin/main`). Phases follow the M1/M2
 structure in [BACKLOG.md](BACKLOG.md); tasks are broken out in
@@ -143,7 +143,7 @@ until then this file is written against the production bar because that is the s
       CI and Docker halves are **unproven until a run** — neither was executed for this change
 - [x] `fmt` and `clippy` enforced in CI — **SC-04**, `dd080b2`; both executed and passed on run
       [31782837766](https://github.com/inovacc/modernlink/actions/runs/31782837766) at `d2479bd`
-- [x] All **13** Java test classes enumerated in CI — **VER-03**, `dd080b2` (was three of ten;
+- [x] All **15** Java test classes enumerated in CI — **VER-03**, `dd080b2` (was three of ten;
       the count changed because VER-08 added two messaging tests and VER-05 added the native
       smoke test)
 - [x] Crate-name collisions resolved — **SC-05**, **SC-06**; packages are `jni-bridge` and
@@ -176,7 +176,7 @@ under coverage instrumentation, and llvm-cov could not compile the dependency gr
    five transports are compiled out of that build entirely. The uncovered code is excluded
    rather than covered. Always quote the `--all-features` figure.
 2. **`crates/jni` at 1.28% is not as bad as it looks, and not as good either.** That crate is
-   exercised almost entirely by the 13 Java test classes running against the packaged JAR, which
+   exercised almost entirely by the 15 Java test classes running against the packaged JAR, which
    llvm-cov cannot see. What the figure does say is that no *Rust* test drives the JNI boundary.
 3. **The `messaging` figure is where the real gap is.** 23.91% with the transports included,
    against 91.97% with them excluded, means the domain and routing logic are well covered and the

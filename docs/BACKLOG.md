@@ -1,5 +1,5 @@
 # ModernLink Messaging Compatibility Backlog
-<!-- rev:011 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:012 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 ## Objective
 
@@ -321,9 +321,10 @@ Codex on 2026-08-19.
 
 ### ~~P2 — seven of ten Java test classes never run (VER-03)~~ — **DONE `dd080b2`**
 
-The workflow now enumerates all **13** classes (the count grew from ten: VER-05 added the native
-smoke test, VER-08 added two messaging tests), and all 13 executed and passed on runs
-31781200582 and 31782837766. Original text retained below for history.
+The workflow now enumerates all **15** classes (ten originally; VER-05 added the native smoke
+test, VER-08 added two messaging tests, MSG-04 and MSG-05 added two more). The 13 that existed at
+the time executed and passed on runs 31781200582 and 31782837766; the two newest have never
+run. Original text retained below for history.
 
 
 CI executes `LegacyHttpResponseStructuredTest`, `ModernHttpsURLConnectionTest`, and

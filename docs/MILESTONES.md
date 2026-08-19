@@ -1,5 +1,5 @@
 # Milestones
-<!-- rev:012 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:013 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Version milestones for ModernLink. **No git tags exist yet** — nothing has been released, so
 every version below is a target, not a shipped artifact. Phases are detailed in
@@ -30,7 +30,8 @@ just implemented.
       `cargo metadata`, not yet by a CI run or a Docker build
 - [x] `fmt` + `clippy` enforced in CI — **SC-04**, `dd080b2`; both ran and passed on run
       [31782837766](https://github.com/inovacc/modernlink/actions/runs/31782837766) at `d2479bd`
-- [x] All **13** Java test classes running in CI — **VER-03**, `dd080b2`; all 13 executed and
+- [x] All **15** Java test classes enumerated in CI — **VER-03**, `dd080b2`; the 13 that existed
+      at the time executed and
       passed on run 31781200582.
 - [x] A recorded **Java 6** run against a live HTTPS endpoint — **VER-04**. Run 31781200582
       executed the suite on a real Java 6 JVM (`native-smoke-jvm=1.6.0_38`, `Linux/amd64`) from

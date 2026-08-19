@@ -1,5 +1,5 @@
 # Known Issues and Limitations
-<!-- rev:005 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:006 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Constraints accepted on purpose or imposed by the platform. Defects that should be fixed live
 in [BUGS.md](BUGS.md); future work lives in [BACKLOG.md](BACKLOG.md).
@@ -169,12 +169,16 @@ JMS implementation (I-009, I-011). That distinction is the whole of this section
 collapse the two.
 
 **Documented reach of the test suites**, so this is not mistaken for coverage:
-- The 20 Rust tests in the default `cargo test --workspace` run exercise `InMemoryTransport`
-  only. Three additional `#[ignore]`d tests do reach live brokers when run explicitly — see
-  I-010 for exactly how far that goes.
-- **13** Java test classes now exist and two of them cover messaging
-  (`LegacyJmsMessagingTest`, `RoutingPolicyTest`), closing **VER-08**. Both use the in-process
-  `LEGACY_JMS` transport, so they exercise the facade and the JNI boundary, not a broker.
+- `cargo test --workspace` runs **23** tests by default and **37** with `--all-features`. None
+  of them reaches a broker: the transport coverage is `InMemoryTransport` only, and the rest
+  exercise the domain, the routing policy, the provider guarantee table and the payload
+  categories. **5** `#[ignore]`d tests do reach live brokers when run explicitly, and only three
+  of those five have ever been executed — see I-010 for exactly how far that goes.
+- **15** Java test classes now exist and four of them cover messaging
+  (`LegacyJmsMessagingTest`, `RoutingPolicyTest`, `ProviderGuaranteesTest`,
+  `PayloadCategoriesTest`), closing **VER-08**. All four use the in-process `LEGACY_JMS`
+  transport or static data, so they exercise the facade and the JNI boundary, not a broker.
+  **The two newest have never been compiled or run**: that needs the Java 6 image.
 - The Rust CI gate executes and passes: run
   [31782837766](https://github.com/inovacc/modernlink/actions/runs/31782837766) at `d2479bd` ran
   `test`, `check`, `fmt` and `clippy` green ([BUGS.md](BUGS.md) B-001 resolved). It proves those

@@ -1,5 +1,5 @@
 # AGENTS.md — ModernLink
-<!-- rev:009 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:010 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Canonical cross-tool agent instructions for the ModernLink repo (read by Claude Code,
 Codex, Cursor, Gemini, etc. — Claude Code imports this from `CLAUDE.md`). Must-know
@@ -116,7 +116,7 @@ installs those packages as of `dd080b2`.
 - Rust tests must pass before merge: `cargo test --workspace`.
 - Java tests are **standalone `main`-style classes** run from the packaged JAR, not JUnit —
   see `java/src/test/java/com/modernlink/` (11 classes) and
-  `java/src/test/java/com/modernlink/messaging/` (2 classes), **13 in total**. As of `dd080b2`
+  `java/src/test/java/com/modernlink/messaging/` (4 classes), **15 in total**. As of `dd080b2`
   the workflow enumerates and runs all of them; add new ones the same way and wire them into
   `.github/workflows/test.yml`, because a class the workflow does not name never runs.
 - The fixtures under `hacks/` are deterministic contract probes. They are **not** evidence of

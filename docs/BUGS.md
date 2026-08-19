@@ -1,5 +1,5 @@
 # Bugs
-<!-- rev:009 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:010 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Behaviour that is **wrong and should be fixed**. Deliberate constraints belong in
 [ISSUES.md](ISSUES.md); planned work belongs in [BACKLOG.md](BACKLOG.md).
@@ -184,8 +184,10 @@ What the suites actually cover, so absence of bugs is not mistaken for evidence 
   behavior has ever been exercised" claim — **but only for send/receive/ack on those three.**
   Kafka and Pulsar still have no broker-backed test, and durability, reconnect, ordering,
   concurrency, failure and redelivery remain unexercised everywhere. See ISSUES I-010.
-- The Java facade is compiled and run only inside `docker/java6/Dockerfile`. All **13** test
-  classes are enumerated and, as of run 31781200582, all 13 executed and passed.
+- The Java facade is compiled and run only inside `docker/java6/Dockerfile`. All **15** test
+  classes are enumerated in the workflow. 13 of them executed and passed on run 31781200582;
+  `ProviderGuaranteesTest` and `PayloadCategoriesTest` were added afterwards and **have never
+  been compiled by `javac -source 1.6` or executed**.
 - `cargo fmt --all -- --check` → **exit 0**, both on the runner (run 31782837766) and locally
   (2026-08-19, verified independently by Codex). The earlier three diffs in
   `crates/messaging/tests/broker_backed.rs` were fixed before that file was committed in
