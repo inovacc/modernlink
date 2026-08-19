@@ -21,17 +21,10 @@ jobs:
           rustup show active-toolchain
           cargo --version
           rustc --version
-      # BUGS B-001: crates/messaging declares no [features], so rdkafka (cmake-build),
-      # pulsar, lapin and async-nats are unconditional — every workspace build compiles
-      # a native Kafka client. Without these packages the job dies on a missing
-      # curl/curl.h before the test suite is ever reached. Kept in step with
-      # docker/java6/Dockerfile, which carries the same recipe.
-      - name: Install native build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            cmake libcurl4-openssl-dev libsasl2-dev protobuf-compiler
-      - name: Test workspace
+      # SC-07 split the gate in two. This half compiles NO broker client at all
+      # (crates/messaging defaults to no providers), so it needs no system packages
+      # and it is the half that fails fast.
+      - name: Test workspace (default features, no broker client)
         run: cargo test --workspace
       - name: Check JNI crate
         run: cargo check -p jni@0.1.0
@@ -40,8 +33,27 @@ jobs:
       # an await point. Those are fixed, so the gate can be enforced from here on.
       - name: Format
         run: cargo fmt --all -- --check
-      - name: Lint
+      - name: Lint (default features)
         run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # BUGS B-001: rdkafka builds librdkafka from source via cmake and pulsar needs
+      # protoc. Without these packages the job died on a missing curl/curl.h before the
+      # test suite was ever reached. Kept in step with docker/java6/Dockerfile, which
+      # carries the same recipe. As of SC-07 only the --all-features steps below need
+      # them; the default gate above builds no native client.
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake libcurl4-openssl-dev libsasl2-dev protobuf-compiler
+      # Gate coverage must not shrink because the default build got cheaper: every
+      # provider transport is still compiled, tested and linted on every push. This
+      # still does NOT reach a broker - the three broker-backed tests are #[ignore]d
+      # (VER-01).
+      - name: Test workspace (all providers)
+        run: cargo test --workspace --all-features
+      - name: Lint (all providers)
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   java6-jar:
     name: Java 6 JAR integration

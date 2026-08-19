@@ -6,13 +6,45 @@ license.workspace = true
 rust-version.workspace = true
 publish = false
 
+# SC-07 / BUGS B-001 root layer. Before this table every provider client was an
+# unconditional dependency, so a broker-free `cargo test` -- which exercises only
+# InMemoryTransport -- still had to compile librdkafka from source via cmake and run
+# protoc for pulsar. That is what killed the CI job (missing curl/curl.h) and what
+# still blocks `cargo llvm-cov` on Windows.
+#
+# `default = []` on purpose: the domain, the routing policy and InMemoryTransport --
+# everything the default test suite touches -- need no broker client at all. Selecting
+# a provider that was not compiled in FAILS CLOSED with an explicit error naming the
+# feature (see `crates/jni/src/lib.rs` build_transport); it is never silently
+# downgraded to another transport.
+#
+# The distributable is built with `--features all-providers` in docker/java6/Dockerfile,
+# so the shipped JAR keeps every provider.
+[features]
+default = []
+nats = ["dep:async-nats"]
+kafka = ["dep:rdkafka"]
+pulsar = ["dep:pulsar"]
+rabbitmq = ["dep:lapin"]
+all-providers = ["nats", "kafka", "pulsar", "rabbitmq"]
+
 [dependencies]
-async-nats = "0.38"
+async-nats = { version = "0.38", optional = true }
 futures-util = "0.3"
-lapin = "2"
-pulsar = { version = "6.8", default-features = false, features = ["tokio-rustls-runtime-ring"] }
-rdkafka = { version = "0.37", features = ["cmake-build"] }
+lapin = { version = "2", optional = true }
+pulsar = { version = "6.8", default-features = false, features = [
+    "tokio-rustls-runtime-ring",
+], optional = true }
+rdkafka = { version = "0.37", features = ["cmake-build"], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["net", "rt-multi-thread", "sync", "time"] }
 uuid = { version = "1.24.0", features = ["v4", "v7"] }
+
+# VER-02. broker_backed.rs drives NATS, JetStream and RabbitMQ directly, so it only
+# compiles when those transports are compiled in. Without this the test target breaks
+# every reduced-feature build -- including the broker-free default one this table
+# exists to make possible.
+[[test]]
+name = "broker_backed"
+required-features = ["nats", "rabbitmq"]

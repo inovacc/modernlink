@@ -6,6 +6,37 @@ license.workspace = true
 rust-version.workspace = true
 publish = false
 
+# SC-07. Each fixture binary drives one provider directly, so each declares the feature
+# that provides it. Without `required-features` the whole fixture set would drag every
+# broker client back into a default workspace build.
+[features]
+default = []
+nats = ["messaging/nats"]
+kafka = ["messaging/kafka"]
+pulsar = ["messaging/pulsar"]
+rabbitmq = ["messaging/rabbitmq"]
+all-providers = ["nats", "kafka", "pulsar", "rabbitmq", "messaging/all-providers"]
+
 [dependencies]
-messaging = { version = "0.1.0", path = "../../crates/messaging" }
+messaging = { version = "0.1.0", path = "../../crates/messaging", default-features = false }
 serde_json = "1"
+
+[[bin]]
+name = "nats-app"
+required-features = ["nats"]
+
+[[bin]]
+name = "jetstream-app"
+required-features = ["nats"]
+
+[[bin]]
+name = "kafka-app"
+required-features = ["kafka"]
+
+[[bin]]
+name = "pulsar-app"
+required-features = ["pulsar"]
+
+[[bin]]
+name = "rabbitmq-app"
+required-features = ["rabbitmq"]

@@ -9,25 +9,41 @@
 //! degradation. Only the in-process transport has been exercised; every broker-backed path is
 //! a source-level claim (`docs/ISSUES.md` I-010).
 
+#[cfg(any(feature = "nats", feature = "pulsar"))]
 use futures_util::StreamExt;
+#[cfg(feature = "rabbitmq")]
 use lapin::acker::Acker;
+#[cfg(feature = "rabbitmq")]
 use lapin::options::{BasicAckOptions, BasicGetOptions, BasicPublishOptions, QueueDeclareOptions};
+#[cfg(feature = "rabbitmq")]
 use lapin::types::FieldTable;
+#[cfg(feature = "rabbitmq")]
 use lapin::{BasicProperties, Connection, ConnectionProperties};
+#[cfg(feature = "pulsar")]
 use pulsar::consumer::{Consumer as PulsarConsumer, Message as PulsarMessage};
+#[cfg(feature = "pulsar")]
 use pulsar::producer::Message as PulsarProducerMessage;
+#[cfg(feature = "pulsar")]
 use pulsar::{Pulsar, TokioExecutor};
+#[cfg(feature = "kafka")]
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
+#[cfg(feature = "kafka")]
 use rdkafka::client::DefaultClientContext;
+#[cfg(feature = "kafka")]
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
+#[cfg(feature = "kafka")]
 use rdkafka::producer::{FutureProducer, FutureRecord};
+#[cfg(feature = "kafka")]
 use rdkafka::types::RDKafkaErrorCode;
+#[cfg(feature = "kafka")]
 use rdkafka::{ClientConfig, Message as KafkaMessage, Offset, TopicPartitionList};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 use std::sync::{Arc, Mutex};
+#[cfg(feature = "pulsar")]
 use std::thread;
+#[cfg(feature = "nats")]
 use std::time::Duration;
 
 pub const ENVELOPE_VERSION: u16 = 1;
@@ -303,6 +319,7 @@ impl MessageTransport for InMemoryTransport {
     }
 }
 
+#[cfg(feature = "nats")]
 pub struct NatsTransport {
     client: Option<async_nats::Client>,
     subject: String,
@@ -311,6 +328,7 @@ pub struct NatsTransport {
     runtime: Option<tokio::runtime::Runtime>,
 }
 
+#[cfg(feature = "nats")]
 impl NatsTransport {
     pub fn connect(url: &str, subject: &str) -> Result<Self, DomainError> {
         if subject.trim().is_empty() {
@@ -340,6 +358,7 @@ impl NatsTransport {
     }
 }
 
+#[cfg(feature = "nats")]
 impl Drop for NatsTransport {
     fn drop(&mut self) {
         let subscription = self
@@ -358,6 +377,7 @@ impl Drop for NatsTransport {
     }
 }
 
+#[cfg(feature = "nats")]
 impl MessageTransport for NatsTransport {
     fn provider(&self) -> Provider {
         Provider::Nats
@@ -445,6 +465,7 @@ impl MessageTransport for NatsTransport {
 }
 
 /// JetStream-backed NATS transport with server-side durable acknowledgement state.
+#[cfg(feature = "nats")]
 pub struct NatsJetStreamTransport {
     client: Option<async_nats::Client>,
     context: Option<async_nats::jetstream::Context>,
@@ -454,6 +475,7 @@ pub struct NatsJetStreamTransport {
     runtime: Option<tokio::runtime::Runtime>,
 }
 
+#[cfg(feature = "nats")]
 impl NatsJetStreamTransport {
     pub fn connect(
         url: &str,
@@ -516,6 +538,7 @@ impl NatsJetStreamTransport {
     }
 }
 
+#[cfg(feature = "nats")]
 impl Drop for NatsJetStreamTransport {
     fn drop(&mut self) {
         let stream = self.stream.lock().ok().and_then(|mut stream| stream.take());
@@ -532,6 +555,7 @@ impl Drop for NatsJetStreamTransport {
     }
 }
 
+#[cfg(feature = "nats")]
 impl MessageTransport for NatsJetStreamTransport {
     fn provider(&self) -> Provider {
         Provider::NatsJetStream
@@ -650,11 +674,13 @@ impl MessageTransport for NatsJetStreamTransport {
 // NatsTransport ~312, and this enum is nested inside MessageTransportKind, so the
 // larger of the two set the size of EVERY transport variant. Boxing both keeps this
 // enum one pointer wide and stops NATS from inflating Kafka, RabbitMQ and Pulsar.
+#[cfg(feature = "nats")]
 pub enum NatsTransportKind {
     Core(Box<NatsTransport>),
     JetStream(Box<NatsJetStreamTransport>),
 }
 
+#[cfg(feature = "kafka")]
 pub struct KafkaTransport {
     producer: Option<FutureProducer>,
     consumer: Option<StreamConsumer>,
@@ -663,6 +689,7 @@ pub struct KafkaTransport {
     pending_acknowledgements: Mutex<BTreeMap<String, TopicPartitionList>>,
 }
 
+#[cfg(feature = "rabbitmq")]
 pub struct RabbitMqTransport {
     connection: Option<Connection>,
     channel: Option<lapin::Channel>,
@@ -671,6 +698,7 @@ pub struct RabbitMqTransport {
     pending_acknowledgements: Mutex<BTreeMap<String, Acker>>,
 }
 
+#[cfg(feature = "pulsar")]
 pub struct PulsarTransport {
     client: Pulsar<TokioExecutor>,
     consumer: Arc<Mutex<PulsarConsumer<Vec<u8>, TokioExecutor>>>,
@@ -679,6 +707,7 @@ pub struct PulsarTransport {
     pending_acknowledgements: Mutex<BTreeMap<String, PulsarMessage<Vec<u8>>>>,
 }
 
+#[cfg(feature = "pulsar")]
 impl PulsarTransport {
     pub fn connect(
         service_url: &str,
@@ -747,6 +776,7 @@ impl PulsarTransport {
     }
 }
 
+#[cfg(feature = "pulsar")]
 impl MessageTransport for PulsarTransport {
     fn provider(&self) -> Provider {
         Provider::Pulsar
@@ -862,6 +892,7 @@ impl MessageTransport for PulsarTransport {
     }
 }
 
+#[cfg(feature = "rabbitmq")]
 impl RabbitMqTransport {
     pub fn connect(uri: &str, queue: &str) -> Result<Self, DomainError> {
         if uri.trim().is_empty() || queue.trim().is_empty() {
@@ -898,6 +929,7 @@ impl RabbitMqTransport {
     }
 }
 
+#[cfg(feature = "rabbitmq")]
 impl Drop for RabbitMqTransport {
     fn drop(&mut self) {
         let channel = self.channel.take();
@@ -911,6 +943,7 @@ impl Drop for RabbitMqTransport {
     }
 }
 
+#[cfg(feature = "rabbitmq")]
 impl MessageTransport for RabbitMqTransport {
     fn provider(&self) -> Provider {
         Provider::RabbitMq
@@ -1028,6 +1061,7 @@ impl MessageTransport for RabbitMqTransport {
     }
 }
 
+#[cfg(feature = "kafka")]
 impl KafkaTransport {
     pub fn connect(brokers: &str, topic: &str, group_id: &str) -> Result<Self, DomainError> {
         if brokers.trim().is_empty() || topic.trim().is_empty() || group_id.trim().is_empty() {
@@ -1081,6 +1115,7 @@ impl KafkaTransport {
     }
 }
 
+#[cfg(feature = "kafka")]
 impl Drop for KafkaTransport {
     fn drop(&mut self) {
         let producer = self.producer.take();
@@ -1094,6 +1129,7 @@ impl Drop for KafkaTransport {
     }
 }
 
+#[cfg(feature = "kafka")]
 impl MessageTransport for KafkaTransport {
     fn provider(&self) -> Provider {
         Provider::Kafka
@@ -1205,9 +1241,13 @@ impl MessageTransport for KafkaTransport {
 // than double the next variant, so every transport paid for it. See NatsTransportKind.
 pub enum MessageTransportKind {
     LegacyJms(InMemoryTransport),
+    #[cfg(feature = "nats")]
     Nats(NatsTransportKind),
+    #[cfg(feature = "kafka")]
     Kafka(KafkaTransport),
+    #[cfg(feature = "rabbitmq")]
     RabbitMq(Box<RabbitMqTransport>),
+    #[cfg(feature = "pulsar")]
     Pulsar(PulsarTransport),
 }
 
@@ -1215,9 +1255,13 @@ impl MessageTransport for MessageTransportKind {
     fn provider(&self) -> Provider {
         match self {
             Self::LegacyJms(transport) => transport.provider(),
+            #[cfg(feature = "nats")]
             Self::Nats(transport) => transport.provider(),
+            #[cfg(feature = "kafka")]
             Self::Kafka(transport) => transport.provider(),
+            #[cfg(feature = "rabbitmq")]
             Self::RabbitMq(transport) => transport.provider(),
+            #[cfg(feature = "pulsar")]
             Self::Pulsar(transport) => transport.provider(),
         }
     }
@@ -1225,9 +1269,13 @@ impl MessageTransport for MessageTransportKind {
     fn publish(&self, message: MessageEnvelope) -> Result<DeliveryReceipt, DomainError> {
         match self {
             Self::LegacyJms(transport) => transport.publish(message),
+            #[cfg(feature = "nats")]
             Self::Nats(transport) => transport.publish(message),
+            #[cfg(feature = "kafka")]
             Self::Kafka(transport) => transport.publish(message),
+            #[cfg(feature = "rabbitmq")]
             Self::RabbitMq(transport) => transport.publish(message),
+            #[cfg(feature = "pulsar")]
             Self::Pulsar(transport) => transport.publish(message),
         }
     }
@@ -1235,9 +1283,13 @@ impl MessageTransport for MessageTransportKind {
     fn receive(&self) -> Result<Option<ReceivedMessage>, DomainError> {
         match self {
             Self::LegacyJms(transport) => transport.receive(),
+            #[cfg(feature = "nats")]
             Self::Nats(transport) => transport.receive(),
+            #[cfg(feature = "kafka")]
             Self::Kafka(transport) => transport.receive(),
+            #[cfg(feature = "rabbitmq")]
             Self::RabbitMq(transport) => transport.receive(),
+            #[cfg(feature = "pulsar")]
             Self::Pulsar(transport) => transport.receive(),
         }
     }
@@ -1245,14 +1297,19 @@ impl MessageTransport for MessageTransportKind {
     fn acknowledge(&self, receipt: &DeliveryReceipt) -> Result<DeliveryReceipt, DomainError> {
         match self {
             Self::LegacyJms(transport) => transport.acknowledge(receipt),
+            #[cfg(feature = "nats")]
             Self::Nats(transport) => transport.acknowledge(receipt),
+            #[cfg(feature = "kafka")]
             Self::Kafka(transport) => transport.acknowledge(receipt),
+            #[cfg(feature = "rabbitmq")]
             Self::RabbitMq(transport) => transport.acknowledge(receipt),
+            #[cfg(feature = "pulsar")]
             Self::Pulsar(transport) => transport.acknowledge(receipt),
         }
     }
 }
 
+#[cfg(feature = "nats")]
 impl MessageTransport for NatsTransportKind {
     fn provider(&self) -> Provider {
         match self {

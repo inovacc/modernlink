@@ -9,10 +9,28 @@ publish = false
 [dependencies]
 core = { path = "../core" }
 http = { path = "../http" }
-messaging = { path = "../messaging" }
+messaging = { path = "../messaging", default-features = false }
 tls = { path = "../tls" }
 jni = "0.21"
 base64 = "0.22"
+
+# SC-07. Feature selection is forwarded rather than fixed, so a broker-free build of
+# the workspace compiles no broker client at all. The DISTRIBUTABLE is built with
+# `--features all-providers` (docker/java6/Dockerfile), so the shipped JAR is unchanged.
+#
+# `default = []` is deliberate. If this crate defaulted to the full set, cargo's feature
+# unification would pull rdkafka and pulsar back into every `cargo test --workspace`
+# through this crate, and the gating below would buy nothing.
+#
+# A provider that is not compiled in is REFUSED with an explicit error naming the
+# feature (`build_transport` in src/lib.rs) - never rerouted to another transport.
+[features]
+default = []
+nats = ["messaging/nats"]
+kafka = ["messaging/kafka"]
+pulsar = ["messaging/pulsar"]
+rabbitmq = ["messaging/rabbitmq"]
+all-providers = ["nats", "kafka", "pulsar", "rabbitmq", "messaging/all-providers"]
 
 [lib]
 name = "modernlink"

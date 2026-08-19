@@ -1,5 +1,5 @@
 # AGENTS.md — ModernLink
-<!-- rev:005 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:006 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Canonical cross-tool agent instructions for the ModernLink repo (read by Claude Code,
 Codex, Cursor, Gemini, etc. — Claude Code imports this from `CLAUDE.md`). Must-know
@@ -57,7 +57,8 @@ they mirror `.github/workflows/test.yml`.
 
 | Purpose | Command |
 |---|---|
-| Test the Rust workspace | `cargo test --workspace` |
+| Test the Rust workspace (no broker client compiled) | `cargo test --workspace` |
+| Test with every provider transport | `cargo test --workspace --all-features` |
 | Check the JNI crate | `cargo check -p jni@0.1.0` |
 | Format | `cargo fmt --all -- --check` |
 | Lint | `cargo clippy --workspace --all-targets -- -D warnings` |
@@ -65,9 +66,17 @@ they mirror `.github/workflows/test.yml`.
 | Build the Java 6 JAR | `docker build -f docker/java6/Dockerfile -t modernlink-java6 .` |
 | Run a packaged Java test | `docker run --rm modernlink-java6 sh -c "java -cp /workspace/modernlink.jar com.modernlink.LegacyHttpsTest"` |
 
+**Provider transports are feature-gated as of SC-07.** `crates/messaging` declares
+`default = []`, and `crates/jni` forwards the selection, so a plain `cargo test --workspace`
+compiles **no** broker client — no cmake, no librdkafka, no protoc. Build the distributable and
+anything that must talk to a broker with `--features all-providers`; `docker/java6/Dockerfile`
+already does. **Asking for a provider that was not compiled in fails closed** with an error
+naming the missing cargo feature — it is never rerouted to another transport.
+
 **`cargo test --workspace`, `cargo check -p jni@0.1.0`, `cargo fmt --all -- --check` and
 `cargo clippy --workspace --all-targets -- -D warnings` are all CI-gated** for Rust as of
-`dd080b2` (`.github/workflows/test.yml`). Coverage is still not gated. The Java side has **no
+`dd080b2` (`.github/workflows/test.yml`), and `--all-features` variants of test and clippy run
+alongside them as of SC-07. Coverage is still not gated. The Java side has **no
 Maven or Gradle build** — `javac` runs inside `docker/java6/Dockerfile`, which is the only
 supported way to compile and package the facade.
 

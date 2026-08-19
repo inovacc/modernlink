@@ -1,5 +1,5 @@
 # Bugs
-<!-- rev:005 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:006 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Behaviour that is **wrong and should be fixed**. Deliberate constraints belong in
 [ISSUES.md](ISSUES.md); planned work belongs in [BACKLOG.md](BACKLOG.md).
@@ -33,10 +33,11 @@ Java 6 JAR integration                 -> success
 ```
 
 The fix was the symptom-level one: install `libcurl4-openssl-dev`, `libsasl2-dev`, `cmake` and
-`protobuf-compiler` in the job. **The root-layer issue remains open as SC-07**: `crates/messaging`
-still declares no `[features]`, so every workspace build anywhere compiles a native Kafka client
-for tests that touch no broker. That is now a cost and a portability problem rather than a broken
-gate.
+`protobuf-compiler` in the job. **The root layer is now fixed too (SC-07):** `crates/messaging`
+declares `[features]` with `default = []`, so a broker-free build compiles no provider client at
+all. `cargo tree -p jni@0.1.0` shows **0** matches for rdkafka/pulsar/lapin/async-nats by default
+and **5** with `--features all-providers`. The apt packages are still installed, but only the
+`--all-features` half of the job needs them.
 
 The original report follows.
 

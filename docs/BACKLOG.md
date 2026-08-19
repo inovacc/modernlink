@@ -1,5 +1,5 @@
 # ModernLink Messaging Compatibility Backlog
-<!-- rev:005 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:006 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 ## Objective
 
@@ -278,8 +278,12 @@ See ISSUES I-010.
 
 `cargo llvm-cov --workspace --summary-only` fails on Windows: `combine`, `lapin`, `pulsar`, and
 `async-nats` all fail to compile under coverage instrumentation. No coverage number exists for
-this repo. Running llvm-cov inside the Linux container is the likely fix. The Java facade has no
-coverage tooling at all, since there is no Maven or Gradle build.
+this repo. The Java facade has no coverage tooling at all, since there is no Maven or Gradle
+build.
+
+**SC-07 may have unblocked this.** Those four crates are now optional and off by default, so
+`cargo llvm-cov --workspace` no longer has to instrument any of them. Whether that is enough has
+not been established here.
 
 ### ~~P2 — CI does not enforce formatting or lint (SC-04)~~ — **DONE `dd080b2`**
 

@@ -15,12 +15,19 @@ use core::{Request, Response, TlsVersion};
 use jni::objects::{JByteArray, JClass, JObjectArray, JString};
 use jni::sys::{jbyteArray, jint, jlong, jobjectArray};
 use jni::JNIEnv;
+#[cfg(feature = "kafka")]
+use messaging::KafkaTransport;
+#[cfg(feature = "pulsar")]
+use messaging::PulsarTransport;
+#[cfg(feature = "rabbitmq")]
+use messaging::RabbitMqTransport;
 use messaging::{
-    AcknowledgementMode, DeliveryReceipt, DeliveryState, InMemoryTransport, KafkaTransport,
-    MessageEnvelope, MessageTransport, MessageTransportKind, Mode, NatsTransport,
-    NatsTransportKind, Payload, Provider, PulsarTransport, RabbitMqTransport, RouteConfig,
-    RouteRule, TraceContext,
+    AcknowledgementMode, DeliveryReceipt, DeliveryState, InMemoryTransport, MessageEnvelope,
+    MessageTransport, MessageTransportKind, Mode, Payload, Provider, RouteConfig, RouteRule,
+    TraceContext,
 };
+#[cfg(feature = "nats")]
+use messaging::{NatsTransport, NatsTransportKind};
 use std::cell::RefCell;
 use std::time::Duration;
 
@@ -69,6 +76,8 @@ fn messaging_string_error(message: String) -> jni::sys::jstring {
     std::ptr::null_mut()
 }
 
+// Also required by `kafka_group`, which derives the consumer group from it.
+#[cfg(any(feature = "nats", feature = "pulsar", feature = "kafka"))]
 fn jetstream_name(subject: &str, suffix: &str) -> String {
     let mut name = String::from("MODERNLINK_");
     for character in subject.chars() {
@@ -83,6 +92,7 @@ fn jetstream_name(subject: &str, suffix: &str) -> String {
     name
 }
 
+#[cfg(feature = "kafka")]
 fn kafka_group(subject: &str) -> String {
     jetstream_name(subject, "KAFKA_GROUP")
 }
@@ -188,13 +198,18 @@ fn build_transport(
     url: &str,
     subject: &str,
 ) -> Result<MessageTransportKind, String> {
+    // SC-07: with every provider compiled out, no arm below reads these. The binding
+    // keeps the signature stable across feature sets instead of renaming the parameters.
+    let _ = (url, subject);
     Ok(match provider {
         Provider::LegacyJms => {
             MessageTransportKind::LegacyJms(InMemoryTransport::new(Provider::LegacyJms))
         }
+        #[cfg(feature = "nats")]
         Provider::Nats => MessageTransportKind::Nats(NatsTransportKind::Core(Box::new(
             NatsTransport::connect(url, subject).map_err(|error| error.to_string())?,
         ))),
+        #[cfg(feature = "nats")]
         Provider::NatsJetStream => {
             MessageTransportKind::Nats(NatsTransportKind::JetStream(Box::new(
                 messaging::NatsJetStreamTransport::connect(
@@ -206,13 +221,16 @@ fn build_transport(
                 .map_err(|error| error.to_string())?,
             )))
         }
+        #[cfg(feature = "kafka")]
         Provider::Kafka => MessageTransportKind::Kafka(
             KafkaTransport::connect(url, subject, &kafka_group(subject))
                 .map_err(|error| error.to_string())?,
         ),
+        #[cfg(feature = "rabbitmq")]
         Provider::RabbitMq => MessageTransportKind::RabbitMq(Box::new(
             RabbitMqTransport::connect(url, subject).map_err(|error| error.to_string())?,
         )),
+        #[cfg(feature = "pulsar")]
         Provider::Pulsar => MessageTransportKind::Pulsar(
             PulsarTransport::connect(
                 url,
@@ -221,11 +239,43 @@ fn build_transport(
             )
             .map_err(|error| error.to_string())?,
         ),
-        // No `_` arm on purpose. Every Provider variant is handled above, so a
-        // catch-all would be dead code today and harmful tomorrow: it would turn a
-        // newly added provider into a runtime error message instead of a compile
-        // error. Exhaustiveness is the fail-closed behaviour this boundary wants.
+        // SC-07. The arms above are cfg-gated, so with a provider compiled out the match
+        // is no longer exhaustive and these arms take over. They FAIL CLOSED: the caller
+        // is told the capability is absent and which build flag restores it. It is never
+        // downgraded to another transport, because silently moving a legacy application's
+        // traffic to a different broker is exactly the misleading contract AGENTS.md
+        // forbids. `provider_disabled` names the cargo feature so the message is
+        // actionable rather than merely negative.
+        #[cfg(not(feature = "nats"))]
+        Provider::Nats | Provider::NatsJetStream => {
+            return Err(provider_disabled(provider, "nats"))
+        }
+        #[cfg(not(feature = "kafka"))]
+        Provider::Kafka => return Err(provider_disabled(provider, "kafka")),
+        #[cfg(not(feature = "rabbitmq"))]
+        Provider::RabbitMq => return Err(provider_disabled(provider, "rabbitmq")),
+        #[cfg(not(feature = "pulsar"))]
+        Provider::Pulsar => return Err(provider_disabled(provider, "pulsar")),
+        // Still no `_` arm on purpose: a newly added Provider variant must be a compile
+        // error here, not a runtime string.
     })
+}
+
+/// SC-07 fail-closed message for a provider whose transport was not compiled into this
+/// build of `libmodernlink`.
+#[cfg(not(all(
+    feature = "nats",
+    feature = "kafka",
+    feature = "pulsar",
+    feature = "rabbitmq"
+)))]
+fn provider_disabled(provider: Provider, feature: &str) -> String {
+    format!(
+        "provider {} is not available in this build of libmodernlink:          crates/jni was compiled without the `{}` cargo feature. Rebuild with          `--features {}` (or `--features all-providers`) to enable it.          The request was refused rather than routed to a different provider.",
+        messaging_provider_name(provider),
+        feature,
+        feature
+    )
 }
 
 fn messaging_provider_name(provider: Provider) -> &'static str {
@@ -1076,5 +1126,67 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeRelease(
         unsafe {
             drop(Box::from_raw(handle as *mut NativeResponse));
         }
+    }
+}
+
+#[cfg(test)]
+mod feature_gating_tests {
+    use super::*;
+
+    /// SC-07 fail-closed contract.
+    ///
+    /// AGENTS.md: "Fail closed on unsupported guarantees. A capability gap must be
+    /// reported explicitly - never silently degraded." Feature-gating the providers
+    /// created exactly such a gap, so this asserts the gap is *reported*: asking for a
+    /// provider that was compiled out must return an error that names the provider and
+    /// the cargo feature which restores it.
+    ///
+    /// The dangerous failure this guards against is not an error - it is a *success*
+    /// on some other transport. A legacy application that asks for Kafka and silently
+    /// gets an in-memory queue would report every publish as delivered.
+    #[cfg(not(feature = "kafka"))]
+    #[test]
+    fn kafka_is_refused_when_it_was_not_compiled_in() {
+        // `expect_err` needs `T: Debug` and MessageTransportKind holds broker handles
+        // that are not Debug, so the refusal is matched explicitly.
+        let error = match build_transport(Provider::Kafka, "localhost:9092", "orders") {
+            Ok(_) => panic!("Kafka was compiled out but build_transport returned a transport"),
+            Err(error) => error,
+        };
+        assert!(error.contains("KAFKA"), "must name the provider: {}", error);
+        assert!(
+            error.contains("`kafka` cargo feature"),
+            "must name the feature that restores it: {}",
+            error
+        );
+        assert!(
+            error.contains("refused rather than routed to a different provider"),
+            "must state that no fallback happened: {}",
+            error
+        );
+    }
+
+    #[cfg(not(feature = "nats"))]
+    #[test]
+    fn both_nats_variants_are_refused_when_nats_was_not_compiled_in() {
+        for provider in [Provider::Nats, Provider::NatsJetStream] {
+            let error = match build_transport(provider, "127.0.0.1:4222", "orders") {
+                Ok(_) => panic!("NATS was compiled out but build_transport returned a transport"),
+                Err(error) => error,
+            };
+            assert!(error.contains("`nats` cargo feature"), "{}", error);
+        }
+    }
+
+    /// LEGACY_JMS is in-process and depends on no provider crate, so it must keep
+    /// working in the broker-free default build - otherwise gating would have broken
+    /// the transparent-mode path the Java 6 fixtures rely on.
+    #[test]
+    fn legacy_jms_is_available_in_every_feature_configuration() {
+        let transport = match build_transport(Provider::LegacyJms, "", "orders") {
+            Ok(transport) => transport,
+            Err(error) => panic!("LEGACY_JMS must always build, got: {}", error),
+        };
+        assert_eq!(transport.provider(), Provider::LegacyJms);
     }
 }

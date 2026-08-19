@@ -1,5 +1,5 @@
 # Implementation Tasks
-<!-- rev:004 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:005 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Granular tasks derived from [BACKLOG.md](BACKLOG.md), [FEATURES.md](FEATURES.md), and
 [ISSUES.md](ISSUES.md). Effort: **S** ≤ half a day · **M** ≤ two days · **L** > two days.
@@ -15,7 +15,7 @@ Task IDs are referenced from [ROADMAP.md](ROADMAP.md) and [MILESTONES.md](MILEST
 | ~~SC-04~~ | ~~Add `cargo fmt --check` + `cargo clippy -D warnings` jobs to CI~~ — **DONE `dd080b2`**; both executed green on run 31782837766 at `d2479bd` | `.github/workflows/test.yml` | — | S |
 | SC-05 | Rename `crates/jni` → a non-colliding package name, dropping the `@0.1.0` workaround (I-001) | `crates/jni/Cargo.toml`, `Cargo.toml`, `.github/workflows/test.yml`, `docker/java6/Dockerfile` | SC-04 | M |
 | SC-06 | Rename `crates/core` so it stops shadowing Rust's built-in `core` (I-002) | `crates/core/Cargo.toml`, all dependents | SC-05 | M |
-| SC-07 | **Unblock the red CI Rust job (BUGS B-001).** Preferred: feature-gate the providers — `crates/messaging/Cargo.toml` has no `[features]`, so `rdkafka`/`pulsar`/`lapin`/`async-nats` are unconditional and every workspace test/clippy/coverage run must build a native Kafka client; gating them also fixes the Windows `llvm-cov` failure. Fallback: add `libcurl4-openssl-dev` (+ likely `libsasl2-dev`) to the job, per `docker/java6/Dockerfile:8` | `crates/messaging/Cargo.toml`, `.github/workflows/test.yml` | — | M |
+| ~~SC-07~~ | ~~**Unblock the red CI Rust job (BUGS B-001).** Preferred: feature-gate the providers — `crates/messaging/Cargo.toml` has no `[features]`, so `rdkafka`/`pulsar`/`lapin`/`async-nats` are unconditional and every workspace test/clippy/coverage run must build a native Kafka client; gating them also fixes the Windows `llvm-cov` failure. Fallback: add `libcurl4-openssl-dev` (+ likely `libsasl2-dev`) to the job, per `docker/java6/Dockerfile:8`~~ — **DONE**: `[features]` with `default = []` on `crates/messaging`, forwarded through `crates/jni` and `hacks/messaging-demo`. `cargo tree -p jni@0.1.0` shows 0 provider deps by default, 5 with `--features all-providers`. A provider compiled out **fails closed** with an explicit error naming the feature, covered by three regression tests in `crates/jni/src/lib.rs` (falsified: making Kafka fall back to LEGACY_JMS makes the test fail) | `crates/messaging/Cargo.toml`, `crates/jni/`, `hacks/messaging-demo/Cargo.toml`, `.github/workflows/test.yml`, `docker/java6/Dockerfile` | — | M |
 | ~~SC-08~~ | ~~Commit the ten untracked state docs~~ — **DONE**: `git ls-files` returns all of `AGENTS.md`, `CLAUDE.md`, `docs/{ARCHITECTURE,BUGS,FEATURES,IMPLEMENTATION_TASKS,ISSUES,MILESTONES,ROADMAP}.md` and `docs/adr/`; the working tree is clean | repo root, `docs/` | — | S |
 
 ## Domain: crate documentation
