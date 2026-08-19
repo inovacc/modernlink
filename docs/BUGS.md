@@ -1,5 +1,5 @@
 # Bugs
-<!-- rev:010 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:011 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Behaviour that is **wrong and should be fixed**. Deliberate constraints belong in
 [ISSUES.md](ISSUES.md); planned work belongs in [BACKLOG.md](BACKLOG.md).
@@ -9,8 +9,71 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 | B-001 | high | **resolved** `dd080b2` | CI `Rust workspace` job could not build `rdkafka-sys`; the Rust suite never ran in CI |
 | B-002 | high | **resolved** `ad4bd2f` | The routing policy engine was unreachable from Java — every `RouteConfig` was built with zero rules |
 | B-003 | high | **open** | `MessageEnvelope.delivery_mode` defaults to `Persistent` and is read by no transport; RabbitMQ publishes transient messages to a durable queue |
+| B-004 | critical | **open** | No `catch_unwind` on any of the 28 `Java_*` entry points; a Rust panic unwinds into JVM frames (UB) |
+| B-005 | high | **open** | The native messaging handle is a raw pointer dereferenced with only a null check |
+| B-006 | high | **open** | Broker URLs carry credentials into error strings that cross into Java exception messages |
 
 ## Open
+
+### B-004 — a Rust panic can unwind across the JNI boundary into the JVM — **CRITICAL**
+
+- **Severity:** critical — this is the failure the product exists to prevent. ModernLink's
+  premise is talking to modern brokers *without destabilising a vendor-locked Java 6
+  application*; unwinding a Rust panic into JVM frames is undefined behaviour.
+- **Observed:** `crates/jni/src/lib.rs` exports **28** `pub extern "system" fn Java_*` entry
+  points and contains **0** occurrences of `catch_unwind`. No manifest sets
+  `[profile] panic`, so the cdylib builds with the default `panic = "unwind"`.
+  `docs/adr/0001-jni-boundary-over-sidecar.md` already lists "A native failure can terminate
+  the JVM" as an accepted risk of embedded JNI — accepting a risk is not containing it.
+- **Precisely what is and is not claimed:** the *reachable-today* panic surface is thin.
+  `crates/http/src/lib.rs:43` (`location.as_ref().unwrap()`) is guarded by an `is_none()`
+  early return at `:37`, and the 41 `values[N]` expressions in `crates/jni` index fixed-size
+  array literals with statically known length. **The defect is the absence of containment,
+  not a specific live crash.** Any panic from `rustls`, `hyper`, `rdkafka`, `lapin`,
+  `pulsar`, `serde`, an allocation failure, or a future edit crosses the boundary unguarded.
+- **Expected:** every entry point catches unwinding, records the payload through the existing
+  `set_error` channel, and returns the type's error sentinel.
+- **Reproduction:** `rg -c 'catch_unwind' crates/jni/src/lib.rs` -> 0;
+  `rg -c 'pub extern "system" fn Java_' crates/jni/src/lib.rs` -> 28.
+- **Seen at commit:** `a32e1dd`.
+- **A regression test must fail against the current code:** add an entry point whose body
+  panics and assert the sentinel is returned rather than the process dying.
+
+### B-005 — the native messaging handle is dereferenced without validation
+
+- **Severity:** high — a use-after-free inside the host JVM.
+- **Observed:** `crates/jni/src/lib.rs:58` — `unsafe fn messaging_client<'a>(handle: jlong)`
+  turns a caller-supplied `jlong` into a reference with only a null check.
+  `Box::into_raw` at `:501`/`:564`, `Box::from_raw` at `:790`/`:1290`. The Java side guards
+  the happy path (`close()` is `synchronized` and zeroes the field; `requireOpen()` rejects
+  0), but a stale, copied or fabricated `long` reaches `&*(handle as *const _)` unchecked.
+- **Expected:** a handle that is not live is refused, not dereferenced.
+- **Reproduction:** call any native method with an arbitrary non-zero `long`.
+- **Seen at commit:** `a32e1dd`.
+- **Candidate fix:** a registry mapping opaque ids to boxed clients, which also makes a
+  leaked client (B-005's sibling, an unclosed handle) enumerable. A magic/generation word is
+  the cheaper alternative.
+
+### B-006 — broker credentials are not redacted from errors that reach Java
+
+- **Severity:** high — AGENTS.md: *"Never put credentials, payloads, or message bodies in
+  JMX attributes or logs."*
+- **Observed:** the documented RabbitMQ endpoint form is
+  `amqp://guest:guest@127.0.0.1:5672/%2f` (`crates/messaging/tests/broker_backed.rs:59`).
+  `RabbitMqTransport::connect` passes it to `Connection::connect` and maps every failure with
+  `.map_err(|error| DomainError::Transport(error.to_string()))`
+  (`crates/messaging/src/lib.rs:547,551,555`). That string crosses the JNI boundary and
+  becomes a `LegacyHttpException` message the host application will log. Nothing on that path
+  redacts. The same pattern applies to all five transports.
+- **Not yet confirmed:** whether `lapin`'s error `Display` actually embeds the URI. That
+  needs a real failed connect against a broker. What *is* confirmed is that the path is
+  unredacted by construction.
+- **Expected:** userinfo is stripped (`scheme://***@host:port`) from any error built from a
+  connection failure.
+- **Reproduction:** trigger a failed connect with a credentialed URI and inspect the message.
+- **Seen at commit:** `a32e1dd`.
+- **Regression test:** assert a URI containing `user:password@` never appears in the
+  `Display` of the resulting error.
 
 ### B-003 — `MessageEnvelope.delivery_mode` is set by every message and read by no transport
 

@@ -1,5 +1,5 @@
 # ModernLink Messaging Compatibility Backlog
-<!-- rev:014 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:015 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 ## Objective
 
@@ -360,6 +360,41 @@ been tried**, so it is a pin, not a measured floor.
 
 Original text: _CI resolves `dtolnay/rust-toolchain@stable` while the packaging image pins
 `rust:1.96-bookworm`, so the two can drift apart. No crate declares `rust-version`._
+
+### P1 — broker connects have no timeout and block a JVM thread indefinitely
+
+`crates/messaging/src/lib.rs` carries only three time bounds in the whole file — a JetStream
+`max_age`, Kafka's `message.timeout.ms` and a 10s receive poll.
+`RabbitMqTransport::connect` does `runtime.block_on(Connection::connect(uri, …))` with **no
+timeout**, and NATS, JetStream and Pulsar are the same shape. A broker that accepts the TCP
+connection and never completes the handshake, or a firewall that DROPs, hangs the calling
+thread forever — and that thread belongs to the vendor-locked Java 6 application, which
+cannot cancel a JNI call. Bound each connect and fail closed on expiry. Found by
+`/project:harden` (H-02).
+
+### P2 — `PulsarTransport` is the only transport without an explicit `Drop`
+
+`impl Drop` exists for `NatsTransport`, `NatsJetStreamTransport`, `RabbitMqTransport` and
+`KafkaTransport`, and not for `PulsarTransport` — which owns
+`runtime: Arc<tokio::runtime::Runtime>` and spawns named worker threads. Four transports
+needed explicit shutdown; the fifth relies on refcount order. Dropping a tokio `Runtime`
+inside an async context panics, which until B-004 lands crosses the FFI boundary.
+`/project:harden` H-06.
+
+### P2 — no dependency vulnerability audit has ever been run
+
+No `cargo-audit` / `cargo-deny` config and no audit step in CI, while the tree pulls
+`rdkafka` (which builds librdkafka from vendored C), `pulsar`, `lapin`, `async-nats`,
+`hyper` and `rustls`. SC-07 shrank the default surface but nobody has inspected it. Treat the
+first run as a finding-generator, not a gate. `/project:harden` H-09.
+
+### P3 — two panic sites that are correct today and fragile tomorrow
+
+`crates/tls/src/lib.rs:43` `.expect("ModernLink TLS versions are supported")` asserts a
+*dependency's* behaviour rather than this crate's own invariant. `crates/http/src/lib.rs:43`
+`location.as_ref().unwrap()` is safe only because of an `is_none()` early return six lines
+above — restructure as `let Some(location) = location else { … }` so the compiler enforces
+what convention currently enforces. `/project:harden` H-10, H-14.
 
 ### P1 — `delivery_mode` is requested by every message and honoured by none (B-003)
 
