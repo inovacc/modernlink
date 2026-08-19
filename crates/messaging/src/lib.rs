@@ -65,6 +65,94 @@ pub enum Provider {
     RabbitMq,
 }
 
+/// How long a broker connect may take before it is refused (H-02, BACKLOG P1).
+///
+/// Ten seconds, matching the receive deadline the broker-backed tests already use, so the
+/// two bounds in this crate agree rather than each being picked separately.
+// Not gated on `test`: the tests pass explicit durations so they stay fast and
+// deterministic, so in a no-provider test build these would be dead.
+#[cfg(any(
+    feature = "nats",
+    feature = "kafka",
+    feature = "pulsar",
+    feature = "rabbitmq"
+))]
+const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
+
+// Control-plane operations get a longer default than the connect itself. Declaring a queue
+// or creating a topic on a loaded cluster is legitimately slower than a TCP handshake, and
+// a single bound tight enough to catch a hung connect would reject healthy deployments.
+#[cfg(any(
+    feature = "nats",
+    feature = "kafka",
+    feature = "pulsar",
+    feature = "rabbitmq"
+))]
+const DEFAULT_ADMIN_TIMEOUT_SECS: u64 = 30;
+
+/// Read a deadline, allowing the deployment to override the built-in default.
+///
+/// No number chosen here can be right for every broker and network, so `fallback_secs` is a
+/// starting point rather than a policy. `MODERNLINK_BROKER_TIMEOUT_SECS` overrides it.
+///
+/// An unparseable or zero value falls back to the default rather than being honoured: `0`
+/// would mean "time out immediately", which is a footgun that would look like a broker
+/// outage. A bad value is a configuration mistake, and silently disabling the bound - or
+/// making every connect fail - are both worse than ignoring it.
+#[cfg(any(
+    feature = "nats",
+    feature = "kafka",
+    feature = "pulsar",
+    feature = "rabbitmq"
+))]
+fn broker_timeout(fallback_secs: u64) -> std::time::Duration {
+    let configured = std::env::var("MODERNLINK_BROKER_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0);
+    std::time::Duration::from_secs(configured.unwrap_or(fallback_secs))
+}
+
+/// Run a broker operation on `runtime` with a hard deadline.
+///
+/// Every transport used to call `runtime.block_on(connect(...))` with no bound. A broker
+/// that completes the TCP handshake and then stalls — or a firewall that DROPs rather than
+/// REJECTs — hung the calling thread forever. That thread belongs to the vendor-locked
+/// Java 6 application, reached through a JNI call it cannot cancel, so "forever" means
+/// until the JVM is restarted.
+///
+/// Expiry is a `DomainError::Transport`, so the caller is told the operation was refused
+/// rather than being left to block. Failing closed on a deadline is the same contract the
+/// rest of this crate follows for a capability it cannot honour.
+///
+/// `what` names the operation in the message; it must never contain an endpoint, because
+/// endpoints carry credentials (see `docs/BUGS.md` B-006).
+#[cfg(any(
+    test,
+    feature = "nats",
+    feature = "kafka",
+    feature = "pulsar",
+    feature = "rabbitmq"
+))]
+fn block_on_with_timeout<T>(
+    runtime: &tokio::runtime::Runtime,
+    what: &str,
+    timeout: std::time::Duration,
+    future: impl std::future::Future<Output = T>,
+) -> Result<T, DomainError> {
+    runtime.block_on(async move {
+        match tokio::time::timeout(timeout, future).await {
+            Ok(value) => Ok(value),
+            Err(_) => Err(DomainError::Transport(format!(
+                "{} did not complete within {}s and was refused rather than left to block \
+                 the calling thread",
+                what,
+                timeout.as_secs()
+            ))),
+        }
+    })
+}
+
 /// How well a guarantee is backed, for one provider.
 ///
 /// MSG-04 exists so a capability gap is **queryable before traffic moves**, and a gap is
@@ -545,16 +633,23 @@ impl NatsTransport {
         }
         let runtime = tokio::runtime::Runtime::new()
             .map_err(|error| DomainError::Transport(error.to_string()))?;
-        let (client, subscription) = runtime.block_on(async {
-            let client = async_nats::connect(url)
-                .await
-                .map_err(|error| DomainError::Transport(error.to_string()))?;
-            let subscription = client
-                .subscribe(subject.to_string())
-                .await
-                .map_err(|error| DomainError::Transport(error.to_string()))?;
-            Ok::<_, DomainError>((client, subscription))
-        })?;
+        // H-02: bounded. An unreachable-but-not-refusing broker used to hang this thread
+        // forever, and it is the legacy application's thread.
+        let (client, subscription) = block_on_with_timeout(
+            &runtime,
+            "NATS connect",
+            broker_timeout(DEFAULT_CONNECT_TIMEOUT_SECS),
+            async {
+                let client = async_nats::connect(url)
+                    .await
+                    .map_err(|error| DomainError::Transport(error.to_string()))?;
+                let subscription = client
+                    .subscribe(subject.to_string())
+                    .await
+                    .map_err(|error| DomainError::Transport(error.to_string()))?;
+                Ok::<_, DomainError>((client, subscription))
+            },
+        )??;
         Ok(Self {
             client: Some(client),
             subject: subject.to_string(),
@@ -700,40 +795,46 @@ impl NatsJetStreamTransport {
         }
         let runtime = tokio::runtime::Runtime::new()
             .map_err(|error| DomainError::Transport(error.to_string()))?;
-        let (client, context, consumer_stream) = runtime.block_on(async {
-            let client = async_nats::connect(url)
-                .await
-                .map_err(|error| DomainError::Transport(error.to_string()))?;
-            let context = async_nats::jetstream::new(client.clone());
-            let stream = context
-                .get_or_create_stream(async_nats::jetstream::stream::Config {
-                    name: stream_name.to_string(),
-                    subjects: vec![subject.to_string()],
-                    max_messages: -1,
-                    max_age: Duration::from_secs(0),
-                    ..Default::default()
-                })
-                .await
-                .map_err(|error| DomainError::Transport(error.to_string()))?;
-            let consumer = stream
-                .get_or_create_consumer(
-                    consumer_name,
-                    async_nats::jetstream::consumer::pull::Config {
-                        durable_name: Some(consumer_name.to_string()),
-                        ack_policy: async_nats::jetstream::consumer::AckPolicy::Explicit,
+        // H-02: bounded, same reason as the core NATS connect.
+        let (client, context, consumer_stream) = block_on_with_timeout(
+            &runtime,
+            "NATS JetStream connect",
+            broker_timeout(DEFAULT_CONNECT_TIMEOUT_SECS),
+            async {
+                let client = async_nats::connect(url)
+                    .await
+                    .map_err(|error| DomainError::Transport(error.to_string()))?;
+                let context = async_nats::jetstream::new(client.clone());
+                let stream = context
+                    .get_or_create_stream(async_nats::jetstream::stream::Config {
+                        name: stream_name.to_string(),
+                        subjects: vec![subject.to_string()],
+                        max_messages: -1,
+                        max_age: Duration::from_secs(0),
                         ..Default::default()
-                    },
-                )
-                .await
-                .map_err(|error| DomainError::Transport(error.to_string()))?;
-            let consumer_stream = consumer
-                .stream()
-                .max_messages_per_batch(1)
-                .messages()
-                .await
-                .map_err(|error| DomainError::Transport(error.to_string()))?;
-            Ok::<_, DomainError>((client, context, consumer_stream))
-        })?;
+                    })
+                    .await
+                    .map_err(|error| DomainError::Transport(error.to_string()))?;
+                let consumer = stream
+                    .get_or_create_consumer(
+                        consumer_name,
+                        async_nats::jetstream::consumer::pull::Config {
+                            durable_name: Some(consumer_name.to_string()),
+                            ack_policy: async_nats::jetstream::consumer::AckPolicy::Explicit,
+                            ..Default::default()
+                        },
+                    )
+                    .await
+                    .map_err(|error| DomainError::Transport(error.to_string()))?;
+                let consumer_stream = consumer
+                    .stream()
+                    .max_messages_per_batch(1)
+                    .messages()
+                    .await
+                    .map_err(|error| DomainError::Transport(error.to_string()))?;
+                Ok::<_, DomainError>((client, context, consumer_stream))
+            },
+        )??;
         Ok(Self {
             client: Some(client),
             context: Some(context),
@@ -939,18 +1040,27 @@ impl PulsarTransport {
             .spawn(move || {
                 let runtime = tokio::runtime::Runtime::new()
                     .map_err(|error| DomainError::Transport(error.to_string()))?;
-                let client = runtime
-                    .block_on(Pulsar::builder(service_url, TokioExecutor).build())
-                    .map_err(|error| DomainError::Transport(error.to_string()))?;
-                let consumer = runtime
-                    .block_on(
-                        client
-                            .consumer()
-                            .with_topic(topic)
-                            .with_subscription(subscription)
-                            .build::<Vec<u8>>(),
-                    )
-                    .map_err(|error| DomainError::Transport(error.to_string()))?;
+                // H-02: bounded. This runs on a dedicated worker thread, so an unbounded
+                // hang here leaks a thread per attempt as well as never returning - the
+                // join below would block the caller forever.
+                let client = block_on_with_timeout(
+                    &runtime,
+                    "Pulsar connect",
+                    broker_timeout(DEFAULT_CONNECT_TIMEOUT_SECS),
+                    Pulsar::builder(service_url, TokioExecutor).build(),
+                )?
+                .map_err(|error| DomainError::Transport(error.to_string()))?;
+                let consumer = block_on_with_timeout(
+                    &runtime,
+                    "Pulsar consumer build",
+                    broker_timeout(DEFAULT_ADMIN_TIMEOUT_SECS),
+                    client
+                        .consumer()
+                        .with_topic(topic)
+                        .with_subscription(subscription)
+                        .build::<Vec<u8>>(),
+                )?
+                .map_err(|error| DomainError::Transport(error.to_string()))?;
                 Ok((client, consumer, runtime))
             })
             .map_err(|error| DomainError::Transport(error.to_string()))?
@@ -1110,22 +1220,37 @@ impl RabbitMqTransport {
         let runtime = tokio::runtime::Runtime::new()
             .map_err(|error| DomainError::Transport(error.to_string()))?;
         let _runtime_guard = runtime.enter();
-        let connection = runtime
-            .block_on(Connection::connect(uri, ConnectionProperties::default()))
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
-        let channel = runtime
-            .block_on(connection.create_channel())
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
-        runtime
-            .block_on(channel.queue_declare(
+        // H-02: each leg is bounded separately. A broker can complete the TCP handshake
+        // and then stall on the AMQP handshake, so bounding only the first would leave the
+        // hang intact one step later.
+        let connection = block_on_with_timeout(
+            &runtime,
+            "RabbitMQ connect",
+            broker_timeout(DEFAULT_CONNECT_TIMEOUT_SECS),
+            Connection::connect(uri, ConnectionProperties::default()),
+        )?
+        .map_err(|error| DomainError::Transport(error.to_string()))?;
+        let channel = block_on_with_timeout(
+            &runtime,
+            "RabbitMQ channel open",
+            broker_timeout(DEFAULT_CONNECT_TIMEOUT_SECS),
+            connection.create_channel(),
+        )?
+        .map_err(|error| DomainError::Transport(error.to_string()))?;
+        block_on_with_timeout(
+            &runtime,
+            "RabbitMQ queue declare",
+            broker_timeout(DEFAULT_ADMIN_TIMEOUT_SECS),
+            channel.queue_declare(
                 queue,
                 QueueDeclareOptions {
                     durable: true,
                     ..QueueDeclareOptions::default()
                 },
                 FieldTable::default(),
-            ))
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
+            ),
+        )?
+        .map_err(|error| DomainError::Transport(error.to_string()))?;
         Ok(Self {
             connection: Some(connection),
             channel: Some(channel),
@@ -1284,9 +1409,15 @@ impl KafkaTransport {
             .create::<AdminClient<DefaultClientContext>>()
             .map_err(|error| DomainError::Transport(error.to_string()))?;
         let new_topic = NewTopic::new(topic, 1, TopicReplication::Fixed(1));
-        let topic_results = runtime
-            .block_on(admin.create_topics(&[new_topic], &AdminOptions::new()))
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        // H-02: bounded. Topic creation talks to the cluster controller, which can accept
+        // the connection and then stall exactly like a broker connect.
+        let topic_results = block_on_with_timeout(
+            &runtime,
+            "Kafka topic creation",
+            broker_timeout(DEFAULT_ADMIN_TIMEOUT_SECS),
+            admin.create_topics(&[new_topic], &AdminOptions::new()),
+        )?
+        .map_err(|error| DomainError::Transport(error.to_string()))?;
         for result in topic_results {
             if let Err((_, code)) = result {
                 if code != RDKafkaErrorCode::TopicAlreadyExists {
@@ -1957,5 +2088,183 @@ mod tests {
             Support::Unsupported,
             "see docs/BUGS.md B-003: the publisher never sets delivery_mode 2"
         );
+    }
+
+    // ---- H-02 / BACKLOG P1: broker operations must be bounded ----
+
+    fn test_runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Runtime::new().expect("a tokio runtime is required for these tests")
+    }
+
+    /// The whole point: an operation that never completes must return, not hang.
+    ///
+    /// `pending()` is used rather than a real unreachable endpoint so the test is
+    /// deterministic and needs no network — a black-holed address would make this test
+    /// depend on the firewall of whatever machine runs it.
+    #[test]
+    fn an_operation_that_never_completes_is_refused_at_the_deadline() {
+        let runtime = test_runtime();
+        let started = std::time::Instant::now();
+        let result: Result<(), DomainError> = super::block_on_with_timeout(
+            &runtime,
+            "test operation",
+            std::time::Duration::from_millis(150),
+            std::future::pending::<()>(),
+        );
+        let error = result.expect_err("a future that never completes must be refused");
+        assert!(
+            matches!(error, DomainError::Transport(_)),
+            "expiry is a transport failure: {:?}",
+            error
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("refused rather than left to block"),
+            "the message must say it was refused, not that it failed: {}",
+            error
+        );
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "it must return at the deadline, not hang"
+        );
+    }
+
+    #[test]
+    fn an_operation_that_completes_passes_its_value_through() {
+        let runtime = test_runtime();
+        let result = super::block_on_with_timeout(
+            &runtime,
+            "test operation",
+            std::time::Duration::from_secs(30),
+            async { 7u32 },
+        );
+        assert_eq!(result.expect("a completed future must pass through"), 7);
+    }
+
+    /// B-006: the timeout message must not become a new place for an endpoint - and its
+    /// credentials - to leak into a Java exception the host application logs.
+    #[test]
+    fn the_timeout_message_carries_no_endpoint() {
+        let runtime = test_runtime();
+        let result: Result<(), DomainError> = super::block_on_with_timeout(
+            &runtime,
+            "RabbitMQ connect",
+            std::time::Duration::from_millis(50),
+            std::future::pending::<()>(),
+        );
+        let message = result.expect_err("must time out").to_string();
+        assert!(
+            !message.contains("://"),
+            "no URL scheme may appear: {}",
+            message
+        );
+        assert!(
+            !message.contains('@'),
+            "no userinfo may appear: {}",
+            message
+        );
+    }
+
+    /// H-02 structural guard: no `connect` may await a broker without a deadline.
+    ///
+    /// Counting call sites is crude, and it is the only check that fails when a sixth
+    /// transport is added with a bare `runtime.block_on(...)` in its connect — which is
+    /// exactly how this defect would come back. Scans the source rather than the behaviour
+    /// because the behaviour needs a broker that stalls, which no test can rely on.
+    #[test]
+    fn no_connect_awaits_a_broker_without_a_deadline() {
+        let source = include_str!("lib.rs");
+        let lines: Vec<&str> = source.lines().collect();
+        let mut offenders: Vec<String> = Vec::new();
+        let mut connects = 0;
+        let mut index = 0;
+        while index < lines.len() {
+            if lines[index].trim_start().starts_with("pub fn connect") {
+                connects += 1;
+                let mut end = index;
+                while end < lines.len() && lines[end] != "    }" {
+                    end += 1;
+                }
+                for line in &lines[index..end] {
+                    if line.contains("block_on") && !line.contains("block_on_with_timeout") {
+                        offenders.push((*line).trim().to_string());
+                    }
+                }
+                index = end;
+            }
+            index += 1;
+        }
+        assert!(
+            connects >= 5,
+            "expected at least 5 connect fns, found {connects}"
+        );
+        assert!(
+            offenders.is_empty(),
+            "every broker connect must be bounded by block_on_with_timeout; unbounded: {:?}. \
+             An unbounded connect hangs the legacy application's thread through a JNI call it \
+             cannot cancel - see docs/BACKLOG.md H-02.",
+            offenders
+        );
+    }
+
+    /// The 10s/30s defaults are a starting point, not a policy - Codex flagged that a
+    /// hard-coded bound can reject a slow-but-healthy deployment. These pin the override.
+    ///
+    /// Serialised into one test because they mutate process-wide environment state.
+    #[cfg(any(
+        feature = "nats",
+        feature = "kafka",
+        feature = "pulsar",
+        feature = "rabbitmq"
+    ))]
+    #[test]
+    fn the_broker_deadline_is_overridable_and_rejects_nonsense() {
+        let key = "MODERNLINK_BROKER_TIMEOUT_SECS";
+        let restore = std::env::var(key).ok();
+
+        std::env::remove_var(key);
+        assert_eq!(
+            super::broker_timeout(10).as_secs(),
+            10,
+            "default applies when unset"
+        );
+
+        std::env::set_var(key, "45");
+        assert_eq!(super::broker_timeout(10).as_secs(), 45, "override applies");
+
+        std::env::set_var(key, "  45  ");
+        assert_eq!(
+            super::broker_timeout(10).as_secs(),
+            45,
+            "surrounding space is tolerated"
+        );
+
+        // Zero would mean "time out immediately", which looks exactly like a broker outage.
+        std::env::set_var(key, "0");
+        assert_eq!(
+            super::broker_timeout(10).as_secs(),
+            10,
+            "zero must not be honoured"
+        );
+
+        std::env::set_var(key, "not-a-number");
+        assert_eq!(
+            super::broker_timeout(10).as_secs(),
+            10,
+            "garbage falls back"
+        );
+
+        std::env::set_var(key, "-5");
+        assert_eq!(
+            super::broker_timeout(10).as_secs(),
+            10,
+            "negative falls back"
+        );
+
+        match restore {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
     }
 }

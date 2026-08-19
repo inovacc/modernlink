@@ -1,5 +1,5 @@
 # Per-provider guarantees
-<!-- rev:001 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:002 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 **DOC-03**, and the documentation half of **MSG-04**. What each provider adapter in
 `crates/messaging` actually offers, so a capability gap is visible *before* traffic moves
@@ -98,6 +98,30 @@ No transport implements either. Every provider therefore **refuses** `TRANSACTED
 acknowledgement rather than accepting it and behaving as if it were `AUTO` — which is
 exactly how a rollback silently becomes a commit. Dead-lettering is likewise absent even
 where the broker supports it (Pulsar, RabbitMQ), because this layer does not configure it.
+
+## Timeouts
+
+Every broker connect is bounded (H-02). Without a bound, a broker that completes the TCP
+handshake and then stalls — or a firewall that DROPs rather than REJECTs — hangs the calling
+thread forever, and that thread belongs to the legacy application, reached through a JNI call
+it cannot cancel.
+
+| Operation | Default |
+|---|---|
+| Connect / subscribe / channel open | 10s |
+| Control plane: queue declare, topic creation, consumer build | 30s |
+
+Control-plane operations get the longer default because declaring a queue or creating a topic
+on a loaded cluster is legitimately slower than a handshake; a single bound tight enough to
+catch a hung connect would reject healthy deployments.
+
+Both are starting points, not policy. **`MODERNLINK_BROKER_TIMEOUT_SECS`** overrides them for
+every operation. An unparseable or zero value is ignored in favour of the default — `0` would
+mean "time out immediately", which presents exactly like a broker outage.
+
+Expiry is reported as a transport failure saying the operation was *refused rather than left
+to block*, and the message carries no endpoint, so it cannot become a new path for the
+credential leak in [BUGS.md](BUGS.md) B-006.
 
 ## What is deliberately not in this table
 
