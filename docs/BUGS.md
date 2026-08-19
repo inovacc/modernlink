@@ -1,5 +1,5 @@
 # Bugs
-<!-- rev:011 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:012 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Behaviour that is **wrong and should be fixed**. Deliberate constraints belong in
 [ISSUES.md](ISSUES.md); planned work belongs in [BACKLOG.md](BACKLOG.md).
@@ -12,6 +12,7 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 | B-004 | critical | **open** | No `catch_unwind` on any of the 28 `Java_*` entry points; a Rust panic unwinds into JVM frames (UB) |
 | B-005 | high | **open** | The native messaging handle is a raw pointer dereferenced with only a null check |
 | B-006 | high | **open** | Broker URLs carry credentials into error strings that cross into Java exception messages |
+| B-007 | medium | **open** | A contained panic can leave a transport permanently degraded while the client still looks open |
 
 ## Open
 
@@ -74,6 +75,35 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 - **Seen at commit:** `a32e1dd`.
 - **Regression test:** assert a URI containing `user:password@` never appears in the
   `Display` of the resulting error.
+
+### B-007 — a contained panic leaves the client alive and permanently broken
+
+- **Severity:** medium — strictly better than the undefined behaviour it replaces, and still
+  wrong. Found by Codex while adversarially reviewing the B-004 fix, and verified directly.
+- **Observed:** `NatsTransport::receive` (`crates/messaging/src/lib.rs:620-642`) `.take()`s
+  the subscription out of its `Mutex`, awaits `subscription.next()` inside
+  `runtime.block_on`, and only then `.replace()`s it. If anything unwinds between the take
+  and the replace, the subscription is dropped and the `Mutex` is left holding `None`
+  **for the life of the client**. Every later `receive` then fails with "NATS subscription
+  is unavailable" on a handle that still reports itself open. The `Mutex` is *not* poisoned,
+  because the guard is released before the await — so Rust's own protection does not fire.
+- **Why it appears now:** before B-004's fix that panic was undefined behaviour crossing into
+  the JVM, i.e. usually a crash. Containing it converts a crash into a silent permanent
+  degradation. That is an improvement and a new failure mode, and both should be said out
+  loud.
+- **Expected:** either the operation is panic-safe (restore on unwind rather than after the
+  happy path), or the client fails closed on reuse after a contained panic instead of
+  reporting a misleading "unavailable".
+- **Reproduction:** read `crates/messaging/src/lib.rs:620-642`; the take at `:621-628`, the
+  await at `:633-638`, the replace at `:639-642`.
+- **Seen at commit:** the B-004 fix on `harden/h-01-catch-unwind`.
+- **Candidate fixes:** (a) hold the restore in a guard whose `Drop` puts the subscription
+  back, so an unwind cannot skip it — contained and local; (b) mark the client poisoned in
+  `jni_guard` and refuse later calls, which needs the handle registry from **B-005** to do
+  properly. (a) is the cheaper fix and does not wait on B-005.
+- **The same shape may exist in the other transports** — JetStream, RabbitMQ, Kafka and
+  Pulsar all follow a take/operate/replace pattern around pending acknowledgements. Not
+  audited yet; do that with the fix.
 
 ### B-003 — `MessageEnvelope.delivery_mode` is set by every message and read by no transport
 

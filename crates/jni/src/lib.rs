@@ -37,6 +37,74 @@ thread_local! {
     static LAST_ERROR: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
+/// B-004 — contain a panic before it unwinds into the JVM.
+///
+/// Every `Java_*` entry point runs its body inside this. A Rust panic crossing an
+/// `extern "system"` boundary into JVM frames is undefined behaviour, and this library is
+/// loaded *into* the process of a vendor-locked Java 6 application that must not be
+/// destabilised (`docs/adr/0001-jni-boundary-over-sidecar.md`).
+///
+/// On a panic the payload is recorded through the same `LAST_ERROR` channel every other
+/// failure uses, so `nativeLastError` reports it and the Java side raises
+/// `LegacyHttpException` exactly as it would for an ordinary error. The caller gets the
+/// type's error sentinel — `0` for `jlong`/`jint`, null for every object return.
+///
+/// `AssertUnwindSafe` is required because `JNIEnv` is not `UnwindSafe`.
+///
+/// **Read the limit of that assertion carefully — it is narrower than it looks.** The
+/// handle a caught panic leaves behind IS reused: a `NativeMessagingClient` outlives the
+/// call, and the Java caller will make another one. `LAST_ERROR` is safe (overwritten
+/// wholesale, never mutated in place), but transport state is not automatically so.
+/// `NatsTransport::receive` takes its subscription out of a `Mutex`, awaits, and only then
+/// puts it back (`crates/messaging/src/lib.rs:620-642`); a panic in the middle drops the
+/// subscription and leaves the `Mutex` holding `None` for good, so every later `receive`
+/// reports "NATS subscription is unavailable" on a client that still looks open. The
+/// `Mutex` is not poisoned by this, because the guard is released before the await.
+///
+/// So this guard converts **undefined behaviour into a reported error**, which is the
+/// difference between a corrupted host process and a diagnosable failure — and that is all
+/// it does. It does not make the affected client usable again. A caller that sees a
+/// contained panic should close and reopen. Making the client fail closed on reuse after a
+/// contained panic is tracked as `docs/BUGS.md` B-007; it needs the handle registry from
+/// B-005 to do properly.
+///
+/// This does NOT make a panic acceptable.
+fn jni_guard<T>(sentinel: T, body: impl FnOnce() -> T) -> T {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)) {
+        Ok(value) => value,
+        Err(payload) => {
+            set_error(describe_panic(payload.as_ref()));
+            // Do not drop the payload. A custom `panic_any` value whose `Drop` panics would
+            // panic while a panic is being handled, which aborts the process - the exact
+            // outcome this function exists to prevent. Leaking a payload on an already
+            // catastrophic path is the cheaper of the two failures.
+            std::mem::forget(payload);
+            sentinel
+        }
+    }
+}
+
+/// Render a panic payload without re-panicking.
+///
+/// `panic!("...")` yields `&str` or `String` depending on whether it was formatted; anything
+/// else (a custom `panic_any`) is unknowable here. Never unwrap a downcast — a panic while
+/// handling a panic aborts the process, which is the outcome this whole function exists to
+/// avoid.
+fn describe_panic(payload: &(dyn std::any::Any + Send)) -> String {
+    let detail = if let Some(text) = payload.downcast_ref::<&str>() {
+        (*text).to_string()
+    } else if let Some(text) = payload.downcast_ref::<String>() {
+        text.clone()
+    } else {
+        "non-string panic payload".to_string()
+    };
+    format!(
+        "internal error: a panic was contained at the JNI boundary and did not reach the JVM \
+         ({}). This is a defect in the native library - please report it with this message.",
+        detail
+    )
+}
+
 fn set_error(message: String) -> jlong {
     LAST_ERROR.with(|value| *value.borrow_mut() = message);
     0
@@ -466,39 +534,41 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
     mode: JString,
     provider: JString,
 ) -> jlong {
-    let values = [&url, &subject, &mode, &provider]
-        .iter()
-        .map(|value| java_string(&mut env, value))
-        .collect::<Option<Vec<_>>>();
-    let values = match values {
-        Some(values) => values,
-        None => return messaging_error("invalid messaging connection string".to_string()),
-    };
-    let selected_mode = match messaging_mode(&values[2]) {
-        Ok(value) => value,
-        Err(error) => return messaging_error(error),
-    };
-    let selected_provider = match messaging_provider(&values[3]) {
-        Ok(value) => value,
-        Err(error) => return messaging_error(error),
-    };
-    let route = RouteConfig {
-        default_mode: selected_mode,
-        default_provider: selected_provider,
-        rules: Vec::new(),
-    };
-    let route_probe = match MessageEnvelope::new(&values[1], Payload::Text(String::new()), 0) {
-        Ok(value) => value,
-        Err(error) => return messaging_error(error.to_string()),
-    };
-    if let Err(error) = route.decide(&route_probe) {
-        return messaging_error(error.to_string());
-    }
-    let transport = match build_transport(selected_provider, &values[0], &values[1]) {
-        Ok(value) => value,
-        Err(error) => return messaging_error(error),
-    };
-    Box::into_raw(Box::new(NativeMessagingClient { transport, route })) as jlong
+    jni_guard(0, move || {
+        let values = [&url, &subject, &mode, &provider]
+            .iter()
+            .map(|value| java_string(&mut env, value))
+            .collect::<Option<Vec<_>>>();
+        let values = match values {
+            Some(values) => values,
+            None => return messaging_error("invalid messaging connection string".to_string()),
+        };
+        let selected_mode = match messaging_mode(&values[2]) {
+            Ok(value) => value,
+            Err(error) => return messaging_error(error),
+        };
+        let selected_provider = match messaging_provider(&values[3]) {
+            Ok(value) => value,
+            Err(error) => return messaging_error(error),
+        };
+        let route = RouteConfig {
+            default_mode: selected_mode,
+            default_provider: selected_provider,
+            rules: Vec::new(),
+        };
+        let route_probe = match MessageEnvelope::new(&values[1], Payload::Text(String::new()), 0) {
+            Ok(value) => value,
+            Err(error) => return messaging_error(error.to_string()),
+        };
+        if let Err(error) = route.decide(&route_probe) {
+            return messaging_error(error.to_string());
+        }
+        let transport = match build_transport(selected_provider, &values[0], &values[1]) {
+            Ok(value) => value,
+            Err(error) => return messaging_error(error),
+        };
+        Box::into_raw(Box::new(NativeMessagingClient { transport, route })) as jlong
+    })
 }
 
 /// Open a messaging client WITH a routing policy.
@@ -518,50 +588,52 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
     provider: JString,
     rules: JObjectArray,
 ) -> jlong {
-    let values = [&url, &subject, &mode, &provider]
-        .iter()
-        .map(|value| java_string(&mut env, value))
-        .collect::<Option<Vec<_>>>();
-    let values = match values {
-        Some(values) => values,
-        None => return messaging_error("invalid messaging connection string".to_string()),
-    };
-    let selected_mode = match messaging_mode(&values[2]) {
-        Ok(value) => value,
-        Err(error) => return messaging_error(error),
-    };
-    let selected_provider = match messaging_provider(&values[3]) {
-        Ok(value) => value,
-        Err(error) => return messaging_error(error),
-    };
-    let encoded_rules = match java_string_array(&mut env, &rules) {
-        Some(value) => value,
-        None => return messaging_error("invalid routing rule array".to_string()),
-    };
-    let mut parsed = Vec::with_capacity(encoded_rules.len());
-    for encoded in &encoded_rules {
-        match parse_route_rule(encoded) {
-            Ok(rule) => parsed.push(rule),
+    jni_guard(0, move || {
+        let values = [&url, &subject, &mode, &provider]
+            .iter()
+            .map(|value| java_string(&mut env, value))
+            .collect::<Option<Vec<_>>>();
+        let values = match values {
+            Some(values) => values,
+            None => return messaging_error("invalid messaging connection string".to_string()),
+        };
+        let selected_mode = match messaging_mode(&values[2]) {
+            Ok(value) => value,
             Err(error) => return messaging_error(error),
+        };
+        let selected_provider = match messaging_provider(&values[3]) {
+            Ok(value) => value,
+            Err(error) => return messaging_error(error),
+        };
+        let encoded_rules = match java_string_array(&mut env, &rules) {
+            Some(value) => value,
+            None => return messaging_error("invalid routing rule array".to_string()),
+        };
+        let mut parsed = Vec::with_capacity(encoded_rules.len());
+        for encoded in &encoded_rules {
+            match parse_route_rule(encoded) {
+                Ok(rule) => parsed.push(rule),
+                Err(error) => return messaging_error(error),
+            }
         }
-    }
-    let route = RouteConfig {
-        default_mode: selected_mode,
-        default_provider: selected_provider,
-        rules: parsed,
-    };
-    let route_probe = match MessageEnvelope::new(&values[1], Payload::Text(String::new()), 0) {
-        Ok(value) => value,
-        Err(error) => return messaging_error(error.to_string()),
-    };
-    if let Err(error) = route.decide(&route_probe) {
-        return messaging_error(error.to_string());
-    }
-    let transport = match build_transport(selected_provider, &values[0], &values[1]) {
-        Ok(value) => value,
-        Err(error) => return messaging_error(error),
-    };
-    Box::into_raw(Box::new(NativeMessagingClient { transport, route })) as jlong
+        let route = RouteConfig {
+            default_mode: selected_mode,
+            default_provider: selected_provider,
+            rules: parsed,
+        };
+        let route_probe = match MessageEnvelope::new(&values[1], Payload::Text(String::new()), 0) {
+            Ok(value) => value,
+            Err(error) => return messaging_error(error.to_string()),
+        };
+        if let Err(error) = route.decide(&route_probe) {
+            return messaging_error(error.to_string());
+        }
+        let transport = match build_transport(selected_provider, &values[0], &values[1]) {
+            Ok(value) => value,
+            Err(error) => return messaging_error(error),
+        };
+        Box::into_raw(Box::new(NativeMessagingClient { transport, route })) as jlong
+    })
 }
 
 /// Evaluate the routing policy for a hypothetical message WITHOUT publishing it.
@@ -580,43 +652,45 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
     header_name: JString,
     header_value: JString,
 ) -> jni::sys::jstring {
-    let client = match unsafe { messaging_client(handle) } {
-        Some(client) => client,
-        None => return messaging_string_error("messaging client is closed".to_string()),
-    };
-    let values = [&destination, &tenant, &header_name, &header_value]
-        .iter()
-        .map(|value| java_string(&mut env, value))
-        .collect::<Option<Vec<_>>>();
-    let values = match values {
-        Some(values) => values,
-        None => return messaging_string_error("invalid dry-run arguments".to_string()),
-    };
-    let mut probe = match MessageEnvelope::new(&values[0], Payload::Text(String::new()), 0) {
-        Ok(value) => value,
-        Err(error) => return messaging_string_error(error.to_string()),
-    };
-    if !values[1].is_empty() {
-        probe.tenant = Some(values[1].clone());
-    }
-    if !values[2].is_empty() {
-        probe.headers.insert(values[2].clone(), values[3].clone());
-    }
-    let decision = match client.route.dry_run(&probe) {
-        Ok(value) => value,
-        Err(error) => return messaging_string_error(error.to_string()),
-    };
-    let frame = format!(
-        "{}#{}#{}#{}",
-        messaging_mode_name(decision.mode),
-        messaging_provider_name(decision.provider),
-        decision.rule_id.unwrap_or_default(),
-        if decision.allowed { "1" } else { "0" }
-    );
-    match env.new_string(frame) {
-        Ok(value) => value.into_raw(),
-        Err(error) => messaging_string_error(error.to_string()),
-    }
+    jni_guard(std::ptr::null_mut(), move || {
+        let client = match unsafe { messaging_client(handle) } {
+            Some(client) => client,
+            None => return messaging_string_error("messaging client is closed".to_string()),
+        };
+        let values = [&destination, &tenant, &header_name, &header_value]
+            .iter()
+            .map(|value| java_string(&mut env, value))
+            .collect::<Option<Vec<_>>>();
+        let values = match values {
+            Some(values) => values,
+            None => return messaging_string_error("invalid dry-run arguments".to_string()),
+        };
+        let mut probe = match MessageEnvelope::new(&values[0], Payload::Text(String::new()), 0) {
+            Ok(value) => value,
+            Err(error) => return messaging_string_error(error.to_string()),
+        };
+        if !values[1].is_empty() {
+            probe.tenant = Some(values[1].clone());
+        }
+        if !values[2].is_empty() {
+            probe.headers.insert(values[2].clone(), values[3].clone());
+        }
+        let decision = match client.route.dry_run(&probe) {
+            Ok(value) => value,
+            Err(error) => return messaging_string_error(error.to_string()),
+        };
+        let frame = format!(
+            "{}#{}#{}#{}",
+            messaging_mode_name(decision.mode),
+            messaging_provider_name(decision.provider),
+            decision.rule_id.unwrap_or_default(),
+            if decision.allowed { "1" } else { "0" }
+        );
+        match env.new_string(frame) {
+            Ok(value) => value.into_raw(),
+            Err(error) => messaging_string_error(error.to_string()),
+        }
+    })
 }
 
 #[no_mangle]
@@ -635,72 +709,76 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
     acknowledgement_mode: JString,
     payload_kind: JString,
 ) -> jni::sys::jstring {
-    let client = match unsafe { messaging_client(handle) } {
-        Some(value) => value,
-        None => return messaging_string_error("messaging client handle is invalid".to_string()),
-    };
-    let values = [
-        &message_id,
-        &destination,
-        &payload,
-        &trace_id,
-        &span_id,
-        &parent_span_id,
-        &trace_state,
-        &acknowledgement_mode,
-        &payload_kind,
-    ]
-    .iter()
-    .map(|value| java_string(&mut env, value))
-    .collect::<Option<Vec<_>>>();
-    let values = match values {
-        Some(values) => values,
-        None => return messaging_string_error("invalid messaging message string".to_string()),
-    };
-    let acknowledgement = match messaging_acknowledgement(&values[7]) {
-        Ok(value) => value,
-        Err(error) => return messaging_string_error(error),
-    };
-    // MSG-05: the payload arrives base64-encoded for every category, so a BytesMessage
-    // is not mangled by a UTF-8 round trip on the way in. The category decides how those
-    // bytes are interpreted; an unsupported one is refused here, before publishing.
-    let payload_bytes = match modernlink_core::base64_decode(&values[2]) {
-        Ok(value) => value,
-        Err(error) => return messaging_string_error(error.to_string()),
-    };
-    let payload = match messaging_build_payload(&values[8], payload_bytes) {
-        Ok(value) => value,
-        Err(error) => return messaging_string_error(error),
-    };
-    let mut message = match MessageEnvelope::new(&values[1], payload, 0) {
-        Ok(value) => value,
-        Err(error) => return messaging_string_error(error.to_string()),
-    };
-    message.message_id = values[0].clone();
-    message.acknowledgement_mode = acknowledgement;
-    message.tracing = TraceContext {
-        trace_id: values[3].clone(),
-        span_id: values[4].clone(),
-        parent_span_id: if values[5].is_empty() {
-            None
-        } else {
-            Some(values[5].clone())
-        },
-        trace_state: if values[6].is_empty() {
-            None
-        } else {
-            Some(values[6].clone())
-        },
-        sampled: sampled != 0,
-    };
-    let receipt = match client.route.dispatch(message, &client.transport) {
-        Ok(value) => value.receipt,
-        Err(error) => return messaging_string_error(error.to_string()),
-    };
-    match env.new_string(messaging_receipt_frame(&receipt)) {
-        Ok(value) => value.into_raw(),
-        Err(error) => messaging_string_error(error.to_string()),
-    }
+    jni_guard(std::ptr::null_mut(), move || {
+        let client = match unsafe { messaging_client(handle) } {
+            Some(value) => value,
+            None => {
+                return messaging_string_error("messaging client handle is invalid".to_string())
+            }
+        };
+        let values = [
+            &message_id,
+            &destination,
+            &payload,
+            &trace_id,
+            &span_id,
+            &parent_span_id,
+            &trace_state,
+            &acknowledgement_mode,
+            &payload_kind,
+        ]
+        .iter()
+        .map(|value| java_string(&mut env, value))
+        .collect::<Option<Vec<_>>>();
+        let values = match values {
+            Some(values) => values,
+            None => return messaging_string_error("invalid messaging message string".to_string()),
+        };
+        let acknowledgement = match messaging_acknowledgement(&values[7]) {
+            Ok(value) => value,
+            Err(error) => return messaging_string_error(error),
+        };
+        // MSG-05: the payload arrives base64-encoded for every category, so a BytesMessage
+        // is not mangled by a UTF-8 round trip on the way in. The category decides how those
+        // bytes are interpreted; an unsupported one is refused here, before publishing.
+        let payload_bytes = match modernlink_core::base64_decode(&values[2]) {
+            Ok(value) => value,
+            Err(error) => return messaging_string_error(error.to_string()),
+        };
+        let payload = match messaging_build_payload(&values[8], payload_bytes) {
+            Ok(value) => value,
+            Err(error) => return messaging_string_error(error),
+        };
+        let mut message = match MessageEnvelope::new(&values[1], payload, 0) {
+            Ok(value) => value,
+            Err(error) => return messaging_string_error(error.to_string()),
+        };
+        message.message_id = values[0].clone();
+        message.acknowledgement_mode = acknowledgement;
+        message.tracing = TraceContext {
+            trace_id: values[3].clone(),
+            span_id: values[4].clone(),
+            parent_span_id: if values[5].is_empty() {
+                None
+            } else {
+                Some(values[5].clone())
+            },
+            trace_state: if values[6].is_empty() {
+                None
+            } else {
+                Some(values[6].clone())
+            },
+            sampled: sampled != 0,
+        };
+        let receipt = match client.route.dispatch(message, &client.transport) {
+            Ok(value) => value.receipt,
+            Err(error) => return messaging_string_error(error.to_string()),
+        };
+        match env.new_string(messaging_receipt_frame(&receipt)) {
+            Ok(value) => value.into_raw(),
+            Err(error) => messaging_string_error(error.to_string()),
+        }
+    })
 }
 
 #[no_mangle]
@@ -709,23 +787,29 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
     _class: JClass,
     handle: jlong,
 ) -> jni::sys::jstring {
-    let client = match unsafe { messaging_client(handle) } {
-        Some(value) => value,
-        None => return messaging_string_error("messaging client handle is invalid".to_string()),
-    };
-    let received = match client.transport.receive() {
-        Ok(Some(value)) => value,
-        Ok(None) => return messaging_string_error("no messaging message available".to_string()),
-        Err(error) => return messaging_string_error(error.to_string()),
-    };
-    let frame = match messaging_message_frame(&received.message, &received.receipt) {
-        Ok(value) => value,
-        Err(error) => return messaging_string_error(error),
-    };
-    match env.new_string(frame) {
-        Ok(value) => value.into_raw(),
-        Err(error) => messaging_string_error(error.to_string()),
-    }
+    jni_guard(std::ptr::null_mut(), move || {
+        let client = match unsafe { messaging_client(handle) } {
+            Some(value) => value,
+            None => {
+                return messaging_string_error("messaging client handle is invalid".to_string())
+            }
+        };
+        let received = match client.transport.receive() {
+            Ok(Some(value)) => value,
+            Ok(None) => {
+                return messaging_string_error("no messaging message available".to_string())
+            }
+            Err(error) => return messaging_string_error(error.to_string()),
+        };
+        let frame = match messaging_message_frame(&received.message, &received.receipt) {
+            Ok(value) => value,
+            Err(error) => return messaging_string_error(error),
+        };
+        match env.new_string(frame) {
+            Ok(value) => value.into_raw(),
+            Err(error) => messaging_string_error(error.to_string()),
+        }
+    })
 }
 
 #[no_mangle]
@@ -738,45 +822,49 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
     state: JString,
     trace_id: JString,
 ) -> jni::sys::jstring {
-    let client = match unsafe { messaging_client(handle) } {
-        Some(value) => value,
-        None => return messaging_string_error("messaging client handle is invalid".to_string()),
-    };
-    let values = [&message_id, &provider, &state, &trace_id]
-        .iter()
-        .map(|value| java_string(&mut env, value))
-        .collect::<Option<Vec<_>>>();
-    let values = match values {
-        Some(values) => values,
-        None => return messaging_string_error("invalid delivery receipt string".to_string()),
-    };
-    let provider = match messaging_provider(&values[1]) {
-        Ok(value) => value,
-        Err(error) => return messaging_string_error(error),
-    };
-    let state = match values[2].as_str() {
-        "PUBLISHED" => DeliveryState::Published,
-        "RECEIVED" => DeliveryState::Received,
-        "ACKNOWLEDGED" => DeliveryState::Acknowledged,
-        "REJECTED" => DeliveryState::Rejected,
-        "RETRIED" => DeliveryState::Retried,
-        "DEAD_LETTERED" => DeliveryState::DeadLettered,
-        _ => return messaging_string_error("unsupported delivery state".to_string()),
-    };
-    let receipt = DeliveryReceipt {
-        message_id: values[0].clone(),
-        provider,
-        state,
-        trace_id: values[3].clone(),
-    };
-    let acknowledged = match client.transport.acknowledge(&receipt) {
-        Ok(value) => value,
-        Err(error) => return messaging_string_error(error.to_string()),
-    };
-    match env.new_string(messaging_receipt_frame(&acknowledged)) {
-        Ok(value) => value.into_raw(),
-        Err(error) => messaging_string_error(error.to_string()),
-    }
+    jni_guard(std::ptr::null_mut(), move || {
+        let client = match unsafe { messaging_client(handle) } {
+            Some(value) => value,
+            None => {
+                return messaging_string_error("messaging client handle is invalid".to_string())
+            }
+        };
+        let values = [&message_id, &provider, &state, &trace_id]
+            .iter()
+            .map(|value| java_string(&mut env, value))
+            .collect::<Option<Vec<_>>>();
+        let values = match values {
+            Some(values) => values,
+            None => return messaging_string_error("invalid delivery receipt string".to_string()),
+        };
+        let provider = match messaging_provider(&values[1]) {
+            Ok(value) => value,
+            Err(error) => return messaging_string_error(error),
+        };
+        let state = match values[2].as_str() {
+            "PUBLISHED" => DeliveryState::Published,
+            "RECEIVED" => DeliveryState::Received,
+            "ACKNOWLEDGED" => DeliveryState::Acknowledged,
+            "REJECTED" => DeliveryState::Rejected,
+            "RETRIED" => DeliveryState::Retried,
+            "DEAD_LETTERED" => DeliveryState::DeadLettered,
+            _ => return messaging_string_error("unsupported delivery state".to_string()),
+        };
+        let receipt = DeliveryReceipt {
+            message_id: values[0].clone(),
+            provider,
+            state,
+            trace_id: values[3].clone(),
+        };
+        let acknowledged = match client.transport.acknowledge(&receipt) {
+            Ok(value) => value,
+            Err(error) => return messaging_string_error(error.to_string()),
+        };
+        match env.new_string(messaging_receipt_frame(&acknowledged)) {
+            Ok(value) => value.into_raw(),
+            Err(error) => messaging_string_error(error.to_string()),
+        }
+    })
 }
 
 #[no_mangle]
@@ -785,11 +873,13 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
     _class: JClass,
     handle: jlong,
 ) {
-    if handle != 0 {
-        unsafe {
-            drop(Box::from_raw(handle as *mut NativeMessagingClient));
+    jni_guard((), move || {
+        if handle != 0 {
+            unsafe {
+                drop(Box::from_raw(handle as *mut NativeMessagingClient));
+            }
         }
-    }
+    })
 }
 
 /// MSG-04 — the provider guarantee table, readable without opening a connection.
@@ -807,31 +897,33 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
     _class: JClass,
     provider: JString,
 ) -> jni::sys::jstring {
-    let name = match java_string(&mut env, &provider) {
-        Some(value) => value,
-        None => return messaging_string_error("invalid provider name".to_string()),
-    };
-    let provider = match messaging_provider(&name) {
-        Ok(value) => value,
-        Err(error) => return messaging_string_error(error),
-    };
-    let guarantees = provider.guarantees();
-    let frame = format!(
-        "{}|{}|{}|{}|{}|{}|{}|{}|{}",
-        messaging_provider_name(provider),
-        guarantees.persistence.as_str(),
-        guarantees.ordering.as_str(),
-        guarantees.server_side_acknowledgement.as_str(),
-        guarantees.client_acknowledgement.as_str(),
-        guarantees.transactions.as_str(),
-        guarantees.redelivery.as_str(),
-        guarantees.dead_lettering.as_str(),
-        guarantees.replay.as_str()
-    );
-    match env.new_string(frame) {
-        Ok(value) => value.into_raw(),
-        Err(error) => messaging_string_error(error.to_string()),
-    }
+    jni_guard(std::ptr::null_mut(), move || {
+        let name = match java_string(&mut env, &provider) {
+            Some(value) => value,
+            None => return messaging_string_error("invalid provider name".to_string()),
+        };
+        let provider = match messaging_provider(&name) {
+            Ok(value) => value,
+            Err(error) => return messaging_string_error(error),
+        };
+        let guarantees = provider.guarantees();
+        let frame = format!(
+            "{}|{}|{}|{}|{}|{}|{}|{}|{}",
+            messaging_provider_name(provider),
+            guarantees.persistence.as_str(),
+            guarantees.ordering.as_str(),
+            guarantees.server_side_acknowledgement.as_str(),
+            guarantees.client_acknowledgement.as_str(),
+            guarantees.transactions.as_str(),
+            guarantees.redelivery.as_str(),
+            guarantees.dead_lettering.as_str(),
+            guarantees.replay.as_str()
+        );
+        match env.new_string(frame) {
+            Ok(value) => value.into_raw(),
+            Err(error) => messaging_string_error(error.to_string()),
+        }
+    })
 }
 
 #[no_mangle]
@@ -839,11 +931,13 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
     env: JNIEnv,
     _class: JClass,
 ) -> jni::sys::jstring {
-    let message = LAST_ERROR.with(|value| value.borrow().clone());
-    match env.new_string(message) {
-        Ok(value) => value.into_raw(),
-        Err(_) => std::ptr::null_mut(),
-    }
+    jni_guard(std::ptr::null_mut(), move || {
+        let message = LAST_ERROR.with(|value| value.borrow().clone());
+        match env.new_string(message) {
+            Ok(value) => value.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
 }
 
 unsafe fn response<'a>(handle: jlong) -> Option<&'a NativeResponse> {
@@ -868,81 +962,83 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeExecute(
     max_redirects: jint,
     minimum_tls_version: jint,
 ) -> jlong {
-    let url = match env
-        .get_string(&url)
-        .ok()
-        .and_then(|value| value.to_str().ok().map(str::to_owned))
-    {
-        Some(value) => value,
-        None => return set_error("invalid URL string".to_string()),
-    };
-    let method = match env
-        .get_string(&method)
-        .ok()
-        .and_then(|value| value.to_str().ok().map(str::to_owned))
-    {
-        Some(value) => value,
-        None => return set_error("invalid method string".to_string()),
-    };
-    let mut request = match Request::new(&url) {
-        Ok(value) => value,
-        Err(error) => return set_error(error.to_string()),
-    };
-    request.method = method;
-    if env.get_array_length(&headers).ok().unwrap_or(1) % 2 != 0 {
-        return set_error("headers must contain name/value pairs".to_string());
-    }
-    let header_count = env.get_array_length(&headers).ok().unwrap_or(0);
-    for index in (0..header_count).step_by(2) {
-        let name = match env
-            .get_object_array_element(&headers, index)
+    jni_guard(0, move || {
+        let url = match env
+            .get_string(&url)
             .ok()
-            .and_then(|value| {
-                env.get_string(&JString::from(value))
-                    .ok()
-                    .and_then(|text| text.to_str().ok().map(str::to_owned))
-            }) {
+            .and_then(|value| value.to_str().ok().map(str::to_owned))
+        {
             Some(value) => value,
-            None => return set_error("invalid header name".to_string()),
+            None => return set_error("invalid URL string".to_string()),
         };
-        let value = match env
-            .get_object_array_element(&headers, index + 1)
+        let method = match env
+            .get_string(&method)
             .ok()
-            .and_then(|value| {
-                env.get_string(&JString::from(value))
-                    .ok()
-                    .and_then(|text| text.to_str().ok().map(str::to_owned))
-            }) {
+            .and_then(|value| value.to_str().ok().map(str::to_owned))
+        {
             Some(value) => value,
-            None => return set_error("invalid header value".to_string()),
+            None => return set_error("invalid method string".to_string()),
         };
-        request.headers.insert(name, value);
-    }
-    request.body = match env.convert_byte_array(&body) {
-        Ok(value) => value,
-        Err(error) => return set_error(error.to_string()),
-    };
-    if connect_timeout_millis > 0 {
-        request.connect_timeout = Some(Duration::from_millis(connect_timeout_millis as u64));
-    }
-    if read_timeout_millis > 0 {
-        request.read_timeout = Some(Duration::from_millis(read_timeout_millis as u64));
-    }
-    request.follow_redirects = follow_redirects != 0;
-    if max_redirects < 0 {
-        return set_error("maximum redirects must not be negative".to_string());
-    }
-    request.max_redirects = max_redirects as u32;
-    request.minimum_tls_version = match minimum_tls_version {
-        12 => TlsVersion::Tls12,
-        13 => TlsVersion::Tls13,
-        _ => return set_error("unsupported minimum TLS version".to_string()),
-    };
-    let result = match http::execute(&request) {
-        Ok(value) => value,
-        Err(error) => return set_error(error.to_string()),
-    };
-    Box::into_raw(Box::new(NativeResponse(result))) as jlong
+        let mut request = match Request::new(&url) {
+            Ok(value) => value,
+            Err(error) => return set_error(error.to_string()),
+        };
+        request.method = method;
+        if env.get_array_length(&headers).ok().unwrap_or(1) % 2 != 0 {
+            return set_error("headers must contain name/value pairs".to_string());
+        }
+        let header_count = env.get_array_length(&headers).ok().unwrap_or(0);
+        for index in (0..header_count).step_by(2) {
+            let name = match env
+                .get_object_array_element(&headers, index)
+                .ok()
+                .and_then(|value| {
+                    env.get_string(&JString::from(value))
+                        .ok()
+                        .and_then(|text| text.to_str().ok().map(str::to_owned))
+                }) {
+                Some(value) => value,
+                None => return set_error("invalid header name".to_string()),
+            };
+            let value = match env
+                .get_object_array_element(&headers, index + 1)
+                .ok()
+                .and_then(|value| {
+                    env.get_string(&JString::from(value))
+                        .ok()
+                        .and_then(|text| text.to_str().ok().map(str::to_owned))
+                }) {
+                Some(value) => value,
+                None => return set_error("invalid header value".to_string()),
+            };
+            request.headers.insert(name, value);
+        }
+        request.body = match env.convert_byte_array(&body) {
+            Ok(value) => value,
+            Err(error) => return set_error(error.to_string()),
+        };
+        if connect_timeout_millis > 0 {
+            request.connect_timeout = Some(Duration::from_millis(connect_timeout_millis as u64));
+        }
+        if read_timeout_millis > 0 {
+            request.read_timeout = Some(Duration::from_millis(read_timeout_millis as u64));
+        }
+        request.follow_redirects = follow_redirects != 0;
+        if max_redirects < 0 {
+            return set_error("maximum redirects must not be negative".to_string());
+        }
+        request.max_redirects = max_redirects as u32;
+        request.minimum_tls_version = match minimum_tls_version {
+            12 => TlsVersion::Tls12,
+            13 => TlsVersion::Tls13,
+            _ => return set_error("unsupported minimum TLS version".to_string()),
+        };
+        let result = match http::execute(&request) {
+            Ok(value) => value,
+            Err(error) => return set_error(error.to_string()),
+        };
+        Box::into_raw(Box::new(NativeResponse(result))) as jlong
+    })
 }
 
 #[no_mangle]
@@ -950,11 +1046,13 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeLastError(
     env: JNIEnv,
     _class: JClass,
 ) -> jni::sys::jstring {
-    let message = LAST_ERROR.with(|value| value.borrow().clone());
-    match env.new_string(message) {
-        Ok(value) => value.into_raw(),
-        Err(_) => std::ptr::null_mut(),
-    }
+    jni_guard(std::ptr::null_mut(), move || {
+        let message = LAST_ERROR.with(|value| value.borrow().clone());
+        match env.new_string(message) {
+            Ok(value) => value.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
 }
 
 #[no_mangle]
@@ -962,7 +1060,7 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeCapabilities(
     _env: JNIEnv,
     _class: JClass,
 ) -> jlong {
-    31
+    jni_guard(0, move || 31)
 }
 
 #[no_mangle]
@@ -970,10 +1068,12 @@ pub extern "system" fn Java_com_modernlink_ModernUuid_nativeV7(
     env: JNIEnv,
     _class: JClass,
 ) -> jni::sys::jstring {
-    match env.new_string(modernlink_core::uuid_v7()) {
-        Ok(value) => value.into_raw(),
-        Err(_) => std::ptr::null_mut(),
-    }
+    jni_guard(std::ptr::null_mut(), move || {
+        match env.new_string(modernlink_core::uuid_v7()) {
+            Ok(value) => value.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
 }
 
 #[no_mangle]
@@ -981,10 +1081,12 @@ pub extern "system" fn Java_com_modernlink_ModernUuid_nativeV4(
     env: JNIEnv,
     _class: JClass,
 ) -> jni::sys::jstring {
-    match env.new_string(modernlink_core::uuid_v4()) {
-        Ok(value) => value.into_raw(),
-        Err(_) => std::ptr::null_mut(),
-    }
+    jni_guard(std::ptr::null_mut(), move || {
+        match env.new_string(modernlink_core::uuid_v4()) {
+            Ok(value) => value.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
 }
 
 #[no_mangle]
@@ -993,14 +1095,16 @@ pub extern "system" fn Java_com_modernlink_ModernBase64_nativeEncode(
     _class: JClass,
     value: JByteArray,
 ) -> jni::sys::jstring {
-    let value = match env.convert_byte_array(&value) {
-        Ok(value) => value,
-        Err(_) => return std::ptr::null_mut(),
-    };
-    match env.new_string(modernlink_core::base64_encode(&value)) {
-        Ok(value) => value.into_raw(),
-        Err(_) => std::ptr::null_mut(),
-    }
+    jni_guard(std::ptr::null_mut(), move || {
+        let value = match env.convert_byte_array(&value) {
+            Ok(value) => value,
+            Err(_) => return std::ptr::null_mut(),
+        };
+        match env.new_string(modernlink_core::base64_encode(&value)) {
+            Ok(value) => value.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
 }
 
 #[no_mangle]
@@ -1009,21 +1113,23 @@ pub extern "system" fn Java_com_modernlink_ModernBase64_nativeDecode(
     _class: JClass,
     value: JString,
 ) -> jni::sys::jbyteArray {
-    let value = match env
-        .get_string(&value)
-        .ok()
-        .and_then(|text| text.to_str().ok().map(str::to_owned))
-    {
-        Some(value) => value,
-        None => return std::ptr::null_mut(),
-    };
-    match modernlink_core::base64_decode(&value)
-        .ok()
-        .and_then(|bytes| env.byte_array_from_slice(&bytes).ok())
-    {
-        Some(bytes) => bytes.into_raw(),
-        None => std::ptr::null_mut(),
-    }
+    jni_guard(std::ptr::null_mut(), move || {
+        let value = match env
+            .get_string(&value)
+            .ok()
+            .and_then(|text| text.to_str().ok().map(str::to_owned))
+        {
+            Some(value) => value,
+            None => return std::ptr::null_mut(),
+        };
+        match modernlink_core::base64_decode(&value)
+            .ok()
+            .and_then(|bytes| env.byte_array_from_slice(&bytes).ok())
+        {
+            Some(bytes) => bytes.into_raw(),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 fn java_string_array(env: &mut JNIEnv, values: &JObjectArray) -> Option<Vec<String>> {
@@ -1048,17 +1154,19 @@ pub extern "system" fn Java_com_modernlink_ModernJson_nativeObject(
     _class: JClass,
     fields: JObjectArray,
 ) -> jni::sys::jstring {
-    let fields = match java_string_array(&mut env, &fields) {
-        Some(value) => value,
-        None => return std::ptr::null_mut(),
-    };
-    match modernlink_core::json_object(&fields)
-        .ok()
-        .and_then(|value| env.new_string(value).ok())
-    {
-        Some(value) => value.into_raw(),
-        None => std::ptr::null_mut(),
-    }
+    jni_guard(std::ptr::null_mut(), move || {
+        let fields = match java_string_array(&mut env, &fields) {
+            Some(value) => value,
+            None => return std::ptr::null_mut(),
+        };
+        match modernlink_core::json_object(&fields)
+            .ok()
+            .and_then(|value| env.new_string(value).ok())
+        {
+            Some(value) => value.into_raw(),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 #[no_mangle]
@@ -1067,17 +1175,19 @@ pub extern "system" fn Java_com_modernlink_ModernJson_nativeArray(
     _class: JClass,
     values: JObjectArray,
 ) -> jni::sys::jstring {
-    let values = match java_string_array(&mut env, &values) {
-        Some(value) => value,
-        None => return std::ptr::null_mut(),
-    };
-    match modernlink_core::json_array(&values)
-        .ok()
-        .and_then(|value| env.new_string(value).ok())
-    {
-        Some(value) => value.into_raw(),
-        None => std::ptr::null_mut(),
-    }
+    jni_guard(std::ptr::null_mut(), move || {
+        let values = match java_string_array(&mut env, &values) {
+            Some(value) => value,
+            None => return std::ptr::null_mut(),
+        };
+        match modernlink_core::json_array(&values)
+            .ok()
+            .and_then(|value| env.new_string(value).ok())
+        {
+            Some(value) => value.into_raw(),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 #[no_mangle]
@@ -1086,21 +1196,23 @@ pub extern "system" fn Java_com_modernlink_ModernJson_nativeDecode(
     _class: JClass,
     json: JString,
 ) -> jni::sys::jstring {
-    let json = match env
-        .get_string(&json)
-        .ok()
-        .and_then(|text| text.to_str().ok().map(str::to_owned))
-    {
-        Some(value) => value,
-        None => return std::ptr::null_mut(),
-    };
-    match modernlink_core::json_decode(&json)
-        .ok()
-        .and_then(|value| env.new_string(value).ok())
-    {
-        Some(value) => value.into_raw(),
-        None => std::ptr::null_mut(),
-    }
+    jni_guard(std::ptr::null_mut(), move || {
+        let json = match env
+            .get_string(&json)
+            .ok()
+            .and_then(|text| text.to_str().ok().map(str::to_owned))
+        {
+            Some(value) => value,
+            None => return std::ptr::null_mut(),
+        };
+        match modernlink_core::json_decode(&json)
+            .ok()
+            .and_then(|value| env.new_string(value).ok())
+        {
+            Some(value) => value.into_raw(),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 #[no_mangle]
@@ -1109,11 +1221,11 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeStatus(
     _class: JClass,
     handle: jlong,
 ) -> jint {
-    unsafe {
+    jni_guard(0, move || unsafe {
         response(handle)
             .map(|value| value.0.status as jint)
             .unwrap_or(0)
-    }
+    })
 }
 
 #[no_mangle]
@@ -1122,12 +1234,14 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeStatusMessage(
     _class: JClass,
     handle: jlong,
 ) -> jni::sys::jstring {
-    match unsafe { response(handle).map(|value| value.0.status_message.clone()) }
-        .and_then(|value| env.new_string(value).ok())
-    {
-        Some(value) => value.into_raw(),
-        None => std::ptr::null_mut(),
-    }
+    jni_guard(std::ptr::null_mut(), move || {
+        match unsafe { response(handle).map(|value| value.0.status_message.clone()) }
+            .and_then(|value| env.new_string(value).ok())
+        {
+            Some(value) => value.into_raw(),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 #[no_mangle]
@@ -1136,39 +1250,44 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeHeaders(
     _class: JClass,
     handle: jlong,
 ) -> jobjectArray {
-    let headers = match unsafe { response(handle) } {
-        Some(value) => &value.0.headers,
-        None => return std::ptr::null_mut(),
-    };
-    let string_class = match env.find_class("java/lang/String") {
-        Ok(value) => value,
-        Err(_) => return std::ptr::null_mut(),
-    };
-    let array =
-        match env.new_object_array((headers.len() * 2) as i32, string_class, JString::default()) {
+    jni_guard(std::ptr::null_mut(), move || {
+        let headers = match unsafe { response(handle) } {
+            Some(value) => &value.0.headers,
+            None => return std::ptr::null_mut(),
+        };
+        let string_class = match env.find_class("java/lang/String") {
             Ok(value) => value,
             Err(_) => return std::ptr::null_mut(),
         };
-    for (index, (name, value)) in headers.iter().enumerate() {
-        let name = match env.new_string(name) {
+        let array = match env.new_object_array(
+            (headers.len() * 2) as i32,
+            string_class,
+            JString::default(),
+        ) {
             Ok(value) => value,
             Err(_) => return std::ptr::null_mut(),
         };
-        let value = match env.new_string(value) {
-            Ok(value) => value,
-            Err(_) => return std::ptr::null_mut(),
-        };
-        if env
-            .set_object_array_element(&array, (index * 2) as i32, name)
-            .is_err()
-            || env
-                .set_object_array_element(&array, (index * 2 + 1) as i32, value)
+        for (index, (name, value)) in headers.iter().enumerate() {
+            let name = match env.new_string(name) {
+                Ok(value) => value,
+                Err(_) => return std::ptr::null_mut(),
+            };
+            let value = match env.new_string(value) {
+                Ok(value) => value,
+                Err(_) => return std::ptr::null_mut(),
+            };
+            if env
+                .set_object_array_element(&array, (index * 2) as i32, name)
                 .is_err()
-        {
-            return std::ptr::null_mut();
+                || env
+                    .set_object_array_element(&array, (index * 2 + 1) as i32, value)
+                    .is_err()
+            {
+                return std::ptr::null_mut();
+            }
         }
-    }
-    array.into_raw()
+        array.into_raw()
+    })
 }
 
 #[no_mangle]
@@ -1177,14 +1296,16 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeBody(
     _class: JClass,
     handle: jlong,
 ) -> jbyteArray {
-    let body = match unsafe { response(handle) } {
-        Some(value) => &value.0.body,
-        None => return std::ptr::null_mut(),
-    };
-    match env.byte_array_from_slice(body) {
-        Ok(value) => value.into_raw(),
-        Err(_) => std::ptr::null_mut(),
-    }
+    jni_guard(std::ptr::null_mut(), move || {
+        let body = match unsafe { response(handle) } {
+            Some(value) => &value.0.body,
+            None => return std::ptr::null_mut(),
+        };
+        match env.byte_array_from_slice(body) {
+            Ok(value) => value.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
 }
 
 #[no_mangle]
@@ -1193,38 +1314,40 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeTlsCertificate
     _class: JClass,
     handle: jlong,
 ) -> jobjectArray {
-    let certificates = match unsafe { response(handle) } {
-        Some(value) => match &value.0.tls {
-            Some(info) => &info.peer_certificates_der,
+    jni_guard(std::ptr::null_mut(), move || {
+        let certificates = match unsafe { response(handle) } {
+            Some(value) => match &value.0.tls {
+                Some(info) => &info.peer_certificates_der,
+                None => return std::ptr::null_mut(),
+            },
             None => return std::ptr::null_mut(),
-        },
-        None => return std::ptr::null_mut(),
-    };
-    let byte_array_class = match env.find_class("[B") {
-        Ok(value) => value,
-        Err(_) => return std::ptr::null_mut(),
-    };
-    let array = match env.new_object_array(
-        certificates.len() as i32,
-        byte_array_class,
-        JByteArray::default(),
-    ) {
-        Ok(value) => value,
-        Err(_) => return std::ptr::null_mut(),
-    };
-    for (index, certificate) in certificates.iter().enumerate() {
-        let value = match env.byte_array_from_slice(certificate) {
+        };
+        let byte_array_class = match env.find_class("[B") {
             Ok(value) => value,
             Err(_) => return std::ptr::null_mut(),
         };
-        if env
-            .set_object_array_element(&array, index as i32, value)
-            .is_err()
-        {
-            return std::ptr::null_mut();
+        let array = match env.new_object_array(
+            certificates.len() as i32,
+            byte_array_class,
+            JByteArray::default(),
+        ) {
+            Ok(value) => value,
+            Err(_) => return std::ptr::null_mut(),
+        };
+        for (index, certificate) in certificates.iter().enumerate() {
+            let value = match env.byte_array_from_slice(certificate) {
+                Ok(value) => value,
+                Err(_) => return std::ptr::null_mut(),
+            };
+            if env
+                .set_object_array_element(&array, index as i32, value)
+                .is_err()
+            {
+                return std::ptr::null_mut();
+            }
         }
-    }
-    array.into_raw()
+        array.into_raw()
+    })
 }
 
 fn tls_string(handle: jlong, protocol: bool) -> Option<String> {
@@ -1247,12 +1370,14 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeFinalUrl(
     _class: JClass,
     handle: jlong,
 ) -> jni::sys::jstring {
-    match unsafe { response(handle).map(|value| value.0.final_url.clone()) }
-        .and_then(|value| env.new_string(value).ok())
-    {
-        Some(value) => value.into_raw(),
-        None => std::ptr::null_mut(),
-    }
+    jni_guard(std::ptr::null_mut(), move || {
+        match unsafe { response(handle).map(|value| value.0.final_url.clone()) }
+            .and_then(|value| env.new_string(value).ok())
+        {
+            Some(value) => value.into_raw(),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 #[no_mangle]
@@ -1261,10 +1386,12 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeTlsProtocol(
     _class: JClass,
     handle: jlong,
 ) -> jni::sys::jstring {
-    match tls_string(handle, true).and_then(|value| env.new_string(value).ok()) {
-        Some(value) => value.into_raw(),
-        None => std::ptr::null_mut(),
-    }
+    jni_guard(std::ptr::null_mut(), move || {
+        match tls_string(handle, true).and_then(|value| env.new_string(value).ok()) {
+            Some(value) => value.into_raw(),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 #[no_mangle]
@@ -1273,10 +1400,12 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeTlsCipherSuite
     _class: JClass,
     handle: jlong,
 ) -> jni::sys::jstring {
-    match tls_string(handle, false).and_then(|value| env.new_string(value).ok()) {
-        Some(value) => value.into_raw(),
-        None => std::ptr::null_mut(),
-    }
+    jni_guard(std::ptr::null_mut(), move || {
+        match tls_string(handle, false).and_then(|value| env.new_string(value).ok()) {
+            Some(value) => value.into_raw(),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 #[no_mangle]
@@ -1285,11 +1414,13 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeRelease(
     _class: JClass,
     handle: jlong,
 ) {
-    if handle != 0 {
-        unsafe {
-            drop(Box::from_raw(handle as *mut NativeResponse));
+    jni_guard((), move || {
+        if handle != 0 {
+            unsafe {
+                drop(Box::from_raw(handle as *mut NativeResponse));
+            }
         }
-    }
+    })
 }
 
 #[cfg(test)]
@@ -1452,5 +1583,107 @@ mod payload_category_tests {
         let error = messaging_build_payload("TEXT", vec![0xff, 0xfe])
             .expect_err("invalid UTF-8 must not be silently replaced");
         assert!(error.contains("not valid UTF-8"), "{}", error);
+    }
+}
+
+#[cfg(test)]
+mod panic_containment_tests {
+    use super::*;
+
+    fn last_error() -> String {
+        LAST_ERROR.with(|value| value.borrow().clone())
+    }
+
+    #[test]
+    fn a_body_that_succeeds_is_passed_through_untouched() {
+        assert_eq!(jni_guard(0i64, || 42i64), 42);
+    }
+
+    /// The core of B-004: a panic must become a reported error and a sentinel, not an
+    /// unwind into JVM frames.
+    #[test]
+    fn a_panicking_body_returns_the_sentinel_instead_of_unwinding() {
+        LAST_ERROR.with(|value| value.borrow_mut().clear());
+        let result = jni_guard(0i64, || panic!("boom from inside an entry point"));
+        assert_eq!(result, 0, "the caller must receive the error sentinel");
+        let error = last_error();
+        assert!(
+            error.contains("boom from inside an entry point"),
+            "the panic detail must survive into the error channel: {}",
+            error
+        );
+        assert!(
+            error.contains("did not reach the JVM"),
+            "the message must say the panic was contained: {}",
+            error
+        );
+    }
+
+    /// Null is the sentinel for every object return, and it is what the Java side already
+    /// treats as "ask nativeLastError why".
+    #[test]
+    fn a_null_sentinel_is_returned_for_object_returns() {
+        let result = jni_guard(std::ptr::null_mut::<u8>(), || panic!("boom"));
+        assert!(result.is_null());
+    }
+
+    /// A formatted panic produces `String`, an unformatted one `&str`. Both must render;
+    /// this caught a real gap where only one arm was handled.
+    #[test]
+    fn both_string_and_str_panic_payloads_render() {
+        LAST_ERROR.with(|value| value.borrow_mut().clear());
+        jni_guard(0i64, || panic!("plain str payload"));
+        assert!(last_error().contains("plain str payload"));
+
+        LAST_ERROR.with(|value| value.borrow_mut().clear());
+        let n = 7;
+        jni_guard(0i64, || panic!("formatted {} payload", n));
+        assert!(last_error().contains("formatted 7 payload"));
+    }
+
+    /// Handling a panic must never itself panic - that aborts the process, which is worse
+    /// than the undefined behaviour this guard exists to prevent.
+    #[test]
+    fn an_unknown_payload_type_does_not_panic_the_handler() {
+        LAST_ERROR.with(|value| value.borrow_mut().clear());
+        let result = jni_guard(0i64, || std::panic::panic_any(42u32));
+        assert_eq!(result, 0);
+        assert!(
+            last_error().contains("non-string panic payload"),
+            "{}",
+            last_error()
+        );
+    }
+
+    /// The structural guarantee, not just the mechanism: EVERY exported entry point must be
+    /// wrapped. Counting them in the source is crude, and it is the only check that fails
+    /// when someone adds a 29th entry point and forgets the guard - which is exactly how
+    /// this defect would come back.
+    #[test]
+    fn every_exported_entry_point_is_wrapped_in_the_guard() {
+        let source = include_str!("lib.rs");
+        let exported = source.matches("pub extern \"system\" fn Java_").count();
+        let guarded = source.matches("jni_guard(").count();
+        // `jni_guard(` also appears in this test module and in its own definition; count
+        // only the call sites inside entry points by subtracting the known non-entry uses.
+        let non_entry_uses = source.matches("fn jni_guard").count()
+            + source.matches("jni_guard(0i64").count()
+            + source
+                .matches("jni_guard(std::ptr::null_mut::<u8>()")
+                .count();
+        assert!(
+            exported > 0,
+            "no entry points found - the check itself is broken"
+        );
+        assert_eq!(
+            guarded - non_entry_uses,
+            exported,
+            "every `Java_*` entry point must call jni_guard: {} exported, {} guarded call \
+             sites (excluding {} test/definition uses). An unguarded entry point can unwind \
+             a panic into the JVM - see docs/BUGS.md B-004.",
+            exported,
+            guarded - non_entry_uses,
+            non_entry_uses
+        );
     }
 }
