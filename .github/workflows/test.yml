@@ -62,7 +62,7 @@ jobs:
       - uses: actions/checkout@v6
       - name: Build Java 6 distributable JAR
         run: docker build -f docker/java6/Dockerfile -t modernlink-java6-https .
-      # VER-03: run every test class from the packaged JAR - 14 of them. Previously only
+      # VER-03: run every test class from the packaged JAR - 15 of them. Previously only
       # three of ten ran, so a test the workflow did not name never executed. A class
       # added to java/src/test WITHOUT being named here still never runs, which is why
       # this list is exhaustive rather than a sample. None of them needs a broker.
@@ -86,7 +86,7 @@ jobs:
               echo "==== com.modernlink.$test"
               java -cp /workspace/modernlink.jar "com.modernlink.$test"
             done
-            for test in LegacyJmsMessagingTest RoutingPolicyTest ProviderGuaranteesTest
+            for test in LegacyJmsMessagingTest RoutingPolicyTest ProviderGuaranteesTest PayloadCategoriesTest
             do
               echo "==== com.modernlink.messaging.$test"
               java -cp /workspace/modernlink.jar "com.modernlink.messaging.$test"

@@ -310,16 +310,121 @@ fn messaging_receipt_frame(receipt: &DeliveryReceipt) -> String {
     )
 }
 
+/// MSG-05 — the wire name for a payload category.
+///
+/// The frame carries the category alongside the bytes because base64 alone is ambiguous:
+/// the receiver cannot tell a UTF-8 string from an opaque blob, and guessing would make
+/// a BytesMessage silently arrive as text.
+fn messaging_payload_kind_name(payload: &Payload) -> &'static str {
+    match payload {
+        Payload::Text(_) => "TEXT",
+        Payload::Bytes(_) => "BYTES",
+        Payload::Map(_) => "MAP",
+        Payload::Stream(_) => "STREAM",
+        Payload::Object { .. } => "OBJECT",
+    }
+}
+
+/// A map encoded so no key or value can collide with a delimiter.
+///
+/// `base64(key):base64(value)`, pairs joined by `,`. Both halves are base64 precisely so
+/// a key containing a delimiter cannot forge a pair boundary. `BTreeMap` iteration is
+/// ordered, so the encoding is deterministic and two equal maps encode identically.
+///
+/// The separators are `:` and `,` because neither is in the base64 alphabet
+/// (`A-Z a-z 0-9 + / =`). `=` was the obvious choice and is wrong: it is base64 *padding*,
+/// so `base64("alpha")` ends in `=` and splitting on the first one cut the key in half.
+/// The delimiter round-trip test caught exactly that.
+fn messaging_encode_map(entries: &std::collections::BTreeMap<String, String>) -> Vec<u8> {
+    let mut parts: Vec<String> = Vec::new();
+    for (key, value) in entries {
+        parts.push(format!(
+            "{}:{}",
+            core::base64_encode(key.as_bytes()),
+            core::base64_encode(value.as_bytes())
+        ));
+    }
+    parts.join(",").into_bytes()
+}
+
+fn messaging_decode_map(
+    bytes: &[u8],
+) -> Result<std::collections::BTreeMap<String, String>, String> {
+    let text = String::from_utf8(bytes.to_vec())
+        .map_err(|_| "map payload is not valid UTF-8".to_string())?;
+    let mut entries = std::collections::BTreeMap::new();
+    if text.is_empty() {
+        return Ok(entries);
+    }
+    for pair in text.split(',') {
+        let mut halves = pair.splitn(2, ':');
+        let key = halves
+            .next()
+            .ok_or_else(|| "map payload entry has no key".to_string())?;
+        let value = halves
+            .next()
+            .ok_or_else(|| "map payload entry has no value".to_string())?;
+        let key = core::base64_decode(key).map_err(|error| error.to_string())?;
+        let value = core::base64_decode(value).map_err(|error| error.to_string())?;
+        entries.insert(
+            String::from_utf8(key).map_err(|_| "map key is not valid UTF-8".to_string())?,
+            String::from_utf8(value).map_err(|_| "map value is not valid UTF-8".to_string())?,
+        );
+    }
+    Ok(entries)
+}
+
+/// The canonical bytes for a payload, as carried in the frame.
+fn messaging_payload_bytes(payload: &Payload) -> Vec<u8> {
+    match payload {
+        Payload::Text(value) => value.as_bytes().to_vec(),
+        Payload::Bytes(value) | Payload::Stream(value) => value.clone(),
+        Payload::Map(entries) => messaging_encode_map(entries),
+        Payload::Object { bytes, .. } => bytes.clone(),
+    }
+}
+
+/// Rebuild a payload from the category and its bytes.
+///
+/// STREAM and OBJECT are refused rather than accepted. STREAM needs typed field ordering
+/// this encoding does not carry, and OBJECT would mean handing broker-supplied bytes to
+/// Java deserialization -- a well-known remote-code-execution surface that must not be
+/// opened by default in a compatibility layer fronting a legacy application. Both refuse
+/// explicitly, naming why, instead of degrading to BYTES.
+fn messaging_build_payload(kind: &str, bytes: Vec<u8>) -> Result<Payload, String> {
+    match kind {
+        "TEXT" => String::from_utf8(bytes)
+            .map(Payload::Text)
+            .map_err(|_| "text payload is not valid UTF-8".to_string()),
+        "BYTES" => Ok(Payload::Bytes(bytes)),
+        "MAP" => messaging_decode_map(&bytes).map(Payload::Map),
+        "STREAM" => Err(
+            "STREAM payloads are not carried across the Java 6 boundary: the \
+                         frame does not encode the typed field ordering a StreamMessage \
+                         requires, and delivering it as opaque bytes would lose that \
+                         structure silently"
+                .to_string(),
+        ),
+        "OBJECT" => Err(
+            "OBJECT payloads are deliberately not carried across the Java 6 \
+                         boundary: reconstructing one means deserializing broker-supplied \
+                         bytes into Java objects, which is a remote-code-execution surface. \
+                         Use BYTES and deserialize explicitly if the application accepts \
+                         that risk"
+                .to_string(),
+        ),
+        other => Err(format!("unknown payload category: {}", other)),
+    }
+}
+
 fn messaging_message_frame(
     message: &MessageEnvelope,
     receipt: &DeliveryReceipt,
 ) -> Result<String, String> {
-    let payload = match &message.payload {
-        Payload::Text(value) => value,
-        _ => {
-            return Err("Java 6 messaging facade currently supports text payloads only".to_string())
-        }
-    };
+    // MSG-05: every category is carried now, not just text. The category travels with
+    // the bytes so the receiver never has to guess whether base64 holds a UTF-8 string.
+    let payload_bytes = messaging_payload_bytes(&message.payload);
+    let payload_kind = messaging_payload_kind_name(&message.payload);
     let acknowledgement = match message.acknowledgement_mode {
         AcknowledgementMode::Auto => "AUTO",
         AcknowledgementMode::Client => "CLIENT",
@@ -329,7 +434,7 @@ fn messaging_message_frame(
     let message_frame = [
         message.message_id.clone(),
         message.destination.clone(),
-        core::base64_encode(payload.as_bytes()),
+        core::base64_encode(&payload_bytes),
         message.tracing.trace_id.clone(),
         message.tracing.span_id.clone(),
         message.tracing.parent_span_id.clone().unwrap_or_default(),
@@ -340,6 +445,7 @@ fn messaging_message_frame(
         } else {
             "0".to_string()
         },
+        payload_kind.to_string(),
     ]
     .join("|");
     Ok(format!(
@@ -525,6 +631,7 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
     trace_state: JString,
     sampled: jni::sys::jboolean,
     acknowledgement_mode: JString,
+    payload_kind: JString,
 ) -> jni::sys::jstring {
     let client = match unsafe { messaging_client(handle) } {
         Some(value) => value,
@@ -539,6 +646,7 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
         &parent_span_id,
         &trace_state,
         &acknowledgement_mode,
+        &payload_kind,
     ]
     .iter()
     .map(|value| java_string(&mut env, value))
@@ -551,7 +659,18 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
         Ok(value) => value,
         Err(error) => return messaging_string_error(error),
     };
-    let mut message = match MessageEnvelope::new(&values[1], Payload::Text(values[2].clone()), 0) {
+    // MSG-05: the payload arrives base64-encoded for every category, so a BytesMessage
+    // is not mangled by a UTF-8 round trip on the way in. The category decides how those
+    // bytes are interpreted; an unsupported one is refused here, before publishing.
+    let payload_bytes = match core::base64_decode(&values[2]) {
+        Ok(value) => value,
+        Err(error) => return messaging_string_error(error.to_string()),
+    };
+    let payload = match messaging_build_payload(&values[8], payload_bytes) {
+        Ok(value) => value,
+        Err(error) => return messaging_string_error(error),
+    };
+    let mut message = match MessageEnvelope::new(&values[1], payload, 0) {
         Ok(value) => value,
         Err(error) => return messaging_string_error(error.to_string()),
     };
@@ -1230,5 +1349,106 @@ mod feature_gating_tests {
             Err(error) => panic!("LEGACY_JMS must always build, got: {}", error),
         };
         assert_eq!(transport.provider(), Provider::LegacyJms);
+    }
+}
+
+#[cfg(test)]
+mod payload_category_tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    fn round_trip(payload: Payload) -> Payload {
+        let kind = messaging_payload_kind_name(&payload);
+        let bytes = messaging_payload_bytes(&payload);
+        messaging_build_payload(kind, bytes).expect("a supported category must round-trip")
+    }
+
+    #[test]
+    fn text_round_trips() {
+        assert_eq!(
+            round_trip(Payload::Text("hello".to_string())),
+            Payload::Text("hello".to_string())
+        );
+    }
+
+    /// The reason BYTES needed the category field at all: these bytes are not valid
+    /// UTF-8, so a text-only boundary would have had to mangle or reject them.
+    #[test]
+    fn arbitrary_bytes_survive_intact() {
+        let raw = vec![0x00, 0xff, 0xfe, 0x41, 0x0a, 0x80];
+        assert_eq!(round_trip(Payload::Bytes(raw.clone())), Payload::Bytes(raw));
+    }
+
+    #[test]
+    fn map_round_trips() {
+        let mut entries = BTreeMap::new();
+        entries.insert("alpha".to_string(), "one".to_string());
+        entries.insert("beta".to_string(), "two".to_string());
+        assert_eq!(
+            round_trip(Payload::Map(entries.clone())),
+            Payload::Map(entries)
+        );
+    }
+
+    /// Both halves of every pair are base64 precisely so a key or value containing the
+    /// delimiters cannot forge a pair boundary. Without that, this map would decode into
+    /// a different map -- silent corruption rather than an error.
+    #[test]
+    fn map_keys_and_values_containing_delimiters_round_trip() {
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            "key=with,delimiters".to_string(),
+            "value,with=both".to_string(),
+        );
+        entries.insert("plain".to_string(), String::new());
+        assert_eq!(
+            round_trip(Payload::Map(entries.clone())),
+            Payload::Map(entries)
+        );
+    }
+
+    #[test]
+    fn empty_map_round_trips() {
+        assert_eq!(
+            round_trip(Payload::Map(BTreeMap::new())),
+            Payload::Map(BTreeMap::new())
+        );
+    }
+
+    /// STREAM is refused rather than delivered as opaque bytes, which would drop the
+    /// typed field structure a StreamMessage exists to carry.
+    #[test]
+    fn stream_is_refused_with_a_reason() {
+        let error = messaging_build_payload("STREAM", vec![1, 2, 3])
+            .expect_err("STREAM must be refused, not degraded to BYTES");
+        assert!(error.contains("typed field ordering"), "{}", error);
+    }
+
+    /// The security-relevant one. Reconstructing an ObjectMessage means deserializing
+    /// broker-supplied bytes into Java objects, which is a remote-code-execution surface.
+    /// It must refuse, and the refusal must say why so nobody "helpfully" enables it.
+    #[test]
+    fn object_is_refused_and_says_why() {
+        let error = messaging_build_payload("OBJECT", vec![0xac, 0xed])
+            .expect_err("OBJECT must be refused");
+        assert!(
+            error.contains("remote-code-execution"),
+            "the refusal must name the risk: {}",
+            error
+        );
+    }
+
+    #[test]
+    fn an_unknown_category_is_refused_rather_than_guessed() {
+        let error = messaging_build_payload("SOMETHING_NEW", vec![1])
+            .expect_err("an unknown category must not be guessed at");
+        assert!(error.contains("unknown payload category"), "{}", error);
+    }
+
+    #[test]
+    fn invalid_utf8_is_refused_for_text() {
+        let error = messaging_build_payload("TEXT", vec![0xff, 0xfe])
+            .expect_err("invalid UTF-8 must not be silently replaced");
+        assert!(error.contains("not valid UTF-8"), "{}", error);
     }
 }

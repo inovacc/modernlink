@@ -1,5 +1,5 @@
 # Implementation Tasks
-<!-- rev:008 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:009 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Granular tasks derived from [BACKLOG.md](BACKLOG.md), [FEATURES.md](FEATURES.md), and
 [ISSUES.md](ISSUES.md). Effort: **S** ≤ half a day · **M** ≤ two days · **L** > two days.
@@ -48,7 +48,7 @@ Task IDs are referenced from [ROADMAP.md](ROADMAP.md) and [MILESTONES.md](MILEST
 | MSG-02 | Document field-by-field mappings to JMS, Kafka, Pulsar, NATS, RabbitMQ | `docs/jms-compatibility.md`, `docs/providers.md` | MSG-01 | M |
 | MSG-03 | Make unsupported mappings fail explicitly at configuration time, not at publish time | `crates/messaging/src/` | MSG-01 | M |
 | ~~MSG-04~~ | ~~Declare each adapter's guarantees in code so capability gaps are queryable before traffic moves~~ — **DONE**: `Support` (VERIFIED/DECLARED/UNSUPPORTED), `ProviderGuarantees`, `Provider::guarantees()`, plus `require_delivery_mode`/`require_acknowledgement_mode` fail-closed checks. Exposed as `nativeProviderGuarantees` and `ModernMessagingClient.guaranteesFor(...)`, which needs **no connection**. 7 Rust tests + `ProviderGuaranteesTest`. Found **B-003** | `crates/messaging/src/`, `crates/jni/src/`, `java/.../messaging/` | — | M |
-| MSG-05 | Add map, stream, bytes, and object payload categories (only text is exercised today) | `crates/messaging/src/`, `java/.../messaging/` | MSG-01 | M |
+| MSG-05 | Add map, stream, bytes and object payload categories — **partially DONE**: TEXT/BYTES/MAP cross the JNI boundary; the frame gained a category field and the body is base64 for every category, so a BytesMessage is not mangled by a UTF-8 round trip. Map pairs are `base64(k):base64(v)` -- `:` and `,` because `=` is base64 *padding* and split the keys (caught by the delimiter test). **STREAM and OBJECT refuse with a reason**; OBJECT because Java deserialization of broker bytes is an RCE surface. JMS-shaped session wrappers (`createBytesMessage` etc.) remain — that is JMS-03 | `crates/jni/src/`, `java/.../messaging/` | — | M |
 
 ## Domain: JMS compatibility (BACKLOG M1)
 

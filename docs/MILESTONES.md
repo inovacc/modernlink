@@ -1,5 +1,5 @@
 # Milestones
-<!-- rev:009 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:010 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Version milestones for ModernLink. **No git tags exist yet** — nothing has been released, so
 every version below is a target, not a shipped artifact. Phases are detailed in
@@ -63,7 +63,8 @@ already written, so the entire value of this release is proof.
       path is covered for any provider.
 - [x] Per-adapter guarantee declarations, queryable before traffic moves — **MSG-04**
 - [x] Documented per-provider guarantees — **DOC-03**, [providers.md](providers.md)
-- [ ] Payload categories beyond text — **MSG-05**
+- [~] Payload categories beyond text — **MSG-05**. TEXT, BYTES and MAP carried; STREAM and
+      OBJECT deliberately refused (see [providers.md](providers.md) and ROADMAP)
 - [ ] Versioned envelope schema — **MSG-01**
 - [ ] Documented field mappings across all five providers — **MSG-02**
 - [ ] Unsupported mappings fail at configuration time — **MSG-03**

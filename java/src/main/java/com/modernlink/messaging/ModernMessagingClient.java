@@ -66,11 +66,17 @@ public final class ModernMessagingClient {
     public synchronized ModernDeliveryReceipt publish(ModernMessage message) throws Exception {
         requireOpen();
         if (message == null) throw new IllegalArgumentException("message is required");
-        String value = nativePublish(handle, message.getMessageId(), message.getDestination(), message.getPayload(),
+        // MSG-05: the body goes over base64-encoded for EVERY category, not just the
+        // non-text ones. A BytesMessage passed as a Java String would be mangled by the
+        // UTF-8 round trip, and having one category take a different path is how that bug
+        // comes back. The category rides alongside so the native side never guesses.
+        ModernPayload body = message.getBody();
+        String value = nativePublish(handle, message.getMessageId(), message.getDestination(), body.encodeBody(),
             message.getTracing().getTraceId(), message.getTracing().getSpanId(),
             message.getTracing().getParentSpanId() == null ? "" : message.getTracing().getParentSpanId(),
             message.getTracing().getTraceState() == null ? "" : message.getTracing().getTraceState(),
-            message.getTracing().isSampled(), message.getAcknowledgementMode().name());
+            message.getTracing().isSampled(), message.getAcknowledgementMode().name(),
+            body.getKind().name());
         if (value == null) throw nativeError("native messaging publish unavailable");
         return ModernDeliveryReceipt.decode(value);
     }
@@ -139,7 +145,7 @@ public final class ModernMessagingClient {
         String headerName, String headerValue);
     private static native String nativePublish(long handle, String messageId, String destination, String payload,
         String traceId, String spanId, String parentSpanId, String traceState, boolean sampled,
-        String acknowledgementMode);
+        String acknowledgementMode, String payloadKind);
     private static native String nativeReceive(long handle);
     private static native String nativeAcknowledge(long handle, String messageId, String provider,
         String state, String traceId);
