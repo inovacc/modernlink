@@ -1,5 +1,5 @@
 # Implementation Tasks
-<!-- rev:007 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:008 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Granular tasks derived from [BACKLOG.md](BACKLOG.md), [FEATURES.md](FEATURES.md), and
 [ISSUES.md](ISSUES.md). Effort: **S** ≤ half a day · **M** ≤ two days · **L** > two days.
@@ -24,7 +24,7 @@ Task IDs are referenced from [ROADMAP.md](ROADMAP.md) and [MILESTONES.md](MILEST
 |---|---|---|---|---|
 | ~~DOC-01~~ | ~~Add `//!` crate-level docs to all five crates~~ — **DONE `210f193`**: `//!` present in all five `crates/*/src/lib.rs`, committed | `crates/*/src/lib.rs` | — | S |
 | DOC-02 | Split the five monolithic `lib.rs` files into modules (each crate is currently one file; `crates/messaging` carries six transports) | `crates/*/src/` | DOC-01 | L |
-| DOC-03 | Document per-provider guarantees (ordering, persistence, ack, transactions, replay, backpressure, TLS, auth, DLQ) | `docs/routing-semantics.md`, new `docs/providers.md` | MSG-04 | M |
+| ~~DOC-03~~ | ~~Document per-provider guarantees~~ — **DONE**: [docs/providers.md](providers.md). TLS/auth and backpressure are **deliberately absent** with the reason stated, rather than shown as empty columns that would imply the analysis was done | `docs/providers.md` | MSG-04 | M |
 
 ## Domain: verification (highest value — nothing here is proven)
 
@@ -47,7 +47,7 @@ Task IDs are referenced from [ROADMAP.md](ROADMAP.md) and [MILESTONES.md](MILEST
 | MSG-01 | Version the envelope schema and record the version in the envelope | `crates/messaging/src/` | DOC-02 | M |
 | MSG-02 | Document field-by-field mappings to JMS, Kafka, Pulsar, NATS, RabbitMQ | `docs/jms-compatibility.md`, `docs/providers.md` | MSG-01 | M |
 | MSG-03 | Make unsupported mappings fail explicitly at configuration time, not at publish time | `crates/messaging/src/` | MSG-01 | M |
-| MSG-04 | Declare each adapter's guarantees in code so capability gaps are queryable before traffic moves | `crates/messaging/src/` | MSG-01 | M |
+| ~~MSG-04~~ | ~~Declare each adapter's guarantees in code so capability gaps are queryable before traffic moves~~ — **DONE**: `Support` (VERIFIED/DECLARED/UNSUPPORTED), `ProviderGuarantees`, `Provider::guarantees()`, plus `require_delivery_mode`/`require_acknowledgement_mode` fail-closed checks. Exposed as `nativeProviderGuarantees` and `ModernMessagingClient.guaranteesFor(...)`, which needs **no connection**. 7 Rust tests + `ProviderGuaranteesTest`. Found **B-003** | `crates/messaging/src/`, `crates/jni/src/`, `java/.../messaging/` | — | M |
 | MSG-05 | Add map, stream, bytes, and object payload categories (only text is exercised today) | `crates/messaging/src/`, `java/.../messaging/` | MSG-01 | M |
 
 ## Domain: JMS compatibility (BACKLOG M1)

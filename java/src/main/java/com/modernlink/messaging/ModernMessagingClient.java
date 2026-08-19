@@ -100,6 +100,29 @@ public final class ModernMessagingClient {
         }
     }
 
+    /**
+     * The guarantee table for a provider, queryable BEFORE any traffic moves (MSG-04).
+     *
+     * Static and connectionless on purpose: the whole point is to let a deployment ask
+     * "can this provider honour what we need?" without first opening a connection to it.
+     *
+     * Read a DECLARED field as "claimed, never tested". Most fields are DECLARED today.
+     */
+    public static ModernProviderGuarantees guaranteesFor(ModernMessagingProvider provider)
+        throws LegacyHttpException {
+        if (provider == null) {
+            throw new IllegalArgumentException("provider is required");
+        }
+        NativeLoader.load();
+        String frame = nativeProviderGuarantees(provider.name());
+        if (frame == null) {
+            String detail = nativeLastError();
+            throw new LegacyHttpException(detail == null || detail.length() == 0
+                ? "native provider guarantees unavailable" : detail);
+        }
+        return ModernProviderGuarantees.decode(frame);
+    }
+
     private void requireOpen() throws LegacyHttpException {
         if (handle == 0) throw new LegacyHttpException("messaging client is closed");
     }
@@ -121,5 +144,6 @@ public final class ModernMessagingClient {
     private static native String nativeAcknowledge(long handle, String messageId, String provider,
         String state, String traceId);
     private static native void nativeClose(long handle);
+    private static native String nativeProviderGuarantees(String provider);
     private static native String nativeLastError();
 }

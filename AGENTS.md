@@ -1,5 +1,5 @@
 # AGENTS.md — ModernLink
-<!-- rev:007 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:008 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Canonical cross-tool agent instructions for the ModernLink repo (read by Claude Code,
 Codex, Cursor, Gemini, etc. — Claude Code imports this from `CLAUDE.md`). Must-know
@@ -144,6 +144,7 @@ installs those packages as of `dd080b2`.
 ## Reference docs
 
 - [docs/BACKLOG.md](docs/BACKLOG.md) — messaging compatibility backlog, operating modes, M1/M2 items
+- [docs/providers.md](docs/providers.md) — **per-provider delivery guarantees** (MSG-04/DOC-03); read this before selecting a provider
 - [docs/jms-compatibility.md](docs/jms-compatibility.md) — the JMS contract boundary
 - [docs/jmx-management.md](docs/jmx-management.md) — JMX management model
 - [docs/routing-semantics.md](docs/routing-semantics.md) — routing / redirect semantics

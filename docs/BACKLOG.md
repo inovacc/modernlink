@@ -1,5 +1,5 @@
 # ModernLink Messaging Compatibility Backlog
-<!-- rev:009 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:010 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 ## Objective
 
@@ -357,6 +357,16 @@ been tried**, so it is a pin, not a measured floor.
 
 Original text: _CI resolves `dtolnay/rust-toolchain@stable` while the packaging image pins
 `rust:1.96-bookworm`, so the two can drift apart. No crate declares `rust-version`._
+
+### P1 — `delivery_mode` is requested by every message and honoured by none (B-003)
+
+Every `MessageEnvelope` defaults to `DeliveryMode::Persistent` and **no transport reads the
+field**. RabbitMQ is the sharpest case: a `durable: true` queue fed by a publisher sending
+`BasicProperties::default()` (transient), so messages do not survive a restart while the queue
+looks durable. This is a silently degraded delivery guarantee, which the AGENTS.md hard rules
+forbid outright. Filed as [BUGS.md](BUGS.md) B-003; `require_delivery_mode` exists and is
+deliberately **not** wired into the publish path, because doing so changes delivery semantics on
+the default path and that is the maintainer's call.
 
 ### P3 — crate names collide with well-known crates (SC-05, SC-06)
 

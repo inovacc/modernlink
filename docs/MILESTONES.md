@@ -1,5 +1,5 @@
 # Milestones
-<!-- rev:008 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:009 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Version milestones for ModernLink. **No git tags exist yet** — nothing has been released, so
 every version below is a target, not a shipped artifact. Phases are detailed in
@@ -61,8 +61,8 @@ already written, so the entire value of this release is proof.
       JetStream and RabbitMQ pass (2026-08-14, verified by Codex). Kafka and Pulsar now have
       tests too, but **neither has ever been executed** against a live broker. Only the happy
       path is covered for any provider.
-- [ ] Per-adapter guarantee declarations, queryable before traffic moves — **MSG-04**
-- [ ] Documented per-provider guarantees — **DOC-03**
+- [x] Per-adapter guarantee declarations, queryable before traffic moves — **MSG-04**
+- [x] Documented per-provider guarantees — **DOC-03**, [providers.md](providers.md)
 - [ ] Payload categories beyond text — **MSG-05**
 - [ ] Versioned envelope schema — **MSG-01**
 - [ ] Documented field mappings across all five providers — **MSG-02**

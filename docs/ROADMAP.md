@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:008 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:009 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Status at HEAD `d2479bd` on `main` (pushed; in sync with `origin/main`). Phases follow the M1/M2
 structure in [BACKLOG.md](BACKLOG.md); tasks are broken out in
@@ -88,7 +88,11 @@ until then this file is written against the production bar because that is the s
       `#[ignore]`d and driven by dedicated CI jobs, neither of which has run yet. One happy-path
       round trip only; durability, reconnect, ordering, concurrency and failure semantics remain
       unexercised for **every** provider.
-- [ ] Per-adapter guarantee declarations — **MSG-04**, **DOC-03**
+- [x] Per-adapter guarantee declarations — **MSG-04**, **DOC-03**. `Provider::guarantees()`
+      returns a three-level table (VERIFIED / DECLARED / UNSUPPORTED) per provider, reachable
+      from Java 6 via `ModernMessagingClient.guaranteesFor(...)` **without opening a
+      connection**, and documented in [providers.md](providers.md). It exposed
+      [BUGS.md](BUGS.md) **B-003**
 - [ ] Payload categories beyond text (map, stream, bytes, object) — **MSG-05**
 
 ## Phase 3 — M1 compatibility scope · `[NOT STARTED]`

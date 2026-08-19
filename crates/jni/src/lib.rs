@@ -671,6 +671,48 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
     }
 }
 
+/// MSG-04 — the provider guarantee table, readable without opening a connection.
+///
+/// Static and connectionless on purpose: a deployment must be able to ask "can this
+/// provider honour what we need?" *before* it moves traffic, which is precisely when no
+/// connection exists yet.
+///
+/// The frame is nine pipe-separated fields: the provider name followed by the eight
+/// guarantees in declaration order. It carries capability metadata only — no endpoint,
+/// no credential, no payload — so it is safe to log and safe for a JMX attribute.
+#[no_mangle]
+pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativeProviderGuarantees(
+    mut env: JNIEnv,
+    _class: JClass,
+    provider: JString,
+) -> jni::sys::jstring {
+    let name = match java_string(&mut env, &provider) {
+        Some(value) => value,
+        None => return messaging_string_error("invalid provider name".to_string()),
+    };
+    let provider = match messaging_provider(&name) {
+        Ok(value) => value,
+        Err(error) => return messaging_string_error(error),
+    };
+    let guarantees = provider.guarantees();
+    let frame = format!(
+        "{}|{}|{}|{}|{}|{}|{}|{}|{}",
+        messaging_provider_name(provider),
+        guarantees.persistence.as_str(),
+        guarantees.ordering.as_str(),
+        guarantees.server_side_acknowledgement.as_str(),
+        guarantees.client_acknowledgement.as_str(),
+        guarantees.transactions.as_str(),
+        guarantees.redelivery.as_str(),
+        guarantees.dead_lettering.as_str(),
+        guarantees.replay.as_str()
+    );
+    match env.new_string(frame) {
+        Ok(value) => value.into_raw(),
+        Err(error) => messaging_string_error(error.to_string()),
+    }
+}
+
 #[no_mangle]
 pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativeLastError(
     env: JNIEnv,

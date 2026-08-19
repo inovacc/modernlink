@@ -65,6 +65,205 @@ pub enum Provider {
     RabbitMq,
 }
 
+/// How well a guarantee is backed, for one provider.
+///
+/// MSG-04 exists so a capability gap is **queryable before traffic moves**, and a gap is
+/// only useful if the reader can tell a measured guarantee from a claimed one. Three
+/// levels, not two, because "the transport implements it" and "a test proved it" are
+/// different statements and this project has been bitten by conflating them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Support {
+    /// The transport implements it **and** a test has exercised it against a real broker.
+    Verified,
+    /// The transport implements it. **No test has exercised it.** Treat as a claim.
+    Declared,
+    /// The provider cannot offer it, or this transport does not implement it. Asking for
+    /// it must be refused, never quietly downgraded.
+    Unsupported,
+}
+
+impl Support {
+    /// True only for `Verified`. Deliberately not true for `Declared`: a caller deciding
+    /// whether to move production traffic must not be handed a claim dressed as evidence.
+    pub fn is_proven(self) -> bool {
+        matches!(self, Support::Verified)
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Support::Verified => "VERIFIED",
+            Support::Declared => "DECLARED",
+            Support::Unsupported => "UNSUPPORTED",
+        }
+    }
+}
+
+/// What one provider is declared to offer -- **MSG-04**.
+///
+/// This table is assembled from the transport implementations in this file, not from
+/// vendor documentation and not from a benchmark. Anything marked [`Support::Declared`]
+/// has never been executed against a broker; see `docs/providers.md` for the per-field
+/// reasoning and `docs/BUGS.md` for the gaps this table exposed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderGuarantees {
+    pub provider: Provider,
+    /// Messages survive a broker restart.
+    pub persistence: Support,
+    /// Delivery order is preserved within one destination (or partition).
+    pub ordering: Support,
+    /// The broker tracks acknowledgement state, so an unacknowledged message is
+    /// redelivered rather than lost with the consumer.
+    pub server_side_acknowledgement: Support,
+    /// `AcknowledgementMode::Client` is honoured end to end.
+    pub client_acknowledgement: Support,
+    /// Transactional publish/consume.
+    pub transactions: Support,
+    /// An unacknowledged message is redelivered.
+    pub redelivery: Support,
+    /// Poison messages can be diverted to a dead-letter destination.
+    pub dead_lettering: Support,
+    /// Already-consumed messages can be re-read.
+    pub replay: Support,
+}
+
+impl ProviderGuarantees {
+    /// Fail closed on a delivery mode the provider cannot honour.
+    ///
+    /// AGENTS.md: "A capability gap must be reported explicitly - never silently
+    /// degraded." This is the check that makes that enforceable by a caller.
+    ///
+    /// **It is not called on the publish path yet, and that is deliberate.**
+    /// `MessageEnvelope::new` defaults to `DeliveryMode::Persistent`, so wiring this in
+    /// would start refusing every default NATS-core publish -- a change to delivery
+    /// semantics that only the maintainer should make. See `docs/BUGS.md` B-003.
+    pub fn require_delivery_mode(&self, mode: DeliveryMode) -> Result<(), DomainError> {
+        match (mode, self.persistence) {
+            (DeliveryMode::NonPersistent, _) => Ok(()),
+            (DeliveryMode::Persistent, Support::Unsupported) => {
+                Err(DomainError::Unsupported(format!(
+                    "provider {:?} cannot offer persistent delivery; the request was refused rather than downgraded to non-persistent",
+                    self.provider
+                )))
+            }
+            (DeliveryMode::Persistent, _) => Ok(()),
+        }
+    }
+
+    /// Fail closed on an acknowledgement mode the provider cannot honour.
+    pub fn require_acknowledgement_mode(
+        &self,
+        mode: AcknowledgementMode,
+    ) -> Result<(), DomainError> {
+        let (needed, name) = match mode {
+            AcknowledgementMode::Auto | AcknowledgementMode::DuplicateOk => return Ok(()),
+            AcknowledgementMode::Client => (self.client_acknowledgement, "CLIENT"),
+            AcknowledgementMode::Transacted => (self.transactions, "TRANSACTED"),
+        };
+        if needed == Support::Unsupported {
+            return Err(DomainError::Unsupported(format!(
+                "provider {:?} does not support {} acknowledgement; the request was refused rather than downgraded",
+                self.provider, name
+            )));
+        }
+        Ok(())
+    }
+}
+
+impl Provider {
+    /// The guarantee table for this provider -- **MSG-04**.
+    ///
+    /// Every `Verified` entry below is backed by a test that has actually run. Today that
+    /// is only the happy-path send/receive/ack proven on 2026-08-14 for NATS core,
+    /// JetStream and RabbitMQ, so `Verified` appears sparingly and on purpose.
+    pub fn guarantees(self) -> ProviderGuarantees {
+        use Support::{Declared, Unsupported, Verified};
+        match self {
+            // In-process VecDeque. Nothing survives the process, and that is the point:
+            // it is a compatibility fixture, not a broker.
+            Provider::LegacyJms => ProviderGuarantees {
+                provider: self,
+                persistence: Unsupported,
+                ordering: Verified,
+                server_side_acknowledgement: Unsupported,
+                client_acknowledgement: Verified,
+                transactions: Unsupported,
+                redelivery: Unsupported,
+                dead_lettering: Unsupported,
+                replay: Unsupported,
+            },
+            // Core NATS is fire-and-forget pub/sub. There is no broker-side state, so an
+            // unacknowledged message is simply gone. `acknowledge` returns Acknowledged
+            // because the local receipt advances -- not because a server confirmed it.
+            Provider::Nats => ProviderGuarantees {
+                provider: self,
+                persistence: Unsupported,
+                ordering: Declared,
+                server_side_acknowledgement: Unsupported,
+                client_acknowledgement: Unsupported,
+                transactions: Unsupported,
+                redelivery: Unsupported,
+                dead_lettering: Unsupported,
+                replay: Unsupported,
+            },
+            // JetStream keeps a stream and a durable pull consumer with
+            // AckPolicy::Explicit, so acknowledgement is genuinely server-side.
+            Provider::NatsJetStream => ProviderGuarantees {
+                provider: self,
+                persistence: Declared,
+                ordering: Declared,
+                server_side_acknowledgement: Verified,
+                client_acknowledgement: Verified,
+                transactions: Unsupported,
+                redelivery: Declared,
+                dead_lettering: Unsupported,
+                replay: Declared,
+            },
+            // Kafka commits offsets with CommitMode::Sync. Ordering holds per partition,
+            // not per topic -- this transport does not choose partitions, so ordering is
+            // only as strong as the default partitioner makes it.
+            Provider::Kafka => ProviderGuarantees {
+                provider: self,
+                persistence: Declared,
+                ordering: Declared,
+                server_side_acknowledgement: Declared,
+                client_acknowledgement: Declared,
+                transactions: Unsupported,
+                redelivery: Declared,
+                dead_lettering: Unsupported,
+                replay: Declared,
+            },
+            Provider::Pulsar => ProviderGuarantees {
+                provider: self,
+                persistence: Declared,
+                ordering: Declared,
+                server_side_acknowledgement: Declared,
+                client_acknowledgement: Declared,
+                transactions: Unsupported,
+                redelivery: Declared,
+                dead_lettering: Unsupported,
+                replay: Declared,
+            },
+            // The queue is declared durable, but the publisher sends
+            // BasicProperties::default(), which is delivery_mode 1 (transient). A durable
+            // queue holding transient messages loses them on restart, so persistence is
+            // NOT delivered here today. Marked Unsupported rather than Declared because
+            // recording the intent instead of the behaviour is how this table would start
+            // lying. See docs/BUGS.md B-003.
+            Provider::RabbitMq => ProviderGuarantees {
+                provider: self,
+                persistence: Unsupported,
+                ordering: Declared,
+                server_side_acknowledgement: Verified,
+                client_acknowledgement: Verified,
+                transactions: Unsupported,
+                redelivery: Declared,
+                dead_lettering: Unsupported,
+                replay: Unsupported,
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DeliveryMode {
     NonPersistent,
@@ -211,6 +410,13 @@ pub enum DomainError {
     InvalidRoute(String),
     Serialization(String),
     Transport(String),
+    /// A guarantee the selected provider cannot honour was requested -- MSG-04.
+    ///
+    /// Distinct from `Transport` on purpose: a transport error means the attempt failed,
+    /// while this means the attempt was never made because honouring it was impossible.
+    /// Collapsing the two would let a capability gap read as a transient outage, and the
+    /// caller would retry forever instead of choosing another provider.
+    Unsupported(String),
 }
 
 impl fmt::Display for DomainError {
@@ -219,7 +425,8 @@ impl fmt::Display for DomainError {
             Self::InvalidEnvelope(message)
             | Self::InvalidRoute(message)
             | Self::Serialization(message)
-            | Self::Transport(message) => formatter.write_str(message),
+            | Self::Transport(message)
+            | Self::Unsupported(message) => formatter.write_str(message),
         }
     }
 }
@@ -1475,8 +1682,9 @@ impl RouteConfig {
 #[cfg(test)]
 mod tests {
     use super::{
-        AcknowledgementMode, DeliveryMode, DeliveryState, InMemoryTransport, MessageEnvelope,
-        MessageTransport, Mode, Payload, Provider, RouteConfig, RouteRule,
+        AcknowledgementMode, DeliveryMode, DeliveryState, DomainError, InMemoryTransport,
+        MessageEnvelope, MessageTransport, Mode, Payload, Provider, RouteConfig, RouteRule,
+        Support,
     };
 
     fn message() -> MessageEnvelope {
@@ -1650,5 +1858,104 @@ mod tests {
         assert_eq!(decision.mode, Mode::Redirect);
         assert_eq!(decision.provider, Provider::Nats);
         assert!(!decision.allowed);
+    }
+
+    // ---- MSG-04: the provider guarantee table ----
+
+    const ALL_PROVIDERS: [Provider; 6] = [
+        Provider::LegacyJms,
+        Provider::Nats,
+        Provider::NatsJetStream,
+        Provider::Kafka,
+        Provider::Pulsar,
+        Provider::RabbitMq,
+    ];
+
+    #[test]
+    fn every_provider_declares_a_guarantee_table() {
+        for provider in ALL_PROVIDERS {
+            let guarantees = provider.guarantees();
+            assert_eq!(
+                guarantees.provider, provider,
+                "the table must describe the provider it was asked about"
+            );
+        }
+    }
+
+    /// Core NATS is fire-and-forget: there is no broker-side state at all. A caller that
+    /// asks for persistence must be told no, because the alternative -- accepting and
+    /// delivering non-persistently -- is the silent downgrade AGENTS.md forbids.
+    #[test]
+    fn nats_core_refuses_persistent_delivery_rather_than_downgrading_it() {
+        let guarantees = Provider::Nats.guarantees();
+        let error = guarantees
+            .require_delivery_mode(DeliveryMode::Persistent)
+            .expect_err("core NATS cannot persist and must refuse");
+        assert!(matches!(error, DomainError::Unsupported(_)));
+        assert!(
+            error.to_string().contains("refused rather than downgraded"),
+            "the refusal must say no downgrade happened: {}",
+            error
+        );
+        guarantees
+            .require_delivery_mode(DeliveryMode::NonPersistent)
+            .expect("non-persistent is what core NATS actually offers");
+    }
+
+    #[test]
+    fn nats_core_refuses_client_acknowledgement() {
+        let error = Provider::Nats
+            .guarantees()
+            .require_acknowledgement_mode(AcknowledgementMode::Client)
+            .expect_err("core NATS has no server-side ack state");
+        assert!(matches!(error, DomainError::Unsupported(_)));
+    }
+
+    #[test]
+    fn jetstream_accepts_client_acknowledgement() {
+        Provider::NatsJetStream
+            .guarantees()
+            .require_acknowledgement_mode(AcknowledgementMode::Client)
+            .expect("JetStream uses AckPolicy::Explicit, so CLIENT ack is real");
+    }
+
+    /// No transport in this crate implements transactions. Until one does, every provider
+    /// must refuse TRANSACTED -- accepting it and behaving as if AUTO is exactly how a
+    /// rollback silently becomes a commit.
+    #[test]
+    fn no_provider_accepts_transacted_acknowledgement_today() {
+        for provider in ALL_PROVIDERS {
+            let error = provider
+                .guarantees()
+                .require_acknowledgement_mode(AcknowledgementMode::Transacted)
+                .expect_err("no transport implements transactions yet");
+            assert!(
+                matches!(error, DomainError::Unsupported(_)),
+                "{:?}",
+                provider
+            );
+        }
+    }
+
+    /// The three-level scale only earns its complexity if Declared is not treated as
+    /// proof. This pins that: a claim must not read as evidence.
+    #[test]
+    fn declared_is_not_proven() {
+        assert!(Support::Verified.is_proven());
+        assert!(!Support::Declared.is_proven());
+        assert!(!Support::Unsupported.is_proven());
+    }
+
+    /// B-003. RabbitMQ declares its queue durable but publishes with
+    /// BasicProperties::default(), i.e. AMQP delivery_mode 1 (transient), so messages do
+    /// not survive a broker restart. The table must record the behaviour, not the intent.
+    /// If someone fixes the publisher, this test should fail and be updated deliberately.
+    #[test]
+    fn rabbitmq_persistence_records_the_behaviour_not_the_intent() {
+        assert_eq!(
+            Provider::RabbitMq.guarantees().persistence,
+            Support::Unsupported,
+            "see docs/BUGS.md B-003: the publisher never sets delivery_mode 2"
+        );
     }
 }

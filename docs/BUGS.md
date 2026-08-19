@@ -1,5 +1,5 @@
 # Bugs
-<!-- rev:007 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:008 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Behaviour that is **wrong and should be fixed**. Deliberate constraints belong in
 [ISSUES.md](ISSUES.md); planned work belongs in [BACKLOG.md](BACKLOG.md).
@@ -8,10 +8,54 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 |---|---|---|---|
 | B-001 | high | **resolved** `dd080b2` | CI `Rust workspace` job could not build `rdkafka-sys`; the Rust suite never ran in CI |
 | B-002 | high | **resolved** `ad4bd2f` | The routing policy engine was unreachable from Java — every `RouteConfig` was built with zero rules |
+| B-003 | high | **open** | `MessageEnvelope.delivery_mode` defaults to `Persistent` and is read by no transport; RabbitMQ publishes transient messages to a durable queue |
 
 ## Open
 
-None.
+### B-003 — `MessageEnvelope.delivery_mode` is set by every message and read by no transport
+
+- **Severity:** high — this is a silently degraded delivery guarantee, which
+  [AGENTS.md](../AGENTS.md) names as non-negotiable: *"Delivery semantics are part of the
+  contract, not an implementation detail. A capability gap must be reported explicitly —
+  never silently degraded."* A caller is told its message is persistent; nothing makes it so.
+- **Observed:** `MessageEnvelope::new` sets `delivery_mode: DeliveryMode::Persistent`
+  (`crates/messaging/src/lib.rs:189`), so **every** message defaults to persistent. A grep
+  for `delivery_mode` across the crate returns three hits: the field declaration, that
+  default, and one unit-test assertion. **No transport reads it.** Kafka, Pulsar, NATS,
+  JetStream, RabbitMQ and the in-process transport all publish without consulting it.
+- **The RabbitMQ case is the sharpest.** The queue is declared `durable: true`
+  (`crates/messaging/src/lib.rs`, `QueueDeclareOptions { durable: true, .. }`), but the
+  publisher passes `BasicProperties::default()`, which is AMQP `delivery_mode` 1 —
+  transient. A durable queue holding transient messages **loses them on broker restart**.
+  The queue looks durable in the management UI while the messages are not, which is worse
+  than an obviously non-durable queue because it survives review.
+- **Expected:** either the transport honours the requested delivery mode, or requesting a
+  mode it cannot honour is refused. Both are acceptable; silently accepting and ignoring is
+  not.
+- **Reproduction:** `rg -n 'delivery_mode' crates/` → 3 matches, none in a publish path.
+  For RabbitMQ specifically, publish with the default envelope, restart the broker, and the
+  message is gone despite `DeliveryMode::Persistent`.
+- **Seen at commit:** `ba1f7eb`.
+- **Not fixed here, deliberately.** MSG-04 added `ProviderGuarantees::require_delivery_mode`,
+  which *can* fail closed on this, and it is **not wired into the publish path**. Wiring it
+  in would immediately start refusing every default NATS-core publish, because the default
+  is `Persistent` and core NATS cannot persist — a change to delivery semantics on the
+  default path. **Only the maintainer should make that call**, and making it silently while
+  fixing something else is the same class of error as the bug itself.
+- **Two candidate fixes, and they are not exclusive:**
+  1. *Honour it where possible* — RabbitMQ sets `delivery_mode` 2 when the envelope says
+     `Persistent`; Kafka and Pulsar are persistent by construction; JetStream already is.
+     This is a small, contained change per transport.
+  2. *Fail closed where impossible* — call `require_delivery_mode` before publishing, so
+     core NATS refuses a persistent message instead of accepting it. This changes behaviour
+     on the default path and needs the default itself reconsidered (`Persistent` is a poor
+     default for a layer that fronts a provider which cannot offer it).
+- **Recorded in the guarantee table meanwhile:** `Provider::RabbitMq.guarantees().persistence`
+  is `UNSUPPORTED`, not `DECLARED`, and `docs/providers.md` says why. The table records the
+  behaviour, not the intent — a unit test
+  (`rabbitmq_persistence_records_the_behaviour_not_the_intent`) pins that, and will fail if
+  the publisher is fixed without updating the table.
+
 
 ## Resolved — B-001
 
