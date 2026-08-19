@@ -25,7 +25,9 @@ just implemented.
       [31781200582](https://github.com/inovacc/modernlink/actions/runs/31781200582) (2026-08-14),
       which resolved [BUGS.md](BUGS.md) B-001.
 - [x] `publish = false` on all six manifests — **SC-01**, `315fe87`
-- [ ] Toolchain pin and declared MSRV — **SC-02**, **SC-03**
+- [x] Toolchain pin and declared MSRV — **SC-02**, **SC-03**. `rust-toolchain.toml` +
+      `rust-version = "1.96"`; verified locally by `rustup show active-toolchain` and
+      `cargo metadata`, not yet by a CI run or a Docker build
 - [x] `fmt` + `clippy` enforced in CI — **SC-04**, `dd080b2`; both ran and passed on run
       [31782837766](https://github.com/inovacc/modernlink/actions/runs/31782837766) at `d2479bd`
 - [x] All **13** Java test classes running in CI — **VER-03**, `dd080b2`; all 13 executed and

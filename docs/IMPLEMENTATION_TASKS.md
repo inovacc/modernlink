@@ -10,8 +10,8 @@ Task IDs are referenced from [ROADMAP.md](ROADMAP.md) and [MILESTONES.md](MILEST
 | ID | What | Files | Deps | Effort |
 |---|---|---|---|---|
 | ~~SC-01~~ | ~~Add `publish = false` to all six manifests~~ — **DONE `315fe87`** | `crates/{core,http,tls,jni,messaging}/Cargo.toml`, `hacks/messaging-demo/Cargo.toml` | — | S |
-| SC-02 | Pin the toolchain with `rust-toolchain.toml` so CI and the packaging image agree | `rust-toolchain.toml` | — | S |
-| SC-03 | Declare an MSRV (`rust-version`) in `[workspace.package]` | `Cargo.toml` | SC-02 | S |
+| ~~SC-02~~ | ~~Pin the toolchain with `rust-toolchain.toml` so CI and the packaging image agree~~ — **DONE**: `rust-toolchain.toml` pins `1.96.0` with rustfmt+clippy; `[workspace.package] rust-version = "1.96"` propagates to all six crates (`cargo metadata` confirms). CI installs no toolchain of its own and `docker/java6/Dockerfile` COPYs the file in, so all three read one source | `rust-toolchain.toml`, `.github/workflows/test.yml`, `docker/java6/Dockerfile` | — | S |
+| ~~SC-03~~ | ~~Declare an MSRV (`rust-version`) in `[workspace.package]`~~ — **DONE**: `rust-version = "1.96"`, inherited by all six crates via `rust-version.workspace = true`. It is the pinned build version, **not a probed floor** — no older toolchain has been tried | `Cargo.toml`, `crates/*/Cargo.toml`, `hacks/messaging-demo/Cargo.toml` | SC-02 | S |
 | ~~SC-04~~ | ~~Add `cargo fmt --check` + `cargo clippy -D warnings` jobs to CI~~ — **DONE `dd080b2`**; both executed green on run 31782837766 at `d2479bd` | `.github/workflows/test.yml` | — | S |
 | SC-05 | Rename `crates/jni` → a non-colliding package name, dropping the `@0.1.0` workaround (I-001) | `crates/jni/Cargo.toml`, `Cargo.toml`, `.github/workflows/test.yml`, `docker/java6/Dockerfile` | SC-04 | M |
 | SC-06 | Rename `crates/core` so it stops shadowing Rust's built-in `core` (I-002) | `crates/core/Cargo.toml`, all dependents | SC-05 | M |
@@ -90,7 +90,7 @@ Task IDs are referenced from [ROADMAP.md](ROADMAP.md) and [MILESTONES.md](MILEST
 Dependency-respecting, cheapest-unblocking-first:
 
 1. ~~**SC-01**~~, ~~**DOC-01**~~, ~~**SC-04**~~, ~~**VER-03**~~, ~~**VER-07**~~, ~~**VER-08**~~, ~~**SC-08**~~, ~~**MSG-06**~~ — all landed; see the rows above.
-2. **SC-02, SC-03** — the cheapest remaining items: pin the toolchain, declare the MSRV. **SC-07** next, so a broker-free run stops building a native Kafka client.
+2. ~~**SC-02**, **SC-03**~~ — done; the toolchain is pinned and the MSRV declared. **SC-07** is next, so a broker-free run stops building a native Kafka client.
 3. **JMS-01** — blocks the entire JMS domain and is research, not code.
 4. **VER-01 → VER-02** — turns the messaging code from claim into evidence. Highest value in the list.
 5. **MSG-01 → MSG-02/03/04** — pins the domain the adapters share.

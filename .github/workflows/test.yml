@@ -12,7 +12,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      # SC-02: no toolchain is installed here on purpose. rust-toolchain.toml is the
+      # single source of truth, and the runner's rustup honours it — installing
+      # `@stable` alongside it would download a second toolchain that never gets used
+      # and would hide the pin rather than enforce it.
+      - name: Show the pinned toolchain
+        run: |
+          rustup show active-toolchain
+          cargo --version
+          rustc --version
       # BUGS B-001: crates/messaging declares no [features], so rdkafka (cmake-build),
       # pulsar, lapin and async-nats are unconditional — every workspace build compiles
       # a native Kafka client. Without these packages the job dies on a missing

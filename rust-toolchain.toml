@@ -1,0 +1,15 @@
+# SC-02 / SC-03 — one source of truth for the toolchain.
+#
+# Before this file, CI resolved `dtolnay/rust-toolchain@stable` while
+# docker/java6/Dockerfile pinned `rust:1.96-bookworm`, so the gate that judges a
+# change and the image that ships it could drift apart silently. Both now read
+# this file: the workflow installs no toolchain of its own and lets rustup honour
+# the override, and the Dockerfile COPYs this file in before any cargo call.
+#
+# `rust-version = "1.96"` in the workspace manifest declares the same floor to
+# cargo. It is the version this project is built and gated with, not a probed
+# minimum — no older toolchain has been tried.
+[toolchain]
+channel = "1.96.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

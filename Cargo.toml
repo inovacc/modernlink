@@ -11,3 +11,6 @@ resolver = "2"
 
 [workspace.package]
 license = "Apache-2.0"
+# SC-03. Matches the channel pinned in rust-toolchain.toml. This is the version
+# the project is built and gated with, not a probed floor.
+rust-version = "1.96"

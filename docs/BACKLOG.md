@@ -324,10 +324,23 @@ and it is reachable: it rejects every non-text `Payload` variant. Original text 
 _`cargo check` reports `unreachable_patterns` at `crates/jni/src/lib.rs:264`: the `_ =>` fallback
 is dead because the `Provider` arms above it are already exhaustive._
 
-### P3 — no toolchain pin or declared MSRV (SC-02, SC-03)
+### ~~P3 — no toolchain pin or declared MSRV (SC-02, SC-03)~~ — **DONE**
 
-CI resolves `dtolnay/rust-toolchain@stable` while the packaging image pins `rust:1.96-bookworm`,
-so the two can drift apart. No crate declares `rust-version`.
+`rust-toolchain.toml` pins `1.96.0` (with `rustfmt` and `clippy`), and
+`[workspace.package] rust-version = "1.96"` is inherited by all six crates. The CI job no longer
+installs a toolchain of its own and `docker/java6/Dockerfile` COPYs the file in before any cargo
+call, so the gate and the packaging image now read the same source.
+
+Verified locally: `rustup show active-toolchain` reports
+`1.96.0-… (overridden by 'rust-toolchain.toml')` and `cargo metadata` shows `1.96` on all six
+packages. **The CI and Docker halves are unproven** — a workflow edit cannot be verified locally,
+and the Docker build was not run (no daemon on the authoring machine).
+
+The declared MSRV is the version the project is built and gated with. **No older toolchain has
+been tried**, so it is a pin, not a measured floor.
+
+Original text: _CI resolves `dtolnay/rust-toolchain@stable` while the packaging image pins
+`rust:1.96-bookworm`, so the two can drift apart. No crate declares `rust-version`._
 
 ### P3 — crate names collide with well-known crates (SC-05, SC-06)
 

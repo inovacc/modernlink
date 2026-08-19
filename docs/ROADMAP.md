@@ -122,7 +122,9 @@ until then this file is written against the production bar because that is the s
 - [x] CI building and exercising the packaged JAR (the `Java 6 JAR integration` job passes)
 - [x] Crate-level `//!` docs on all five crates
 - [x] `publish = false` on all six manifests — **SC-01**, `315fe87`
-- [ ] Toolchain pin + declared MSRV — **SC-02**, **SC-03**
+- [x] Toolchain pin + declared MSRV — **SC-02**, **SC-03**; `rust-toolchain.toml` pins
+      `1.96.0` and `[workspace.package] rust-version = "1.96"` reaches all six crates. The
+      CI and Docker halves are **unproven until a run** — neither was executed for this change
 - [x] `fmt` and `clippy` enforced in CI — **SC-04**, `dd080b2`; both executed and passed on run
       [31782837766](https://github.com/inovacc/modernlink/actions/runs/31782837766) at `d2479bd`
 - [x] All **13** Java test classes enumerated in CI — **VER-03**, `dd080b2` (was three of ten;

@@ -1,7 +1,9 @@
 FROM rust:1.96-bookworm AS native-builder
 
 WORKDIR /native
-COPY Cargo.toml Cargo.lock ./
+# SC-02: rust-toolchain.toml must be present before any cargo/rustup call, or the
+# image silently builds with its own default toolchain and the pin does nothing.
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates ./crates
 COPY hacks/messaging-demo ./hacks/messaging-demo
 RUN apt-get update \
