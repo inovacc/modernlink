@@ -79,7 +79,7 @@ Java 6 JAR integration                 -> success
 The fix was the symptom-level one: install `libcurl4-openssl-dev`, `libsasl2-dev`, `cmake` and
 `protobuf-compiler` in the job. **The root layer is now fixed too (SC-07):** `crates/messaging`
 declares `[features]` with `default = []`, so a broker-free build compiles no provider client at
-all. `cargo tree -p jni@0.1.0` shows **0** matches for rdkafka/pulsar/lapin/async-nats by default
+all. `cargo tree -p jni-bridge` shows **0** matches for rdkafka/pulsar/lapin/async-nats by default
 and **5** with `--features all-providers`. The apt packages are still installed, but only the
 `--all-features` half of the job needs them.
 
@@ -158,7 +158,7 @@ The original report follows, unedited, because a resolved bug's history is the u
 
 What the suites actually cover, so absence of bugs is not mistaken for evidence of correctness:
 
-- `cargo test --workspace`, `cargo check -p jni@0.1.0`, `cargo fmt --all -- --check` and
+- `cargo test --workspace`, `cargo check -p jni-bridge`, `cargo fmt --all -- --check` and
   `cargo clippy … -D warnings` **all passed in CI** on ubuntu, run
   [31781200582](https://github.com/inovacc/modernlink/actions/runs/31781200582), 2026-08-14 —
   and the Rust job reached its test step rather than dying in a build step. Also observed exit 0

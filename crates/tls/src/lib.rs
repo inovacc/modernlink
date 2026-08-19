@@ -5,7 +5,7 @@
 //! ignoring them (`docs/ISSUES.md` I-008). The floor is TLS 1.2; callers may select 1.2 or
 //! 1.3, and unsupported values are rejected before a request starts.
 
-pub use core::TlsVersion;
+pub use modernlink_core::TlsVersion;
 use rustls::{ClientConfig, RootCertStore};
 use std::sync::Arc;
 

@@ -1,5 +1,5 @@
 # ModernLink Messaging Compatibility Backlog
-<!-- rev:010 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:011 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 ## Objective
 
@@ -368,9 +368,17 @@ forbid outright. Filed as [BUGS.md](BUGS.md) B-003; `require_delivery_mode` exis
 deliberately **not** wired into the publish path, because doing so changes delivery semantics on
 the default path and that is the maintainer's call.
 
-### P3 — crate names collide with well-known crates (SC-05, SC-06)
+### ~~P3 — crate names collide with well-known crates (SC-05, SC-06)~~ — **DONE**
 
-`crates/jni` shadows the external `jni` crate it depends on, forcing `-p jni@0.1.0` in CI and
+`crates/jni` is now the package `jni-bridge` and `crates/core` is `modernlink-core`; both keep
+their short folder paths. `cargo check -p jni` is unambiguous again and `-p jni@0.1.0` is
+retired. `modernlink-core` is the carve-out the crate-naming rule allows for a name that would
+otherwise shadow a Rust built-in; `jni-bridge` is not a registry-uniqueness prefix, it
+disambiguates from a real dependency in this graph. `[lib] name` stays `modernlink`, so the
+native artifact is unchanged. Original text follows.
+
+
+`crates/jni` shadows the external `jni` crate it depends on, forcing `-p jni-bridge` in CI and
 the Dockerfile. `crates/core` shadows Rust's built-in `core`. Both work today; both are traps.
 See ISSUES I-001, I-002.
 

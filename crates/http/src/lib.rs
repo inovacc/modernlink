@@ -1,17 +1,17 @@
 //! HTTPS execution for ModernLink, over hyper's HTTP/1.1 client.
 //!
-//! Takes a [`core::Request`], drives the connection through the TLS policy in the `tls` crate,
-//! and returns a [`core::Response`] carrying status, reason phrase, headers, body, and the
-//! negotiated [`core::TlsInfo`]. Timeouts cover both TCP connection and the TLS handshake.
+//! Takes a [`modernlink_core::Request`], drives the connection through the TLS policy in the `tls` crate,
+//! and returns a [`modernlink_core::Response`] carrying status, reason phrase, headers, body, and the
+//! negotiated [`modernlink_core::TlsInfo`]. Timeouts cover both TCP connection and the TLS handshake.
 
 use bytes::Bytes;
-use core::{Error, Request, Response, TlsInfo};
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
 use hyper::client::conn::http1;
 use hyper::header::{HeaderName, HeaderValue};
 use hyper::{Method, Request as HyperRequest, Uri};
 use hyper_util::rt::TokioIo;
+use modernlink_core::{Error, Request, Response, TlsInfo};
 use std::net::ToSocketAddrs;
 use std::time::Duration;
 use tokio::net::TcpStream;
@@ -231,7 +231,7 @@ fn host_header(host: &str, port: u16) -> String {
 #[cfg(test)]
 mod tests {
     use super::{host_header, redirect_target};
-    use core::Error;
+    use modernlink_core::Error;
 
     #[test]
     fn resolves_relative_https_redirects() {

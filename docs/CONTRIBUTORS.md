@@ -46,14 +46,14 @@ actually saw.
 | Purpose | Command |
 |---|---|
 | Test the Rust workspace | `cargo test --workspace` |
-| Check the JNI crate | `cargo check -p jni@0.1.0` |
+| Check the JNI crate | `cargo check -p jni-bridge` |
 | Format | `cargo fmt --all -- --check` |
 | Lint | `cargo clippy --workspace --all-targets -- -D warnings` |
 | Coverage | `cargo llvm-cov --workspace --summary-only` |
 | Build the Java 6 JAR | `docker build -f docker/java6/Dockerfile -t modernlink-java6 .` |
 | Run a packaged Java test | `docker run --rm modernlink-java6 sh -c "java -cp /workspace/modernlink.jar com.modernlink.LegacyHttpsTest"` |
 
-Use `-p jni@0.1.0`, never `-p jni` — the workspace crate shadows its own external dependency
+Use `-p jni-bridge`, never `-p jni` — the workspace crate shadows its own external dependency
 (ISSUES I-001).
 
 ## Code standards
@@ -78,7 +78,7 @@ Use `-p jni@0.1.0`, never `-p jni` — the workspace crate shadows its own exter
 
 - Conventional commits: `feat:`, `fix:`, `docs:`, `build:`, `style:`, `merge:`.
 - No AI attribution in commit messages.
-- Before proposing a merge, run `cargo test --workspace` and `cargo check -p jni@0.1.0`.
+- Before proposing a merge, run `cargo test --workspace` and `cargo check -p jni-bridge`.
 - **Report gate results as facts, not as a verdict.** A green run is a machine result; it is not
   proof that the Java 6 integration works. Nothing in this repo has been validated against the
   real Java 6 runtime or a real broker. Only the maintainer decides whether work is done.

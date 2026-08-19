@@ -1,5 +1,10 @@
+# SC-05 / ISSUES I-001. The package is `jni-bridge` while the folder stays `crates/jni`.
+# Naming it `jni` made it shadow the external `jni` crate it depends on, so `cargo check
+# -p jni` was ambiguous and every invocation had to spell `-p jni@0.1.0`. Not a
+# registry-uniqueness prefix: it disambiguates from a real dependency in this graph.
+# `[lib] name` stays `modernlink`, so the shipped native artifact is unchanged.
 [package]
-name = "jni"
+name = "jni-bridge"
 version = "0.1.0"
 edition = "2021"
 license.workspace = true
@@ -7,7 +12,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-core = { path = "../core" }
+modernlink-core = { path = "../core" }
 http = { path = "../http" }
 messaging = { path = "../messaging", default-features = false }
 tls = { path = "../tls" }

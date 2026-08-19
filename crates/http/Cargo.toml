@@ -7,7 +7,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-core = { path = "../core" }
+modernlink-core = { path = "../core" }
 tls = { path = "../tls" }
 bytes = "1.12"
 http-body-util = "0.1"

@@ -13,9 +13,9 @@ RUN apt-get update \
     && rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-pc-windows-gnu
 ENV CFLAGS="-idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include -UWITH_OAUTHBEARER_OIDC" \
     CXXFLAGS="-UWITH_OAUTHBEARER_OIDC"
-RUN cargo zigbuild -p jni@0.1.0 --release --target x86_64-unknown-linux-gnu.2.13 \
-    && cargo zigbuild -p jni@0.1.0 --release --target aarch64-unknown-linux-gnu.2.17 \
-    && cargo zigbuild -p jni@0.1.0 --release --target x86_64-pc-windows-gnu
+RUN cargo zigbuild -p jni-bridge --release --target x86_64-unknown-linux-gnu.2.13 \
+    && cargo zigbuild -p jni-bridge --release --target aarch64-unknown-linux-gnu.2.17 \
+    && cargo zigbuild -p jni-bridge --release --target x86_64-pc-windows-gnu
 
 FROM java:6b38-jdk
 

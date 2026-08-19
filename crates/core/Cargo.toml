@@ -1,5 +1,11 @@
+# SC-06 / ISSUES I-002. The package is `modernlink-core` while the folder stays
+# `crates/core`. Bare `core` shadows a Rust built-in, so `use core::{...}` in a dependent
+# read as the standard library while resolving to this crate. The standing crate-naming
+# rule forbids registry-uniqueness prefixes when nothing is published, and carves out
+# exactly this case: a library whose bare name would shadow a built-in may carry a
+# distinguishing package name provided the folder path stays short.
 [package]
-name = "core"
+name = "modernlink-core"
 version = "0.1.0"
 edition = "2021"
 license.workspace = true

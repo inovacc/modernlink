@@ -1,7 +1,9 @@
 //! Shared request, response, TLS metadata, and error types for ModernLink.
 //!
-//! Every other crate in the workspace depends on this one; it holds no I/O. Note that the
-//! package is named `core`, which shadows Rust's built-in `core` crate — see
+//! Every other crate in the workspace depends on this one; it holds no I/O. The package is
+//! `modernlink-core` while the folder stays `crates/core`: a bare `core` shadowed Rust's
+//! built-in crate, so `use core::{...}` in a dependent read as the standard library while
+//! resolving to this one. Dependents now write `use modernlink_core::{...}` — see
 //! `docs/ISSUES.md` I-002.
 
 use base64::Engine;

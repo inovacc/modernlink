@@ -1,5 +1,5 @@
 # ModernLink
-<!-- rev:004 (RFC 3339) 2026-08-14T08:05:00Z -->
+<!-- rev:005 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 *(formerly "Legacy Exit Gateway SDK" — the product name is ModernLink, matching `AGENTS.md`,
 the `modernlink` native library, and the `inovacc/modernlink` repository.)*
@@ -191,9 +191,10 @@ crates/jni       - JNI entry points and native library
 
 The Java facade is under `java/src/main/java/com/modernlink`. The native artifact remains `modernlink`.
 
-Two crate names collide with well-known ones: `core` shadows Rust's built-in crate, and `jni`
-shadows the external `jni` dependency it uses — which is why every cargo invocation spells the
-JNI crate `-p jni@0.1.0`. See [`docs/ISSUES.md`](docs/ISSUES.md).
+Two crate names used to collide with well-known ones. Resolved: the packages are
+`modernlink-core` and `jni-bridge`, while the folders stay `crates/core` and `crates/jni` and
+the native artifact stays `modernlink`. Cargo invocations spell the JNI crate `-p jni-bridge`.
+See [`docs/ISSUES.md`](docs/ISSUES.md) I-001 and I-002.
 
 Agent-facing build rules live in [`AGENTS.md`](AGENTS.md); the documentation index is
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/ROADMAP.md`](docs/ROADMAP.md), and

@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:010 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:011 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Status at HEAD `d2479bd` on `main` (pushed; in sync with `origin/main`). Phases follow the M1/M2
 structure in [BACKLOG.md](BACKLOG.md); tasks are broken out in
@@ -128,7 +128,7 @@ until then this file is written against the production bar because that is the s
 ## Engineering hygiene · `[PARTIAL]`
 
 - [x] Apache-2.0 LICENSE
-- [x] CI running `cargo test --workspace` + `cargo check -p jni@0.1.0` — **passing** as of run
+- [x] CI running `cargo test --workspace` + `cargo check -p jni-bridge` — **passing** as of run
       [31781200582](https://github.com/inovacc/modernlink/actions/runs/31781200582) (2026-08-14),
       after five consecutive red pushes. The job now reaches and runs the tests instead of dying
       in the `rdkafka-sys` build. [BUGS.md](BUGS.md) B-001 resolved.
@@ -143,7 +143,8 @@ until then this file is written against the production bar because that is the s
 - [x] All **13** Java test classes enumerated in CI — **VER-03**, `dd080b2` (was three of ten;
       the count changed because VER-08 added two messaging tests and VER-05 added the native
       smoke test)
-- [ ] Crate-name collisions resolved — **SC-05**, **SC-06**
+- [x] Crate-name collisions resolved — **SC-05**, **SC-06**; packages are `jni-bridge` and
+      `modernlink-core`, folders unchanged, native artifact still `modernlink`
 - [x] Working coverage measurement — 17.07% lines / 15.20% regions, see below. **Not gated**
 
 ## Test coverage

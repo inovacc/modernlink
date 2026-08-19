@@ -1,5 +1,5 @@
 # Milestones
-<!-- rev:010 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:011 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Version milestones for ModernLink. **No git tags exist yet** — nothing has been released, so
 every version below is a target, not a shipped artifact. Phases are detailed in
@@ -20,7 +20,7 @@ just implemented.
 - [x] Single-JAR packaging with three platform natives
 - [x] HTTPS facade with TLS 1.2/1.3, redirects, certificates, capability bitmask
 - [x] Crate-level `//!` documentation
-- [x] CI: `cargo test --workspace`, `cargo check -p jni@0.1.0`, `fmt`, `clippy`, JAR build + all
+- [x] CI: `cargo test --workspace`, `cargo check -p jni-bridge`, `fmt`, `clippy`, JAR build + all
       13 Java tests — **all green** on run
       [31781200582](https://github.com/inovacc/modernlink/actions/runs/31781200582) (2026-08-14),
       which resolved [BUGS.md](BUGS.md) B-001.
@@ -109,7 +109,7 @@ runtime, the target platforms, and real services.
 - [ ] Every provider adapter declares and demonstrates its guarantees
 - [ ] Transparent mode proven not to alter delivery semantics
 - [ ] Cutover and rollback rehearsed end to end
-- [ ] Crate-name collisions resolved — **SC-05**, **SC-06**
+- [x] Crate-name collisions resolved — **SC-05**, **SC-06**
 - [ ] Non-deprecated Java 6 build image — **VER-06**
 - [ ] Versioning policy for the Java API and native contract
 

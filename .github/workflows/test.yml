@@ -27,7 +27,7 @@ jobs:
       - name: Test workspace (default features, no broker client)
         run: cargo test --workspace
       - name: Check JNI crate
-        run: cargo check -p jni@0.1.0
+        run: cargo check -p jni-bridge
       # SC-04. Previously deferred because BACKLOG assumed these already passed; they
       # did not — clippy reported six findings, including two MutexGuards held across
       # an await point. Those are fixed, so the gate can be enforced from here on.

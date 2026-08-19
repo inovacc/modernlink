@@ -8,10 +8,11 @@
 //! Every function here is an unsafe boundary that must stay in sync with its Java caller, and
 //! a panic on this side can terminate the host JVM (`docs/adr/0001-jni-boundary-over-sidecar.md`).
 //!
-//! The package is named `jni` and depends on the external `jni` crate, so cargo needs
-//! `-p jni@0.1.0` to disambiguate — see `docs/ISSUES.md` I-001.
+//! The package is `jni-bridge` (the folder is still `crates/jni`, and `[lib] name` is still
+//! `modernlink`). It was named `jni`, which shadowed the external `jni` crate it depends on and
+//! forced `-p jni@0.1.0` on every invocation; SC-05 renamed it, so `-p jni-bridge` is the
+//! spelling and `-p jni` is unambiguous again — see `docs/ISSUES.md` I-001.
 
-use core::{Request, Response, TlsVersion};
 use jni::objects::{JByteArray, JClass, JObjectArray, JString};
 use jni::sys::{jbyteArray, jint, jlong, jobjectArray};
 use jni::JNIEnv;
@@ -28,6 +29,7 @@ use messaging::{
 };
 #[cfg(feature = "nats")]
 use messaging::{NatsTransport, NatsTransportKind};
+use modernlink_core::{Request, Response, TlsVersion};
 use std::cell::RefCell;
 use std::time::Duration;
 
@@ -340,8 +342,8 @@ fn messaging_encode_map(entries: &std::collections::BTreeMap<String, String>) ->
     for (key, value) in entries {
         parts.push(format!(
             "{}:{}",
-            core::base64_encode(key.as_bytes()),
-            core::base64_encode(value.as_bytes())
+            modernlink_core::base64_encode(key.as_bytes()),
+            modernlink_core::base64_encode(value.as_bytes())
         ));
     }
     parts.join(",").into_bytes()
@@ -364,8 +366,8 @@ fn messaging_decode_map(
         let value = halves
             .next()
             .ok_or_else(|| "map payload entry has no value".to_string())?;
-        let key = core::base64_decode(key).map_err(|error| error.to_string())?;
-        let value = core::base64_decode(value).map_err(|error| error.to_string())?;
+        let key = modernlink_core::base64_decode(key).map_err(|error| error.to_string())?;
+        let value = modernlink_core::base64_decode(value).map_err(|error| error.to_string())?;
         entries.insert(
             String::from_utf8(key).map_err(|_| "map key is not valid UTF-8".to_string())?,
             String::from_utf8(value).map_err(|_| "map value is not valid UTF-8".to_string())?,
@@ -434,7 +436,7 @@ fn messaging_message_frame(
     let message_frame = [
         message.message_id.clone(),
         message.destination.clone(),
-        core::base64_encode(&payload_bytes),
+        modernlink_core::base64_encode(&payload_bytes),
         message.tracing.trace_id.clone(),
         message.tracing.span_id.clone(),
         message.tracing.parent_span_id.clone().unwrap_or_default(),
@@ -662,7 +664,7 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
     // MSG-05: the payload arrives base64-encoded for every category, so a BytesMessage
     // is not mangled by a UTF-8 round trip on the way in. The category decides how those
     // bytes are interpreted; an unsupported one is refused here, before publishing.
-    let payload_bytes = match core::base64_decode(&values[2]) {
+    let payload_bytes = match modernlink_core::base64_decode(&values[2]) {
         Ok(value) => value,
         Err(error) => return messaging_string_error(error.to_string()),
     };
@@ -968,7 +970,7 @@ pub extern "system" fn Java_com_modernlink_ModernUuid_nativeV7(
     env: JNIEnv,
     _class: JClass,
 ) -> jni::sys::jstring {
-    match env.new_string(core::uuid_v7()) {
+    match env.new_string(modernlink_core::uuid_v7()) {
         Ok(value) => value.into_raw(),
         Err(_) => std::ptr::null_mut(),
     }
@@ -979,7 +981,7 @@ pub extern "system" fn Java_com_modernlink_ModernUuid_nativeV4(
     env: JNIEnv,
     _class: JClass,
 ) -> jni::sys::jstring {
-    match env.new_string(core::uuid_v4()) {
+    match env.new_string(modernlink_core::uuid_v4()) {
         Ok(value) => value.into_raw(),
         Err(_) => std::ptr::null_mut(),
     }
@@ -995,7 +997,7 @@ pub extern "system" fn Java_com_modernlink_ModernBase64_nativeEncode(
         Ok(value) => value,
         Err(_) => return std::ptr::null_mut(),
     };
-    match env.new_string(core::base64_encode(&value)) {
+    match env.new_string(modernlink_core::base64_encode(&value)) {
         Ok(value) => value.into_raw(),
         Err(_) => std::ptr::null_mut(),
     }
@@ -1015,7 +1017,7 @@ pub extern "system" fn Java_com_modernlink_ModernBase64_nativeDecode(
         Some(value) => value,
         None => return std::ptr::null_mut(),
     };
-    match core::base64_decode(&value)
+    match modernlink_core::base64_decode(&value)
         .ok()
         .and_then(|bytes| env.byte_array_from_slice(&bytes).ok())
     {
@@ -1050,7 +1052,7 @@ pub extern "system" fn Java_com_modernlink_ModernJson_nativeObject(
         Some(value) => value,
         None => return std::ptr::null_mut(),
     };
-    match core::json_object(&fields)
+    match modernlink_core::json_object(&fields)
         .ok()
         .and_then(|value| env.new_string(value).ok())
     {
@@ -1069,7 +1071,7 @@ pub extern "system" fn Java_com_modernlink_ModernJson_nativeArray(
         Some(value) => value,
         None => return std::ptr::null_mut(),
     };
-    match core::json_array(&values)
+    match modernlink_core::json_array(&values)
         .ok()
         .and_then(|value| env.new_string(value).ok())
     {
@@ -1092,7 +1094,7 @@ pub extern "system" fn Java_com_modernlink_ModernJson_nativeDecode(
         Some(value) => value,
         None => return std::ptr::null_mut(),
     };
-    match core::json_decode(&json)
+    match modernlink_core::json_decode(&json)
         .ok()
         .and_then(|value| env.new_string(value).ok())
     {

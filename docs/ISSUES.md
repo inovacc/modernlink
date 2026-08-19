@@ -1,34 +1,37 @@
 # Known Issues and Limitations
-<!-- rev:004 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:005 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Constraints accepted on purpose or imposed by the platform. Defects that should be fixed live
 in [BUGS.md](BUGS.md); future work lives in [BACKLOG.md](BACKLOG.md).
 
 ## Crate naming
 
-### I-001 — the `jni` workspace crate shadows its own dependency
+### ~~I-001 — the `jni` workspace crate shadows its own dependency~~ — **RESOLVED (SC-05)**
 
-`crates/jni` is named `jni` and depends on the external crate `jni = "0.21"`
-(`crates/jni/Cargo.toml:1-12`). `cargo check -p jni` is therefore ambiguous, and every
-invocation must disambiguate by version — `.github/workflows/test.yml:19` and
-`docker/java6/Dockerfile:14-16` both spell it `-p jni@0.1.0`.
+The package is now **`jni-bridge`** while the folder stays `crates/jni`, so
+`cargo check -p jni` is unambiguous again (it resolves to the external crate, and exits 0).
+Every invocation spells **`-p jni-bridge`**; the `@0.1.0` workaround is retired.
 
-**Workaround:** always use `-p jni@0.1.0`.
-**Status:** accepted. Renaming the workspace crate (e.g. to `jni-bridge`) would remove the
-ambiguity permanently.
+`[lib] name` is still `modernlink`, so the shipped native artifact is unchanged —
+`cargo metadata` confirms `jni-bridge` builds the `modernlink` lib target.
 
-### I-002 — the `core` crate shadows Rust's built-in `core`
+The original report follows.
+
+_`crates/jni` was named `jni` and depends on the external crate `jni = "0.21"`, so
+`cargo check -p jni` was ambiguous and every invocation had to disambiguate by version._
+
+### ~~I-002 — the `core` crate shadows Rust's built-in `core`~~ — **RESOLVED (SC-06)**
 
 `crates/core` is named `core`, which is a Rust built-in crate name. Dependent crates then
 write `use core::{Error, Request, Response, TlsInfo};` (`crates/http/src/lib.rs:2`), which
 reads as the standard library but resolves to the workspace crate.
 
-**Status:** accepted for now, and it currently compiles — but this is the one case the standing
-crate-naming rule carves out: a library crate whose bare name would shadow a Rust built-in
-(`core`, `std`, `alloc`, `test`, `proc_macro`) should carry a distinguishing **package** name
-while keeping the short folder path (`crates/core` with `name = "modernlink-core"`). The repo
-currently has neither, so it does not yet satisfy the exception it relies on. Tracked in
-[BACKLOG.md](BACKLOG.md).
+**Status:** **RESOLVED (SC-06).** The package is now `modernlink-core` while the folder stays
+`crates/core`, which is exactly the carve-out the standing crate-naming rule allows: a library
+whose bare name would shadow a Rust built-in (`core`, `std`, `alloc`, `test`, `proc_macro`) may
+carry a distinguishing **package** name provided the folder path stays short. Dependents now
+write `use modernlink_core::{...}`, which no longer reads as the standard library. 20 source
+references were rewritten across `crates/{http,tls,jni}`.
 
 ## Packaging and platform
 

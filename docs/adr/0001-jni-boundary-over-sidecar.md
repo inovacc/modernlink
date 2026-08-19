@@ -58,7 +58,7 @@ Build the embedded JNI path as the primary distribution option.
 
 **Follow-on consequences that became their own problems**
 - Naming `crates/jni` after the domain collides with the external `jni` crate it depends on,
-  forcing `-p jni@0.1.0` everywhere (ISSUES I-001). Naming `crates/core` shadows Rust's
+  forcing `-p jni-bridge` everywhere (ISSUES I-001). Naming `crates/core` shadows Rust's
   built-in `core` (I-002).
 - Because the modern half is Rust, the Java 6 build needs Docker, and the only available base
   image is deprecated (I-004).
