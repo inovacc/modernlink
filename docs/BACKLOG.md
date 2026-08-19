@@ -1,5 +1,5 @@
 # ModernLink Messaging Compatibility Backlog
-<!-- rev:013 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:014 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 ## Objective
 
@@ -283,7 +283,7 @@ See ISSUES I-010.
 **SC-07 unblocked it, as predicted.** With the provider clients optional, llvm-cov compiles the
 graph and reports, on 2026-08-19 (Windows, rustc 1.96.0):
 
-- `cargo llvm-cov --workspace --all-features --summary-only` → **21.44% regions / 24.02% lines**
+- `cargo llvm-cov --workspace --all-features --summary-only` → **21.40% regions / 23.94% lines**
 - `cargo llvm-cov --workspace --summary-only` (broker-free) reads **higher**, and is the
   misleading one — see ROADMAP. It was 27.37% / 30.58% before the MSG-04/MSG-05 tests and has
   not been re-measured since; no current figure is quoted here rather than a stale one.

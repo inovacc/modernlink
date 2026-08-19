@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:014 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:015 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Status at HEAD `d2479bd` on `main` (pushed; in sync with `origin/main`). Phases follow the M1/M2
 structure in [BACKLOG.md](BACKLOG.md); tasks are broken out in
@@ -148,11 +148,11 @@ until then this file is written against the production bar because that is the s
       smoke test)
 - [x] Crate-name collisions resolved — **SC-05**, **SC-06**; packages are `jni-bridge` and
       `modernlink-core`, folders unchanged, native artifact still `modernlink`
-- [x] Working coverage measurement — 24.02% lines / 21.44% regions, see below. **Not gated**
+- [x] Working coverage measurement — 23.94% lines / 21.40% regions, see below. **Not gated**
 
 ## Test coverage
 
-**24.02% line coverage / 21.44% region coverage** across the workspace, measured 2026-08-19 with
+**23.94% line coverage / 21.40% region coverage** across the workspace, measured 2026-08-19 with
 `cargo llvm-cov --workspace --all-features --summary-only` on Windows, rustc 1.96.0.
 
 This is the first coverage figure the project has ever had. It became measurable because **SC-07**
@@ -167,11 +167,14 @@ under coverage instrumentation, and llvm-cov could not compile the dependency gr
 | `crates/http` | 16.01% | 16.95% |
 | `crates/jni` | 14.71% | 14.24% |
 | `hacks/messaging-demo` (7 binaries + `main.rs`) | 0.00% | 0.00% |
-| **TOTAL** | **21.44%** | **24.02%** |
+| **TOTAL** | **21.40%** | **23.94%** |
 
 The previous measurement on the same day read 15.20% / 17.07%. The MSG-04 and MSG-05 tests
 moved `crates/jni` from 1.28% and `crates/messaging` from 23.91%; nothing was deleted to
-produce the change.
+produce the change. A later reading of 24.02% / 21.44% was taken minutes before
+`hacks/messaging-demo/src/main.rs` grew from 3 uncovered lines to 13, which accounts for the
+whole 0.08pp difference. The figure above is the captured baseline
+(`docs/.project/testing/baselines/main/coverage.json`, commit `d20e75e`) and is authoritative.
 
 **Read these numbers with three caveats, or they will mislead:**
 
