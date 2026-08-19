@@ -1,5 +1,5 @@
 # ModernLink Messaging Compatibility Backlog
-<!-- rev:008 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:009 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 ## Objective
 
@@ -266,7 +266,9 @@ _Evidence:_ no `publish` key in `crates/{core,http,tls,jni,messaging}/Cargo.toml
 send/receive/ack round trip against live **NATS core, NATS JetStream and RabbitMQ**. What
 remains open, and why this is still P1 and still the largest gap:
 
-- **Kafka and Pulsar have no broker-backed test at all.**
+- **Kafka and Pulsar now have tests, but neither has ever been executed.** Written is not
+  proven; the CI job that drives them (`broker-backed-kafka-pulsar`) has not run, and should be
+  expected to need tuning on its first attempts.
 - The three existing tests are `#[ignore]`d (`:117`, `:132`, `:149`). A `Broker-backed
   messaging` CI job now runs them explicitly against `nats:2.10 -js` and `rabbitmq:3.13`, but
   **that job has never executed** — until it does, the only evidence remains one operator's

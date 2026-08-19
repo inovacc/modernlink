@@ -164,3 +164,65 @@ jobs:
         run: |
           echo "=== nats ==="; docker logs ml-nats
           echo "=== rabbitmq ==="; docker logs ml-rabbitmq
+
+  broker-backed-kafka-pulsar:
+    name: Broker-backed messaging - Kafka + Pulsar (VER-02, UNPROVEN)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      # Deliberately a SEPARATE job from `broker-backed`. Those three tests have passed
+      # against live brokers; these two have never run anywhere. Keeping them apart
+      # means a failure here cannot be mistaken for the NATS/RabbitMQ evidence breaking,
+      # and the working evidence stays readable on its own.
+      #
+      # Expect this job to need tuning on its first real runs. That is the point of
+      # landing it: a test that exists but runs nowhere proves nothing, and a red gate
+      # here is a finding (docs/BUGS.md), not a mystery.
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends             cmake libcurl4-openssl-dev libsasl2-dev protobuf-compiler
+      - name: Start Kafka (KRaft, single node)
+        run: |
+          docker run -d --name ml-kafka -p 9092:9092             -e KAFKA_NODE_ID=1             -e KAFKA_PROCESS_ROLES=broker,controller             -e KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093             -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://127.0.0.1:9092             -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER             -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT             -e KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093             -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1             -e KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1             -e KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1             -e KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0             apache/kafka:3.8.0
+      - name: Start Pulsar (standalone)
+        run: |
+          docker run -d --name ml-pulsar -p 6650:6650             apachepulsar/pulsar:3.3.0 bin/pulsar standalone
+      - name: Wait for brokers
+        run: |
+          deadline=$(( $(date +%s) + 300 ))
+          kafka_ready=0; pulsar_ready=0
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            if [ "$kafka_ready" -eq 0 ] && docker logs ml-kafka 2>&1 | grep -q 'Kafka Server started'; then
+              kafka_ready=1; echo "kafka: ready"
+            fi
+            if [ "$pulsar_ready" -eq 0 ] && docker logs ml-pulsar 2>&1 | grep -q 'messaging service is ready'; then
+              pulsar_ready=1; echo "pulsar: ready"
+            fi
+            [ "$kafka_ready" -eq 1 ] && [ "$pulsar_ready" -eq 1 ] && exit 0
+            sleep 3
+          done
+          echo "::error::Kafka and/or Pulsar did not become ready within 300s"
+          docker logs ml-kafka; docker logs ml-pulsar
+          exit 1
+      - name: Kafka send/receive/ack
+        env:
+          MODERNLINK_KAFKA_BROKERS: 127.0.0.1:9092
+        run: |
+          set -o pipefail
+          cargo test -p messaging --test broker_backed_kafka             --no-default-features --features kafka             -- --ignored --test-threads=1 2>&1 | tee kafka-result.txt
+          grep -q 'test result: ok. 1 passed' kafka-result.txt || {
+            echo "::error::the Kafka broker-backed test did not run"; exit 1; }
+      - name: Pulsar send/receive/ack
+        env:
+          MODERNLINK_PULSAR_URL: pulsar://127.0.0.1:6650
+        run: |
+          set -o pipefail
+          cargo test -p messaging --test broker_backed_pulsar             --no-default-features --features pulsar             -- --ignored --test-threads=1 2>&1 | tee pulsar-result.txt
+          grep -q 'test result: ok. 1 passed' pulsar-result.txt || {
+            echo "::error::the Pulsar broker-backed test did not run"; exit 1; }
+      - name: Broker logs on failure
+        if: failure()
+        run: |
+          echo "=== kafka ==="; docker logs ml-kafka
+          echo "=== pulsar ==="; docker logs ml-pulsar

@@ -1,5 +1,5 @@
 # Milestones
-<!-- rev:007 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:008 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Version milestones for ModernLink. **No git tags exist yet** — nothing has been released, so
 every version below is a target, not a shipped artifact. Phases are detailed in
@@ -58,8 +58,9 @@ already written, so the entire value of this release is proof.
       tests; **Kafka and Pulsar are absent** because they have no test yet, and **the job has
       never run** — unproven until it does
 - [~] Broker-backed send / receive / acknowledge test per provider — **VER-02**. NATS core,
-      JetStream and RabbitMQ pass (2026-08-14, verified by Codex); **Kafka and Pulsar have none**,
-      and only the happy path is covered.
+      JetStream and RabbitMQ pass (2026-08-14, verified by Codex). Kafka and Pulsar now have
+      tests too, but **neither has ever been executed** against a live broker. Only the happy
+      path is covered for any provider.
 - [ ] Per-adapter guarantee declarations, queryable before traffic moves — **MSG-04**
 - [ ] Documented per-provider guarantees — **DOC-03**
 - [ ] Payload categories beyond text — **MSG-05**

@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:007 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:008 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Status at HEAD `d2479bd` on `main` (pushed; in sync with `origin/main`). Phases follow the M1/M2
 structure in [BACKLOG.md](BACKLOG.md); tasks are broken out in
@@ -80,12 +80,14 @@ until then this file is written against the production bar because that is the s
       **Kafka and Pulsar are not in it** — they have no broker-backed test (VER-02). **The job
       has never executed**: a workflow edit cannot be verified locally, so this is implemented,
       not proven.
-- [~] **Broker-backed send/receive/ack test per provider** — **VER-02**. Done for **NATS core,
-      NATS JetStream and RabbitMQ** (`crates/messaging/tests/broker_backed.rs`, all three passed
-      2026-08-14, verified by Codex). **Kafka and Pulsar still have none.** One happy-path round
-      trip only — durability, reconnect, ordering, concurrency and failure semantics remain
-      unexercised for every provider. The test file landed in `a2419b5`; all three tests are
-      `#[ignore]`d, so **no CI run executes them** — the evidence is a manual run only.
+- [~] **Broker-backed send/receive/ack test per provider** — **VER-02**. A test now exists for
+      all five. **Proven for three**: NATS core, JetStream and RabbitMQ passed against live
+      brokers 2026-08-14 (`tests/broker_backed.rs`, Codex-verified). **Written but never executed
+      for two**: Kafka (`tests/broker_backed_kafka.rs`) and Pulsar
+      (`tests/broker_backed_pulsar.rs`) — a test nobody has run is not evidence. All five are
+      `#[ignore]`d and driven by dedicated CI jobs, neither of which has run yet. One happy-path
+      round trip only; durability, reconnect, ordering, concurrency and failure semantics remain
+      unexercised for **every** provider.
 - [ ] Per-adapter guarantee declarations — **MSG-04**, **DOC-03**
 - [ ] Payload categories beyond text (map, stream, bytes, object) — **MSG-05**
 

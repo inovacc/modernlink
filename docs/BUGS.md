@@ -1,5 +1,5 @@
 # Bugs
-<!-- rev:006 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:007 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Behaviour that is **wrong and should be fixed**. Deliberate constraints belong in
 [ISSUES.md](ISSUES.md); planned work belongs in [BACKLOG.md](BACKLOG.md).
@@ -125,7 +125,10 @@ What the suites actually cover, so absence of bugs is not mistaken for evidence 
   `tls-protocol=TLSv1_3` for live HTTPS, `legacy-jms-messaging=PASS` and `routing-policy=PASS`.
   That also demonstrates the new test classes are genuinely Java 6-compatible: they compiled
   under `javac -source 1.6 -target 1.6`.
-- **Still not exercised:** `linux-aarch64` has never been loaded on any JVM.
+- **Still not exercised:** `linux-aarch64` has never been loaded on any JVM. **The Kafka and
+  Pulsar broker-backed tests have never been executed** — they exist
+  (`crates/messaging/tests/broker_backed_{kafka,pulsar}.rs`) and a CI job invokes them, but no
+  run has been recorded, so they are code, not evidence.
 - **Broker-backed messaging has now been exercised, for three providers — but only by hand.**
   All three tests are `#[ignore]`d (`crates/messaging/tests/broker_backed.rs:117,132,149`), so
   **no CI run has ever executed one**; the evidence below is an operator's manual run against

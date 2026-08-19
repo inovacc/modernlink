@@ -48,3 +48,15 @@ uuid = { version = "1.24.0", features = ["v4", "v7"] }
 [[test]]
 name = "broker_backed"
 required-features = ["nats", "rabbitmq"]
+
+# Kafka and Pulsar are separate targets rather than more tests in broker_backed.rs.
+# `required-features` is all-or-nothing, so a single target covering all four would
+# force the CI job that stands up only NATS and RabbitMQ to compile librdkafka and
+# pulsar too - the exact cost SC-07 removed.
+[[test]]
+name = "broker_backed_kafka"
+required-features = ["kafka"]
+
+[[test]]
+name = "broker_backed_pulsar"
+required-features = ["pulsar"]
