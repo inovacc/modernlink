@@ -1,5 +1,5 @@
 # ModernLink Messaging Compatibility Backlog
-<!-- rev:006 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:007 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 ## Objective
 
@@ -274,16 +274,24 @@ remains open, and why this is still P1 and still the largest gap:
 
 See ISSUES I-010.
 
-### P2 — coverage cannot be measured (SC-04)
+### ~~P2 — coverage cannot be measured (SC-04)~~ — **MEASURED**; raising and gating it stay open
 
-`cargo llvm-cov --workspace --summary-only` fails on Windows: `combine`, `lapin`, `pulsar`, and
-`async-nats` all fail to compile under coverage instrumentation. No coverage number exists for
-this repo. The Java facade has no coverage tooling at all, since there is no Maven or Gradle
-build.
+**SC-07 unblocked it, as predicted.** With the provider clients optional, llvm-cov compiles the
+graph and reports, on 2026-08-19 (Windows, rustc 1.96.0):
 
-**SC-07 may have unblocked this.** Those four crates are now optional and off by default, so
-`cargo llvm-cov --workspace` no longer has to instrument any of them. Whether that is enough has
-not been established here.
+- `cargo llvm-cov --workspace --all-features --summary-only` → **15.20% regions / 17.07% lines**
+- `cargo llvm-cov --workspace --summary-only` (broker-free) → 27.37% / 30.58%
+
+**Quote the `--all-features` figure.** The broker-free run flatters `crates/messaging` to 91.97%
+by compiling the five transports out; with them in it is **23.91%**. That gap is VER-01/VER-02
+expressed as a number: the domain and routing logic are well covered, the transports are close to
+untested.
+
+Still open, and still P2:
+- **No coverage gate.** Nothing enforces a threshold on any push.
+- **The Java facade has no coverage tooling at all** — no Maven or Gradle, so no JaCoCo. The 13
+  test classes cover `crates/jni` in a way llvm-cov cannot see, which is why that crate reads
+  1.28%.
 
 ### ~~P2 — CI does not enforce formatting or lint (SC-04)~~ — **DONE `dd080b2`**
 

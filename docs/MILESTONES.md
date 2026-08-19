@@ -1,5 +1,5 @@
 # Milestones
-<!-- rev:005 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:006 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Version milestones for ModernLink. **No git tags exist yet** — nothing has been released, so
 every version below is a target, not a shipped artifact. Phases are detailed in
@@ -41,9 +41,12 @@ just implemented.
 - [~] Native-load smoke test per platform — **VER-05**. **windows-x86_64** (local, JVM 21) and
       **linux-x86_64** (CI, `native-smoke-load=ok` on JVM 1.6.0_38) both load. **linux-aarch64 has
       never been loaded on any JVM** — that is the only platform left.
-- [ ] A working coverage measurement (blocked: llvm-cov fails on Windows)
+- [x] A working coverage measurement — **15.20% regions / 17.07% lines**
+      (`cargo llvm-cov --workspace --all-features`, 2026-08-19). Unblocked by SC-07; see
+      [ROADMAP.md](ROADMAP.md). Measured, **not gated**
 
-**Coverage target:** establish a baseline at all. There is no number today; see ROADMAP.
+**Coverage target:** establish a baseline at all — **met**: 17.07% lines. That is a starting
+line, not a passing grade, and nothing enforces it yet.
 
 ## v0.2.0 — Messaging with evidence `[BLOCKED on v0.1.0]`
 

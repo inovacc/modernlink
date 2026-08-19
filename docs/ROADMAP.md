@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:005 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:006 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Status at HEAD `d2479bd` on `main` (pushed; in sync with `origin/main`). Phases follow the M1/M2
 structure in [BACKLOG.md](BACKLOG.md); tasks are broken out in
@@ -131,18 +131,45 @@ until then this file is written against the production bar because that is the s
       the count changed because VER-08 added two messaging tests and VER-05 added the native
       smoke test)
 - [ ] Crate-name collisions resolved — **SC-05**, **SC-06**
-- [ ] Working coverage measurement — see below
+- [x] Working coverage measurement — 17.07% lines / 15.20% regions, see below. **Not gated**
 
 ## Test coverage
 
-**N/A — no working coverage measurement.**
+**17.07% line coverage / 15.20% region coverage** across the workspace, measured 2026-08-19 with
+`cargo llvm-cov --workspace --all-features --summary-only` on Windows, rustc 1.96.0.
 
-`cargo-llvm-cov` is installed and was run (`cargo llvm-cov --workspace --summary-only`), but it
-**fails to compile the dependency graph on Windows**: `combine`, `lapin`, `pulsar`, and
-`async-nats` all fail under coverage instrumentation, and they are untouched third-party crates.
-No percentage is reported here rather than an estimated one.
+This is the first coverage figure the project has ever had. It became measurable because **SC-07**
+made the provider clients optional: `combine`, `lapin`, `pulsar` and `async-nats` used to fail
+under coverage instrumentation, and llvm-cov could not compile the dependency graph at all.
 
-What is known instead:
+| Crate | Regions | Lines |
+|---|---|---|
+| `crates/tls` | 90.48% | 87.10% |
+| `crates/core` | 65.07% | 63.37% |
+| `crates/messaging` | 23.91% | 25.98% |
+| `crates/http` | 16.01% | 16.95% |
+| `crates/jni` | 1.28% | 1.67% |
+| `hacks/messaging-demo` (7 binaries) | 0.00% | 0.00% |
+| **TOTAL** | **15.20%** | **17.07%** |
+
+**Read these numbers with three caveats, or they will mislead:**
+
+1. **`--all-features` is the honest run.** The default (broker-free) build reports
+   **27.37% / 30.58%**, and `crates/messaging` alone reports **91.97%** — but only because the
+   five transports are compiled out of that build entirely. The uncovered code is excluded
+   rather than covered. Always quote the `--all-features` figure.
+2. **`crates/jni` at 1.28% is not as bad as it looks, and not as good either.** That crate is
+   exercised almost entirely by the 13 Java test classes running against the packaged JAR, which
+   llvm-cov cannot see. What the figure does say is that no *Rust* test drives the JNI boundary.
+3. **The `messaging` figure is where the real gap is.** 23.91% with the transports included,
+   against 91.97% with them excluded, means the domain and routing logic are well covered and the
+   five broker transports are close to untested — which is **VER-01/VER-02** restated as a
+   measurement.
+
+The Java facade has **no coverage tooling at all**; there is no Maven or Gradle build, so no
+JaCoCo. Coverage is measured but **not gated** in CI — no threshold is enforced on any push.
+
+Other verification facts:
 - `cargo test --workspace` now runs and passes in CI on ubuntu-latest (run 31781200582), plus
   `check`, `fmt` and `clippy`. Also exit 0 locally on Windows. Two platforms, still machine
   results rather than a coverage figure.
@@ -151,8 +178,7 @@ What is known instead:
   facade and the routing policy.
 - The Java facade has no coverage tooling at all — no Maven/Gradle means no JaCoCo.
 
-Wiring a coverage measurement that works is tracked as **SC-04** / P2 in
-[BACKLOG.md](BACKLOG.md). Running llvm-cov inside the Linux container is the likely fix.
+Raising the number, and gating it, remain open — tracked as P2 in [BACKLOG.md](BACKLOG.md).
 
 ## Overall
 

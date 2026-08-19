@@ -1,5 +1,5 @@
 # AGENTS.md — ModernLink
-<!-- rev:006 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:007 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Canonical cross-tool agent instructions for the ModernLink repo (read by Claude Code,
 Codex, Cursor, Gemini, etc. — Claude Code imports this from `CLAUDE.md`). Must-know
@@ -62,7 +62,7 @@ they mirror `.github/workflows/test.yml`.
 | Check the JNI crate | `cargo check -p jni@0.1.0` |
 | Format | `cargo fmt --all -- --check` |
 | Lint | `cargo clippy --workspace --all-targets -- -D warnings` |
-| Coverage | `cargo llvm-cov --workspace --summary-only` |
+| Coverage | `cargo llvm-cov --workspace --all-features --summary-only` |
 | Build the Java 6 JAR | `docker build -f docker/java6/Dockerfile -t modernlink-java6 .` |
 | Run a packaged Java test | `docker run --rm modernlink-java6 sh -c "java -cp /workspace/modernlink.jar com.modernlink.LegacyHttpsTest"` |
 
