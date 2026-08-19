@@ -1,5 +1,5 @@
 # ModernLink Messaging Compatibility Backlog
-<!-- rev:012 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:013 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 ## Objective
 
@@ -283,19 +283,21 @@ See ISSUES I-010.
 **SC-07 unblocked it, as predicted.** With the provider clients optional, llvm-cov compiles the
 graph and reports, on 2026-08-19 (Windows, rustc 1.96.0):
 
-- `cargo llvm-cov --workspace --all-features --summary-only` → **15.20% regions / 17.07% lines**
-- `cargo llvm-cov --workspace --summary-only` (broker-free) → 27.37% / 30.58%
+- `cargo llvm-cov --workspace --all-features --summary-only` → **21.44% regions / 24.02% lines**
+- `cargo llvm-cov --workspace --summary-only` (broker-free) reads **higher**, and is the
+  misleading one — see ROADMAP. It was 27.37% / 30.58% before the MSG-04/MSG-05 tests and has
+  not been re-measured since; no current figure is quoted here rather than a stale one.
 
-**Quote the `--all-features` figure.** The broker-free run flatters `crates/messaging` to 91.97%
-by compiling the five transports out; with them in it is **23.91%**. That gap is VER-01/VER-02
-expressed as a number: the domain and routing logic are well covered, the transports are close to
-untested.
+**Quote the `--all-features` figure.** The broker-free run flatters `crates/messaging` by
+compiling the five transports out; with them in it is **29.70%**. That gap is VER-01/VER-02
+expressed as a number: the domain, routing and guarantee logic are well covered, the transports
+are close to untested.
 
 Still open, and still P2:
 - **No coverage gate.** Nothing enforces a threshold on any push.
-- **The Java facade has no coverage tooling at all** — no Maven or Gradle, so no JaCoCo. The 13
+- **The Java facade has no coverage tooling at all** — no Maven or Gradle, so no JaCoCo. The 15
   test classes cover `crates/jni` in a way llvm-cov cannot see, which is why that crate reads
-  1.28%.
+  only 14.71% despite being the most exercised surface in the project.
 
 ### ~~P2 — CI does not enforce formatting or lint (SC-04)~~ — **DONE `dd080b2`**
 

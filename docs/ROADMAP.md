@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:013 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:014 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Status at HEAD `d2479bd` on `main` (pushed; in sync with `origin/main`). Phases follow the M1/M2
 structure in [BACKLOG.md](BACKLOG.md); tasks are broken out in
@@ -36,7 +36,7 @@ until then this file is written against the production bar because that is the s
 ## Phase 0 — Native boundary and packaging · `[COMPLETE — unvalidated]`
 
 - [x] Rust workspace split into `core`, `http`, `tls`, `messaging`, `jni`
-- [x] 25 `Java_*` JNI entry points exported from `crates/jni`
+- [x] 28 `Java_*` JNI entry points exported from `crates/jni` (package `jni-bridge`)
 - [x] Java 6 facade compiling at `-source 1.6 -target 1.6`
 - [x] Single-JAR packaging with per-platform native resources
 - [x] Cross-compilation to linux-x86_64, linux-aarch64, windows-x86_64 via `cargo-zigbuild`
@@ -148,11 +148,11 @@ until then this file is written against the production bar because that is the s
       smoke test)
 - [x] Crate-name collisions resolved — **SC-05**, **SC-06**; packages are `jni-bridge` and
       `modernlink-core`, folders unchanged, native artifact still `modernlink`
-- [x] Working coverage measurement — 17.07% lines / 15.20% regions, see below. **Not gated**
+- [x] Working coverage measurement — 24.02% lines / 21.44% regions, see below. **Not gated**
 
 ## Test coverage
 
-**17.07% line coverage / 15.20% region coverage** across the workspace, measured 2026-08-19 with
+**24.02% line coverage / 21.44% region coverage** across the workspace, measured 2026-08-19 with
 `cargo llvm-cov --workspace --all-features --summary-only` on Windows, rustc 1.96.0.
 
 This is the first coverage figure the project has ever had. It became measurable because **SC-07**
@@ -163,25 +163,29 @@ under coverage instrumentation, and llvm-cov could not compile the dependency gr
 |---|---|---|
 | `crates/tls` | 90.48% | 87.10% |
 | `crates/core` | 65.07% | 63.37% |
-| `crates/messaging` | 23.91% | 25.98% |
+| `crates/messaging` | 29.70% | 33.29% |
 | `crates/http` | 16.01% | 16.95% |
-| `crates/jni` | 1.28% | 1.67% |
-| `hacks/messaging-demo` (7 binaries) | 0.00% | 0.00% |
-| **TOTAL** | **15.20%** | **17.07%** |
+| `crates/jni` | 14.71% | 14.24% |
+| `hacks/messaging-demo` (7 binaries + `main.rs`) | 0.00% | 0.00% |
+| **TOTAL** | **21.44%** | **24.02%** |
+
+The previous measurement on the same day read 15.20% / 17.07%. The MSG-04 and MSG-05 tests
+moved `crates/jni` from 1.28% and `crates/messaging` from 23.91%; nothing was deleted to
+produce the change.
 
 **Read these numbers with three caveats, or they will mislead:**
 
-1. **`--all-features` is the honest run.** The default (broker-free) build reports
-   **27.37% / 30.58%**, and `crates/messaging` alone reports **91.97%** — but only because the
-   five transports are compiled out of that build entirely. The uncovered code is excluded
-   rather than covered. Always quote the `--all-features` figure.
-2. **`crates/jni` at 1.28% is not as bad as it looks, and not as good either.** That crate is
-   exercised almost entirely by the 15 Java test classes running against the packaged JAR, which
-   llvm-cov cannot see. What the figure does say is that no *Rust* test drives the JNI boundary.
-3. **The `messaging` figure is where the real gap is.** 23.91% with the transports included,
-   against 91.97% with them excluded, means the domain and routing logic are well covered and the
-   five broker transports are close to untested — which is **VER-01/VER-02** restated as a
-   measurement.
+1. **`--all-features` is the honest run.** The default (broker-free) build reports a higher
+   number, and `crates/messaging` alone reads far higher — but only because the five transports
+   are compiled out of that build entirely. The uncovered code is excluded rather than covered.
+   Always quote the `--all-features` figure.
+2. **`crates/jni` at 14.71% understates it.** That crate is exercised almost entirely by the 15
+   Java test classes running against the packaged JAR, which llvm-cov cannot see. The Rust-side
+   figure only rose because MSG-04/MSG-05 added Rust tests for the guarantee table and the
+   payload codec; the `Java_*` entry points themselves remain uncovered from this side.
+3. **The `messaging` figure is where the real gap is.** 29.70% with the transports included
+   means the domain, routing and guarantee logic are well covered and the five broker transports
+   are close to untested — which is **VER-01/VER-02** restated as a measurement.
 
 The Java facade has **no coverage tooling at all**; there is no Maven or Gradle build, so no
 JaCoCo. Coverage is measured but **not gated** in CI — no threshold is enforced on any push.

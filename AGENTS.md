@@ -1,5 +1,5 @@
 # AGENTS.md — ModernLink
-<!-- rev:010 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:011 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Canonical cross-tool agent instructions for the ModernLink repo (read by Claude Code,
 Codex, Cursor, Gemini, etc. — Claude Code imports this from `CLAUDE.md`). Must-know
@@ -83,24 +83,18 @@ alongside them as of SC-07. Coverage is still not gated. The Java side has **no
 Maven or Gradle build** — `javac` runs inside `docker/java6/Dockerfile`, which is the only
 supported way to compile and package the facade.
 
-**All four gates passed in CI** on run
-[31782837766](https://github.com/inovacc/modernlink/actions/runs/31782837766) (2026-08-14), which
-ran against `d2479bd` — the current tip of `main`. The earlier run
-[31781200582](https://github.com/inovacc/modernlink/actions/runs/31781200582) the same day
-resolved [docs/BUGS.md](docs/BUGS.md) B-001: the Rust job now reaches its test step instead of
-dying in the `rdkafka-sys` build. Both jobs in the workflow succeed.
+**The last green CI run was `31782837766` at `d2479bd`. Commits have landed since, and CI has
+not run on them** — check the run for the current HEAD before citing CI at all.
 
-**Read that green gate precisely — it is narrower than it looks.** `cargo test --workspace`
-runs 20 tests and **skips 3 `#[ignore]`d ones**, and those three are exactly the broker-backed
-tests (`crates/messaging/tests/broker_backed.rs:117,132,149`). A green CI run therefore asserts
-**nothing** about any real broker. The only broker evidence that exists is a hand-run against
-local containers on one machine, for NATS, JetStream and RabbitMQ only — see the "Verification
-reach" section of [docs/BUGS.md](docs/BUGS.md).
+**Read a green gate precisely — it is narrower than it looks.** The broker-backed tests are
+`#[ignore]`d, so a green `cargo test --workspace` asserts **nothing** about any real broker, and
+two of the five have never been executed anywhere. What has and has not actually been run is
+tracked in the "Verification reach" section of [docs/BUGS.md](docs/BUGS.md) — read it before
+describing this project as tested.
 
-The native libraries are cross-compiled with `cargo-zigbuild` for three targets inside that
-same Dockerfile; `crates/messaging` needs `cmake`, `libcurl`, and `protobuf-compiler` present
-(rdkafka and pulsar build native code), so a bare host may not build the workspace. The CI job
-installs those packages as of `dd080b2`.
+The native libraries are cross-compiled with `cargo-zigbuild` for three targets inside that same
+Dockerfile; the `kafka` and `pulsar` features need `cmake`, `libcurl` and `protobuf-compiler`
+present. The default build needs none of them (SC-07).
 
 ## Code style
 

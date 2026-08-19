@@ -1,5 +1,5 @@
 # ModernLink
-<!-- rev:005 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:006 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 *(formerly "Legacy Exit Gateway SDK" — the product name is ModernLink, matching `AGENTS.md`,
 the `modernlink` native library, and the `inovacc/modernlink` repository.)*
@@ -51,6 +51,20 @@ The packaged JAR also provides `com.modernlink.ModernHttpsURLConnection`, a Java
 The messaging facade can select `LEGACY_JMS`, `NATS`, durable `NATS_JETSTREAM`,
 Kafka, Pulsar, or RabbitMQ through the same Java 6 connection factory; provider
 selection remains explicit and does not imply vendor-level JMS compatibility.
+
+Each provider's delivery guarantees are declared in code and queryable **before** any
+traffic moves — `ModernMessagingClient.guaranteesFor(provider)` returns ordering,
+persistence, acknowledgement, transaction, redelivery, dead-letter and replay support,
+each marked `VERIFIED` (a test has run), `DECLARED` (implemented, untested) or
+`UNSUPPORTED`. The reasoning per provider is in [`docs/providers.md`](docs/providers.md).
+Requesting something a provider cannot honour is **refused**, never silently downgraded.
+
+Message bodies may be text, raw bytes, or a string map. `OBJECT` and `STREAM` bodies are
+deliberately refused with their reason — see [`docs/FEATURES.md`](docs/FEATURES.md).
+
+The provider transports are behind cargo features and **off by default**, so a broker-free
+`cargo test --workspace` compiles no broker client at all; the distributable is built with
+`--features all-providers`.
 
 The adapter is created explicitly with `new ModernHttpsURLConnection(new URL("https://..."))`; it does not register a global URL handler. The Docker build produces the distributable artifact at `/workspace/modernlink.jar`, with the platform native library embedded under the JAR's native resource path.
 

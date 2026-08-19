@@ -1,5 +1,5 @@
 # Architecture
-<!-- rev:001 (RFC 3339) 2026-08-14T01:16:20Z -->
+<!-- rev:002 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Diagrams reflect the code at HEAD `af02427`. Where a path is designed but not proven at
 runtime, the diagram says so rather than implying it works.
@@ -21,7 +21,7 @@ flowchart TB
     end
 
     subgraph native["libmodernlink — Rust native library"]
-        JNIC["crates/jni<br/>25 Java_* entry points"]
+        JNIC["crates/jni<br/>28 Java_* entry points"]
         CORE["crates/core<br/>Request · Response · TlsInfo · Error"]
         HTTP["crates/http<br/>hyper HTTP/1.1"]
         TLS["crates/tls<br/>rustls, floor TLS 1.2"]
@@ -191,14 +191,18 @@ pullable from every registry; see [ISSUES.md](ISSUES.md).
 ## Source layout
 
 ```text
-crates/core           shared request/response, TLS metadata, error types
+crates/core           package `modernlink-core` - shared request/response, TLS metadata, errors
 crates/http           HTTPS execution (hyper)
 crates/tls            TLS policy boundary (rustls, webpki-roots)
-crates/messaging      InMemory · NATS · JetStream · Kafka · Pulsar · RabbitMQ transports
-crates/jni            25 Java_* entry points; builds libmodernlink
-hacks/messaging-demo  executable contract fixtures (Rust)
-hacks/java6-messaging Java 6 JMS/JMX-shaped fixture
-java/src/main/java    com.modernlink facade (28 classes)
-java/src/test/java    standalone main-style tests (10 classes)
+crates/messaging      InMemory · NATS · JetStream · Kafka · Pulsar · RabbitMQ transports,
+                      each behind a cargo feature; default = none (SC-07)
+crates/jni            package `jni-bridge` - 28 Java_* entry points; builds libmodernlink
+hacks/messaging-demo  executable contract fixtures (Rust, 7 binaries)
+hacks/java6-messaging Java 6 JMS/JMX-shaped fixture (4 classes)
+java/src/main/java    com.modernlink facade (34 classes)
+java/src/test/java    standalone main-style tests (15 classes)
 docker/java6          the packaging build
+
+The two package names differ from their folders on purpose: bare `core` shadowed Rust's
+built-in crate and bare `jni` shadowed the external `jni` dependency. See ISSUES I-001/I-002.
 ```

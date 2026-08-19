@@ -1,7 +1,7 @@
 # Features
-<!-- rev:001 (RFC 3339) 2026-08-14T01:21:30Z -->
+<!-- rev:002 (RFC 3339) 2026-08-19T00:00:00Z -->
 
-What exists in the tree at HEAD `af02427`, and what is proposed. "Implemented" means the code
+What exists in the tree at HEAD `d0c3122`, and what is proposed. "Implemented" means the code
 is present and compiles — it does **not** mean the behavior has been validated against the
 Java 6 host product or a real broker. See [ISSUES.md](ISSUES.md) I-010.
 
@@ -19,7 +19,7 @@ Java 6 host product or a real broker. See [ISSUES.md](ISSUES.md) I-010.
 | Typed content metadata (`getContentType`, `getContentLength`) | `ModernHttpsURLConnection` |
 | Redirect policy + `maxRedirects(int)` | `LegacyHttpRequest` |
 | TLS floor 1.2, selectable 1.2 / 1.3 | `crates/tls` |
-| Peer certificate + cipher suite access | `LegacyTlsInfo`, `crates/core` |
+| Peer certificate + cipher suite access | `LegacyTlsInfo`, `crates/core` (`modernlink-core`) |
 | Capability bitmask for feature discovery | `LegacyHttpClient.getCapabilities()` |
 
 ### Messaging
@@ -35,6 +35,10 @@ Java 6 host product or a real broker. See [ISSUES.md](ISSUES.md) I-010.
 | Trace context as first-class envelope data (trace/span/parent/state/sampling) | `ModernTraceContext`, `crates/messaging` |
 | Routing dispatch with policy, mismatch rejection, auditable receipt | `crates/messaging` |
 | Read-only JMX metrics MBean, Java 6-compatible | `ModernMessagingMetricsMBean` |
+| Per-provider guarantee table, queryable **before** connecting | `Provider::guarantees()`, `ModernMessagingClient.guaranteesFor(...)` |
+| Fail-closed refusal of an unhonourable delivery / ack mode | `ProviderGuarantees::require_*`, `DomainError::Unsupported` |
+| TEXT, BYTES and MAP payload categories across the JNI boundary | `ModernPayload`, `messaging_build_payload` |
+| Provider transports behind cargo features; a provider compiled out is refused, not rerouted | `crates/messaging` `[features]`, `build_transport` |
 
 ### Utilities and packaging
 
@@ -59,13 +63,20 @@ Derived from [BACKLOG.md](BACKLOG.md); not started unless noted.
 | Full JMX management model (health, route decisions, retries, dead letters) | M1 | metrics MBean exists; management surface does not |
 | Routing + redirect policy config (patterns, tenants, predicates, dry-run) | M2 | `dry_run` field exists; behavior unverified |
 | Transform envelope: serialization, schema versioning, idempotency keys, replay | M2 | |
-| Per-adapter guarantee declarations (ordering, persistence, TLS, auth, DLQ) | M2 | |
+| STREAM and OBJECT payload categories | — | **not planned by default** — see "Explicitly not planned" |
+| Per-adapter guarantee declarations for TLS, auth and DLQ | M2 | ordering / persistence / ack / transactions / redelivery / replay are **done** — see [providers.md](providers.md). TLS and auth are deliberately absent until broker connections terminate through `crates/tls` |
 | Migration controls: shadow publish, dual delivery, cutover, pause/resume, rollback | M2 | |
 | JNDI lookup compatibility | M2 | required for true transparent mode |
 | Transactions, selectors, rollback / redelivery, dead-letter | M2 | |
 
 ## Explicitly not planned
 
+- **`OBJECT` payloads (JMS `ObjectMessage`).** Reconstructing one means deserializing
+  broker-supplied bytes into Java objects, a remote-code-execution surface. A compatibility
+  layer fronting a locked-down legacy application must not open that by default. Callers who
+  accept the risk can use `BYTES` and deserialize explicitly.
+- **`STREAM` payloads.** The frame does not encode the typed field ordering a `StreamMessage`
+  exists to carry, and delivering it as opaque bytes would lose that structure silently.
 - Honouring custom Java `HostnameVerifier` / `SSLSocketFactory` — rejected by design (I-008).
 - A Java-side JSON object model — would put a modern dependency on the legacy class path (I-007).
 - Registering a global URL handler — the HTTPS adapter is constructed explicitly.
