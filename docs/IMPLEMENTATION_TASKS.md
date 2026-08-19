@@ -1,5 +1,5 @@
 # Implementation Tasks
-<!-- rev:010 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:011 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Granular tasks derived from [BACKLOG.md](BACKLOG.md), [FEATURES.md](FEATURES.md), and
 [ISSUES.md](ISSUES.md). Effort: **S** ≤ half a day · **M** ≤ two days · **L** > two days.
@@ -37,7 +37,7 @@ Task IDs are referenced from [ROADMAP.md](ROADMAP.md) and [MILESTONES.md](MILEST
 | VER-02 | Broker-backed send/receive/ack per provider (closes I-010) — **partially DONE**: NATS core, JetStream and RabbitMQ pass against live brokers (`a2419b5`, 2026-08-14, Codex-verified). Kafka and Pulsar now have tests in their own targets (`required-features` is all-or-nothing, so one target for all five would force every broker job to build librdkafka), but **neither has been executed** — written is not proven. Only the happy path is covered for any provider | `crates/messaging/tests/` | VER-01 | L |
 | ~~VER-03~~ | ~~Run all ten Java test classes in CI, not the current three~~ — **DONE `dd080b2`**: the workflow enumerates all **13**, and all 13 ran green on runs 31781200582 and 31782837766 | `.github/workflows/test.yml` | — | S |
 | ~~VER-04~~ | ~~Record a real **Java 6** run of the packaged JAR against a live HTTPS endpoint~~ — **DONE**: run 31781200582 executed the packaged JAR on JVM `1.6.0_38` (`Linux/amd64`) reaching `tls-protocol=TLSv1_3`. The earlier local record (`docs/evidence/2026-08-14-native-runtime.md`, `status=200`, 4 peer certs) used JVM 21 and covered the JNI boundary only | `docs/evidence/` | — | M |
-| VER-05 | Native-load smoke test per platform — **windows-x86_64 DONE `632eaa7`** (`NativeLoadSmokeTest`, local JVM 21) and **linux-x86_64 DONE** (`native-smoke-load=ok` on JVM 1.6.0_38, run 31781200582). **linux-aarch64 has never been loaded on any JVM** — the only platform left | `java/src/test/java/com/modernlink/` | VER-03 | M |
+| VER-05 | Native-load smoke test per platform — **windows-x86_64 DONE `632eaa7`** and **linux-x86_64 DONE** (run 31781200582). **linux-aarch64**: a `native-aarch64` job runs the smoke test on `ubuntu-24.04-arm` against the JAR exported from the amd64 job (there is no arm64 Java 6 image, so it uses Temurin 21 — the same basis on which windows-x86_64 was accepted) and asserts the platform line reports `aarch64` so it cannot pass by re-proving x86_64. **Never executed** | `java/src/test/java/com/modernlink/` | VER-03 | M |
 | VER-06 | Self-hosted or vendored Java 6 base image so the JAR build stops depending on a deprecated tag (I-004) | `docker/java6/` | — | M |
 
 ## Domain: message domain (BACKLOG M1)

@@ -1,5 +1,5 @@
 # Milestones
-<!-- rev:011 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:012 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Version milestones for ModernLink. **No git tags exist yet** — nothing has been released, so
 every version below is a target, not a shipped artifact. Phases are detailed in
@@ -39,8 +39,9 @@ just implemented.
       `status=200`, 4 peer certs) used JVM 21 and covered the JNI boundary only; CI supplies the
       Java 6 half.
 - [~] Native-load smoke test per platform — **VER-05**. **windows-x86_64** (local, JVM 21) and
-      **linux-x86_64** (CI, `native-smoke-load=ok` on JVM 1.6.0_38) both load. **linux-aarch64 has
-      never been loaded on any JVM** — that is the only platform left.
+      **linux-x86_64** (CI, `native-smoke-load=ok` on JVM 1.6.0_38) both load. A CI job now
+      targets **linux-aarch64** on an arm64 runner, but **it has never executed**, so that
+      native remains unloaded on any JVM until it does.
 - [x] A working coverage measurement — **15.20% regions / 17.07% lines**
       (`cargo llvm-cov --workspace --all-features`, 2026-08-19). Unblocked by SC-07; see
       [ROADMAP.md](ROADMAP.md). Measured, **not gated**

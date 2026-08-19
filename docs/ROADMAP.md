@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:011 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:012 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Status at HEAD `d2479bd` on `main` (pushed; in sync with `origin/main`). Phases follow the M1/M2
 structure in [BACKLOG.md](BACKLOG.md); tasks are broken out in
@@ -42,7 +42,10 @@ until then this file is written against the production bar because that is the s
 - [x] Cross-compilation to linux-x86_64, linux-aarch64, windows-x86_64 via `cargo-zigbuild`
 - [x] SHA-256 content-addressed native extraction with cleanup on failure
 - [x] ADR recording embedded-JNI over sidecar ([adr/0001](adr/0001-jni-boundary-over-sidecar.md))
-- [ ] Native-load smoke test per platform resource — **VER-05**
+- [~] Native-load smoke test per platform resource — **VER-05**. windows-x86_64 (local, JVM 21)
+      and linux-x86_64 (CI, JVM 1.6.0_38) both load. A `linux-aarch64 native load` job now runs
+      `NativeLoadSmokeTest` on an `ubuntu-24.04-arm` runner against the JAR built by the amd64
+      job, and asserts the platform line really reports `aarch64`. **That job has never run**
 - [ ] Java 6 base image that is not deprecated — **VER-06**
 
 ## Phase 1 — HTTPS and TLS · `[COMPLETE — unvalidated]`

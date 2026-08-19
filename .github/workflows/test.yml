@@ -62,6 +62,20 @@ jobs:
       - uses: actions/checkout@v6
       - name: Build Java 6 distributable JAR
         run: docker build -f docker/java6/Dockerfile -t modernlink-java6-https .
+      # VER-05: the JAR is built here (the java:6b38-jdk base image is amd64-only) and
+      # handed to the arm64 job below, which is the only way to load the linux-aarch64
+      # native without an arm64 Java 6 image that does not exist.
+      - name: Export the packaged JAR
+        run: |
+          container=$(docker create modernlink-java6-https)
+          docker cp "$container":/workspace/modernlink.jar ./modernlink.jar
+          docker rm "$container"
+          ls -l modernlink.jar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: modernlink-jar
+          path: modernlink.jar
+          retention-days: 1
       # VER-03: run every test class from the packaged JAR - 15 of them. Previously only
       # three of ten ran, so a test the workflow did not name never executed. A class
       # added to java/src/test WITHOUT being named here still never runs, which is why
@@ -226,3 +240,41 @@ jobs:
         run: |
           echo "=== kafka ==="; docker logs ml-kafka
           echo "=== pulsar ==="; docker logs ml-pulsar
+
+  native-aarch64:
+    name: linux-aarch64 native load (VER-05)
+    runs-on: ubuntu-24.04-arm
+    needs: java6-jar
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: modernlink-jar
+      # VER-05. linux-aarch64 is the last of the three shipped natives never loaded on any
+      # JVM: it is cross-compiled by cargo-zigbuild and shipped inside the JAR, and until
+      # now nothing had ever called System.load on it. A native that has never been loaded
+      # is an untested artifact being distributed to users.
+      #
+      # A MODERN JVM on purpose. There is no arm64 Java 6 image, and the question here is
+      # whether the aarch64 .so loads and its JNI entry points return real values - the
+      # same question windows-x86_64 was answered with on JVM 21. The Java 6 *language*
+      # level is already proven by the amd64 job; this proves the aarch64 *binary*.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Load the aarch64 native and call across the boundary
+        run: |
+          set -o pipefail
+          java -cp modernlink.jar com.modernlink.NativeLoadSmokeTest 2>&1 | tee smoke.txt
+      # Without this the job could pass on an x86_64 runner having re-proved linux-x86_64
+      # and learned nothing about aarch64 - a green gate asserting the wrong thing.
+      - name: Assert it really ran on aarch64
+        run: |
+          grep -q 'native-smoke-platform=Linux/aarch64' smoke.txt || {
+            echo "::error::this job did not run on aarch64; the result proves nothing about that native"
+            cat smoke.txt
+            exit 1
+          }
+          grep -q 'native-smoke=PASS' smoke.txt || {
+            echo "::error::the aarch64 native did not load"; exit 1; }
