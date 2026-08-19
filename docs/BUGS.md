@@ -1,5 +1,5 @@
 # Bugs
-<!-- rev:004 (RFC 3339) 2026-08-14T08:05:00Z -->
+<!-- rev:005 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Behaviour that is **wrong and should be fixed**. Deliberate constraints belong in
 [ISSUES.md](ISSUES.md); planned work belongs in [BACKLOG.md](BACKLOG.md).
@@ -125,7 +125,10 @@ What the suites actually cover, so absence of bugs is not mistaken for evidence 
   That also demonstrates the new test classes are genuinely Java 6-compatible: they compiled
   under `javac -source 1.6 -target 1.6`.
 - **Still not exercised:** `linux-aarch64` has never been loaded on any JVM.
-- **Broker-backed messaging has now been exercised, for three providers.** On 2026-08-14
+- **Broker-backed messaging has now been exercised, for three providers — but only by hand.**
+  All three tests are `#[ignore]`d (`crates/messaging/tests/broker_backed.rs:117,132,149`), so
+  **no CI run has ever executed one**; the evidence below is an operator's manual run against
+  local containers, which is VER-01. On 2026-08-14
   `cargo test -p messaging --test broker_backed -- --ignored` exited 0 with
   `nats_core_send_receive_ack`, `nats_jetstream_send_receive_ack` and `rabbitmq_send_receive_ack`
   all passing against live NATS/JetStream/RabbitMQ. That retires the blanket "no broker-backed
@@ -134,10 +137,10 @@ What the suites actually cover, so absence of bugs is not mistaken for evidence 
   concurrency, failure and redelivery remain unexercised everywhere. See ISSUES I-010.
 - The Java facade is compiled and run only inside `docker/java6/Dockerfile`. All **13** test
   classes are enumerated and, as of run 31781200582, all 13 executed and passed.
-- `cargo fmt --all -- --check` passes in CI but **fails locally**: three diffs in
-  `crates/messaging/tests/broker_backed.rs` (lines 75, 85, 143). CI does not see them because
-  that file is still untracked — so the gate is green only by virtue of the evidence being
-  invisible to it.
+- `cargo fmt --all -- --check` → **exit 0**, both on the runner (run 31782837766) and locally
+  (2026-08-19, verified independently by Codex). The earlier three diffs in
+  `crates/messaging/tests/broker_backed.rs` were fixed before that file was committed in
+  `a2419b5`, so the gate now sees the file and passes on it.
 - **No run against the real vendor host product** has been recorded. Java 6 the *runtime* is now
   exercised; the locked *product* the layer exists to serve is not, and neither is its JMS
   implementation (I-009, I-011).

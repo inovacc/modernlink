@@ -1,5 +1,5 @@
 # Implementation Tasks
-<!-- rev:003 (RFC 3339) 2026-08-14T07:27:46Z -->
+<!-- rev:004 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Granular tasks derived from [BACKLOG.md](BACKLOG.md), [FEATURES.md](FEATURES.md), and
 [ISSUES.md](ISSUES.md). Effort: **S** ≤ half a day · **M** ≤ two days · **L** > two days.
@@ -12,17 +12,17 @@ Task IDs are referenced from [ROADMAP.md](ROADMAP.md) and [MILESTONES.md](MILEST
 | ~~SC-01~~ | ~~Add `publish = false` to all six manifests~~ — **DONE `315fe87`** | `crates/{core,http,tls,jni,messaging}/Cargo.toml`, `hacks/messaging-demo/Cargo.toml` | — | S |
 | SC-02 | Pin the toolchain with `rust-toolchain.toml` so CI and the packaging image agree | `rust-toolchain.toml` | — | S |
 | SC-03 | Declare an MSRV (`rust-version`) in `[workspace.package]` | `Cargo.toml` | SC-02 | S |
-| ~~SC-04~~ | ~~Add `cargo fmt --check` + `cargo clippy -D warnings` jobs to CI~~ — **DONE `dd080b2`** (configured; never executed, and `fmt --check` currently fails on the untracked `broker_backed.rs`) | `.github/workflows/test.yml` | — | S |
+| ~~SC-04~~ | ~~Add `cargo fmt --check` + `cargo clippy -D warnings` jobs to CI~~ — **DONE `dd080b2`**; both executed green on run 31782837766 at `d2479bd` | `.github/workflows/test.yml` | — | S |
 | SC-05 | Rename `crates/jni` → a non-colliding package name, dropping the `@0.1.0` workaround (I-001) | `crates/jni/Cargo.toml`, `Cargo.toml`, `.github/workflows/test.yml`, `docker/java6/Dockerfile` | SC-04 | M |
 | SC-06 | Rename `crates/core` so it stops shadowing Rust's built-in `core` (I-002) | `crates/core/Cargo.toml`, all dependents | SC-05 | M |
 | SC-07 | **Unblock the red CI Rust job (BUGS B-001).** Preferred: feature-gate the providers — `crates/messaging/Cargo.toml` has no `[features]`, so `rdkafka`/`pulsar`/`lapin`/`async-nats` are unconditional and every workspace test/clippy/coverage run must build a native Kafka client; gating them also fixes the Windows `llvm-cov` failure. Fallback: add `libcurl4-openssl-dev` (+ likely `libsasl2-dev`) to the job, per `docker/java6/Dockerfile:8` | `crates/messaging/Cargo.toml`, `.github/workflows/test.yml` | — | M |
-| SC-08 | Commit the ten untracked state docs (`AGENTS.md`, `CLAUDE.md`, `docs/{ARCHITECTURE,BUGS,CONTRIBUTORS,FEATURES,IMPLEMENTATION_TASKS,ISSUES,MILESTONES,ROADMAP}.md`, `docs/adr/`) — until they are tracked, no finding in them survives a `git clean`, and the durable-record rule is unsatisfiable | repo root, `docs/` | — | S |
+| ~~SC-08~~ | ~~Commit the ten untracked state docs~~ — **DONE**: `git ls-files` returns all of `AGENTS.md`, `CLAUDE.md`, `docs/{ARCHITECTURE,BUGS,FEATURES,IMPLEMENTATION_TASKS,ISSUES,MILESTONES,ROADMAP}.md` and `docs/adr/`; the working tree is clean | repo root, `docs/` | — | S |
 
 ## Domain: crate documentation
 
 | ID | What | Files | Deps | Effort |
 |---|---|---|---|---|
-| ~~DOC-01~~ | ~~Add `//!` crate-level docs to all five crates~~ — **DONE** (2026-08-14): `//!` present in all five `crates/*/src/lib.rs`. Note the change is in the working tree and not yet committed (see SC-08) | `crates/*/src/lib.rs` | — | S |
+| ~~DOC-01~~ | ~~Add `//!` crate-level docs to all five crates~~ — **DONE `210f193`**: `//!` present in all five `crates/*/src/lib.rs`, committed | `crates/*/src/lib.rs` | — | S |
 | DOC-02 | Split the five monolithic `lib.rs` files into modules (each crate is currently one file; `crates/messaging` carries six transports) | `crates/*/src/` | DOC-01 | L |
 | DOC-03 | Document per-provider guarantees (ordering, persistence, ack, transactions, replay, backpressure, TLS, auth, DLQ) | `docs/routing-semantics.md`, new `docs/providers.md` | MSG-04 | M |
 
@@ -33,11 +33,11 @@ Task IDs are referenced from [ROADMAP.md](ROADMAP.md) and [MILESTONES.md](MILEST
 | ~~MSG-06~~ | ~~Expose the routing policy engine across the JNI boundary~~ — **DONE `ad4bd2f`**, closes BUGS B-002. `nativeOpenRouted` (`crates/jni/src/lib.rs:354`) takes a rule set; `nativeDryRun` (`:447`) evaluates policy without publishing; `ModernRouteRule` / `ModernRouteDecision` / `evaluateRoute` expose it. Falsified before acceptance | `crates/jni/src/lib.rs`, `java/src/main/java/com/modernlink/messaging/` | — | M |
 | VER-01 | Stand up broker fixtures in CI (testcontainers or compose) for NATS, Kafka, Pulsar, RabbitMQ | `.github/workflows/test.yml`, `docker/` | — | L |
 | ~~VER-08~~ | ~~Add Java-side messaging tests — there are currently zero.~~ — **DONE `5da1ec2` + `ad4bd2f`**: `LegacyJmsMessagingTest` (round trip, CLIENT-ack, JMX register/unregister with no payload leak, async listener) and `RoutingPolicyTest`. Both use in-process `LEGACY_JMS`, so they cover the facade and the JNI boundary, not a broker. *(Renumbered from VER-06, which the base-image task below already owned — an ID collision introduced 2026-08-14 and corrected the same day.)* | `java/src/test/java/com/modernlink/messaging/`, `.github/workflows/test.yml` | — | M |
-| VER-07 | Put `hacks/java6-messaging/` into a build path — **fix written but UNCOMMITTED**: `docker/java6/Dockerfile` now compiles the fixtures into a separate `build/fixtures` tree and `test.yml` runs `LegacyJmsJmxDemo`. Not closed until committed | `docker/java6/Dockerfile`, `hacks/java6-messaging/` | — | S |
-| VER-02 | Broker-backed send/receive/ack per provider (closes I-010) — **partially DONE**: NATS core, JetStream and RabbitMQ pass against live brokers (2026-08-14, Codex-verified); **Kafka and Pulsar remain untested**, only the happy path is covered, and `crates/messaging/tests/` is **untracked** | `crates/messaging/tests/` | VER-01 | L |
-| ~~VER-03~~ | ~~Run all ten Java test classes in CI, not the current three~~ — **DONE `dd080b2`**: the workflow enumerates all **13**. Configured, never executed (unpushed) | `.github/workflows/test.yml` | — | S |
-| VER-04 | Record a real **Java 6** run of the packaged JAR against a live HTTPS endpoint — **partially DONE `632eaa7`**: `docs/evidence/2026-08-14-native-runtime.md` records `status=200` over TLSv1_3 with 4 peer certs, but on a **Java 21** JVM. The Java 6 half is still open | `docs/evidence/` | — | M |
-| VER-05 | Native-load smoke test per platform — **windows-x86_64 DONE `632eaa7`** (`NativeLoadSmokeTest`); linux-x86_64 and linux-aarch64 natives are cross-compiled but never loaded (deferred: Windows first) | `java/src/test/java/com/modernlink/` | VER-03 | M |
+| ~~VER-07~~ | ~~Put `hacks/java6-messaging/` into a build path~~ — **DONE `76a17f0`**: `docker/java6/Dockerfile` compiles the fixtures into a separate `build/fixtures` tree and `test.yml` runs `LegacyJmsJmxDemo`; green on run 31782837766 | `docker/java6/Dockerfile`, `hacks/java6-messaging/` | — | S |
+| VER-02 | Broker-backed send/receive/ack per provider (closes I-010) — **partially DONE `a2419b5`**: NATS core, JetStream and RabbitMQ pass against live brokers (2026-08-14, Codex-verified). The file is tracked, but all three tests are `#[ignore]`d so **no CI run executes them**; **Kafka and Pulsar remain untested**, and only the happy path is covered | `crates/messaging/tests/` | VER-01 | L |
+| ~~VER-03~~ | ~~Run all ten Java test classes in CI, not the current three~~ — **DONE `dd080b2`**: the workflow enumerates all **13**, and all 13 ran green on runs 31781200582 and 31782837766 | `.github/workflows/test.yml` | — | S |
+| ~~VER-04~~ | ~~Record a real **Java 6** run of the packaged JAR against a live HTTPS endpoint~~ — **DONE**: run 31781200582 executed the packaged JAR on JVM `1.6.0_38` (`Linux/amd64`) reaching `tls-protocol=TLSv1_3`. The earlier local record (`docs/evidence/2026-08-14-native-runtime.md`, `status=200`, 4 peer certs) used JVM 21 and covered the JNI boundary only | `docs/evidence/` | — | M |
+| VER-05 | Native-load smoke test per platform — **windows-x86_64 DONE `632eaa7`** (`NativeLoadSmokeTest`, local JVM 21) and **linux-x86_64 DONE** (`native-smoke-load=ok` on JVM 1.6.0_38, run 31781200582). **linux-aarch64 has never been loaded on any JVM** — the only platform left | `java/src/test/java/com/modernlink/` | VER-03 | M |
 | VER-06 | Self-hosted or vendored Java 6 base image so the JAR build stops depending on a deprecated tag (I-004) | `docker/java6/` | — | M |
 
 ## Domain: message domain (BACKLOG M1)
@@ -89,8 +89,8 @@ Task IDs are referenced from [ROADMAP.md](ROADMAP.md) and [MILESTONES.md](MILEST
 
 Dependency-respecting, cheapest-unblocking-first:
 
-1. **SC-01** — one line per manifest, closes a live hard-rule violation.
-2. **DOC-01, SC-02, SC-03, SC-04, VER-03** — small, independent, and SC-04/VER-03 make every later change safer.
+1. ~~**SC-01**~~, ~~**DOC-01**~~, ~~**SC-04**~~, ~~**VER-03**~~, ~~**VER-07**~~, ~~**VER-08**~~, ~~**SC-08**~~, ~~**MSG-06**~~ — all landed; see the rows above.
+2. **SC-02, SC-03** — the cheapest remaining items: pin the toolchain, declare the MSRV. **SC-07** next, so a broker-free run stops building a native Kafka client.
 3. **JMS-01** — blocks the entire JMS domain and is research, not code.
 4. **VER-01 → VER-02** — turns the messaging code from claim into evidence. Highest value in the list.
 5. **MSG-01 → MSG-02/03/04** — pins the domain the adapters share.

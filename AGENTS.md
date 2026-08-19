@@ -1,5 +1,5 @@
 # AGENTS.md — ModernLink
-<!-- rev:004 (RFC 3339) 2026-08-14T08:05:00Z -->
+<!-- rev:005 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Canonical cross-tool agent instructions for the ModernLink repo (read by Claude Code,
 Codex, Cursor, Gemini, etc. — Claude Code imports this from `CLAUDE.md`). Must-know
@@ -72,24 +72,23 @@ Maven or Gradle build** — `javac` runs inside `docker/java6/Dockerfile`, which
 supported way to compile and package the facade.
 
 **All four gates passed in CI** on run
-[31781200582](https://github.com/inovacc/modernlink/actions/runs/31781200582) (2026-08-14), which
-also resolved [docs/BUGS.md](docs/BUGS.md) B-001 — the Rust job reached its test step instead of
-dying in the `rdkafka-sys` build.
+[31782837766](https://github.com/inovacc/modernlink/actions/runs/31782837766) (2026-08-14), which
+ran against `d2479bd` — the current tip of `main`. The earlier run
+[31781200582](https://github.com/inovacc/modernlink/actions/runs/31781200582) the same day
+resolved [docs/BUGS.md](docs/BUGS.md) B-001: the Rust job now reaches its test step instead of
+dying in the `rdkafka-sys` build. Both jobs in the workflow succeed.
 
-Caveat worth knowing before you trust the format gate: `cargo fmt --all -- --check` **fails
-locally** on three spots in `crates/messaging/tests/broker_backed.rs`. CI is green only because
-that file is still untracked, so the gate cannot see it. Run `cargo fmt --all` before committing it.
-
-> **The Rust CI gate is currently RED and has been for five consecutive pushes.** The
-> `Rust workspace` job dies building `rdkafka-sys` on a missing `curl/curl.h` and never reaches
-> the tests — see [docs/BUGS.md](docs/BUGS.md) B-001. Do not cite CI as evidence that
-> `cargo test --workspace` passes until that is fixed; run it locally and report the real
-> result instead. The `Java 6 JAR integration` job in the same workflow does pass.
+**Read that green gate precisely — it is narrower than it looks.** `cargo test --workspace`
+runs 20 tests and **skips 3 `#[ignore]`d ones**, and those three are exactly the broker-backed
+tests (`crates/messaging/tests/broker_backed.rs:117,132,149`). A green CI run therefore asserts
+**nothing** about any real broker. The only broker evidence that exists is a hand-run against
+local containers on one machine, for NATS, JetStream and RabbitMQ only — see the "Verification
+reach" section of [docs/BUGS.md](docs/BUGS.md).
 
 The native libraries are cross-compiled with `cargo-zigbuild` for three targets inside that
 same Dockerfile; `crates/messaging` needs `cmake`, `libcurl`, and `protobuf-compiler` present
-(rdkafka and pulsar build native code), so a bare host may not build the workspace — and
-neither does the CI runner today, which is exactly B-001.
+(rdkafka and pulsar build native code), so a bare host may not build the workspace. The CI job
+installs those packages as of `dd080b2`.
 
 ## Code style
 
@@ -109,7 +108,9 @@ neither does the CI runner today, which is exactly B-001.
   the workflow enumerates and runs all of them; add new ones the same way and wire them into
   `.github/workflows/test.yml`, because a class the workflow does not name never runs.
 - The fixtures under `hacks/` are deterministic contract probes. They are **not** evidence of
-  broker-backed behavior — real broker integration remains unproven.
+  broker-backed behavior. The only broker-backed evidence is
+  `crates/messaging/tests/broker_backed.rs`, it covers NATS, JetStream and RabbitMQ only, it is
+  `#[ignore]`d so no CI run executes it, and it exercises one happy-path round trip.
 
 ## Security
 

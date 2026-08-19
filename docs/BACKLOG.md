@@ -1,5 +1,5 @@
 # ModernLink Messaging Compatibility Backlog
-<!-- rev:004 (RFC 3339) 2026-08-14T07:27:46Z -->
+<!-- rev:005 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 ## Objective
 
@@ -260,11 +260,18 @@ None of the six manifests blocks publication, and the crate names (`core`, `http
 _Evidence:_ no `publish` key in `crates/{core,http,tls,jni,messaging}/Cargo.toml` or
 `hacks/messaging-demo/Cargo.toml`. See ISSUES I-012.
 
-### P1 — no broker-backed evidence for any messaging transport (VER-01, VER-02)
+### P1 — broker-backed evidence is partial and not reproducible (VER-01, VER-02)
 
-Kafka, Pulsar, NATS, JetStream, and RabbitMQ transports exist and are selectable, but nothing
-has ever exercised them against a broker. Durability, acknowledgement, reconnect, ordering,
-and failure semantics are source-level claims. This is the single largest gap in the project.
+**Narrowed 2026-08-14 by `a2419b5`.** `crates/messaging/tests/broker_backed.rs` now runs one
+send/receive/ack round trip against live **NATS core, NATS JetStream and RabbitMQ**. What
+remains open, and why this is still P1 and still the largest gap:
+
+- **Kafka and Pulsar have no broker-backed test at all.**
+- All three existing tests are `#[ignore]`d (`:117`, `:132`, `:149`), so **no CI run executes
+  them** — the evidence is one operator's manual run against local containers (VER-01).
+- Only the happy path is covered. Durability, acknowledgement under failure, reconnect,
+  ordering, concurrency and redelivery remain source-level claims for **every** provider.
+
 See ISSUES I-010.
 
 ### P2 — coverage cannot be measured (SC-04)
@@ -274,9 +281,13 @@ See ISSUES I-010.
 this repo. Running llvm-cov inside the Linux container is the likely fix. The Java facade has no
 coverage tooling at all, since there is no Maven or Gradle build.
 
-### P2 — CI does not enforce formatting or lint (SC-04)
+### ~~P2 — CI does not enforce formatting or lint (SC-04)~~ — **DONE `dd080b2`**
 
-`.github/workflows/test.yml` runs only `cargo test --workspace` and `cargo check -p jni@0.1.0`.
+`.github/workflows/test.yml` now runs `cargo fmt --all -- --check` and
+`cargo clippy --workspace --all-targets -- -D warnings` alongside test and check; all four
+passed on run
+[31782837766](https://github.com/inovacc/modernlink/actions/runs/31782837766) at `d2479bd`.
+Original text and correction history retained below.
 
 **Correction history (2026-08-14).** An earlier revision claimed both commands "pass today"
 while the same file recorded an `unreachable_patterns` warning that `-D warnings` would promote
@@ -285,30 +296,33 @@ clippy reported **six** findings, including two `MutexGuard`s held across an `.a
 Pulsar transport (a real deadlock risk), all fixed in `242cb3c`. The gates were added to CI in
 `dd080b2`.
 
-**Current state:** `cargo clippy --workspace --all-targets -- -D warnings` → exit 0 and
-`cargo check -p jni@0.1.0` → exit 0 (2026-08-14, **self-verified same-model** — Codex could not
-run them: its sandbox hit a persistent `.cargo-build-lock` permission fault, and its clippy
-invocation dropped the `--` separator). `cargo fmt --all -- --check` → **exit 1**, three diffs in
-the untracked `crates/messaging/tests/broker_backed.rs` (lines 75, 85, 143) — confirmed
-independently by Codex and locally. Expect the format gate to be red on its first real run.
+**Current state (2026-08-19):** all four gates ran and passed on the runner —
+`test`, `check`, `fmt` and `clippy`, run
+[31782837766](https://github.com/inovacc/modernlink/actions/runs/31782837766) at `d2479bd`. The
+earlier `fmt` failure on `crates/messaging/tests/broker_backed.rs` was fixed before that file was
+committed in `a2419b5`; `cargo fmt --all -- --check` → **exit 0**, verified independently by
+Codex on 2026-08-19.
 
 ### ~~P2 — seven of ten Java test classes never run (VER-03)~~ — **DONE `dd080b2`**
 
 The workflow now enumerates all **13** classes (the count grew from ten: VER-05 added the native
-smoke test, VER-08 added two messaging tests). Configured but never executed — the commit is
-unpushed. Original text retained below for history.
+smoke test, VER-08 added two messaging tests), and all 13 executed and passed on runs
+31781200582 and 31782837766. Original text retained below for history.
 
 
 CI executes `LegacyHttpResponseStructuredTest`, `ModernHttpsURLConnectionTest`, and
 `LegacyHttpsTest`. The other seven under `java/src/test/java/com/modernlink/` are compiled into
 the JAR but never invoked — a test the workflow does not call never runs.
 
-### P2 — unreachable match arm in the JNI provider dispatch
+### ~~P2 — unreachable match arm in the JNI provider dispatch~~ — **CLOSED**
 
-`cargo check` reports `unreachable_patterns` at `crates/jni/src/lib.rs:264`: the `_ =>` fallback
-is dead because the `Provider` arms above it are already exhaustive. Either the fallback is
-redundant and should go, or an intended provider is missing from the match — worth reading
-before deleting.
+`cargo clippy --workspace --all-targets -- -D warnings` passes on the runner (run
+31782837766), which it could not do while an `unreachable_patterns` warning existed. The `_ =>`
+arm now surviving at `crates/jni/src/lib.rs:265-268` is a *payload* fallback, not a provider one,
+and it is reachable: it rejects every non-text `Payload` variant. Original text below.
+
+_`cargo check` reports `unreachable_patterns` at `crates/jni/src/lib.rs:264`: the `_ =>` fallback
+is dead because the `Provider` arms above it are already exhaustive._
 
 ### P3 — no toolchain pin or declared MSRV (SC-02, SC-03)
 

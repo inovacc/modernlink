@@ -1,12 +1,14 @@
 # Milestones
-<!-- rev:004 (RFC 3339) 2026-08-14T08:05:00Z -->
+<!-- rev:005 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Version milestones for ModernLink. **No git tags exist yet** — nothing has been released, so
 every version below is a target, not a shipped artifact. Phases are detailed in
 [ROADMAP.md](ROADMAP.md); tasks in [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md).
 
-Throughout: "done" means the code exists **and** evidence exists. Phase 0-2 code exists today
-with no runtime evidence, which is why v0.1.0 is not yet reachable.
+Throughout: "done" means the code exists **and** evidence exists. Phase 0-1 now have runtime
+evidence on a real Java 6 JVM; Phase 2 has one hand-run round trip for three of five providers
+and nothing reproducible in CI. v0.1.0 is close but not reached — a toolchain pin, a declared
+MSRV and any coverage number are still missing.
 
 ## v0.1.0 — Provable native boundary `[IN PROGRESS]`
 
@@ -24,7 +26,8 @@ just implemented.
       which resolved [BUGS.md](BUGS.md) B-001.
 - [x] `publish = false` on all six manifests — **SC-01**, `315fe87`
 - [ ] Toolchain pin and declared MSRV — **SC-02**, **SC-03**
-- [x] `fmt` + `clippy` enforced in CI — **SC-04**, `dd080b2` (configured, never run)
+- [x] `fmt` + `clippy` enforced in CI — **SC-04**, `dd080b2`; both ran and passed on run
+      [31782837766](https://github.com/inovacc/modernlink/actions/runs/31782837766) at `d2479bd`
 - [x] All **13** Java test classes running in CI — **VER-03**, `dd080b2`; all 13 executed and
       passed on run 31781200582.
 - [x] A recorded **Java 6** run against a live HTTPS endpoint — **VER-04**. Run 31781200582
@@ -45,8 +48,8 @@ just implemented.
 Converts Phase 2 from claim to fact. This is the milestone that matters most: the transports are
 already written, so the entire value of this release is proof.
 
-- [ ] Broker fixtures in CI for NATS, Kafka, Pulsar, RabbitMQ — **VER-01** (local docker only
-      so far, nothing in CI)
+- [ ] Broker fixtures in CI for NATS, Kafka, Pulsar, RabbitMQ — **VER-01**. Local docker only;
+      the tests are `#[ignore]`d, so no CI run has ever executed one
 - [~] Broker-backed send / receive / acknowledge test per provider — **VER-02**. NATS core,
       JetStream and RabbitMQ pass (2026-08-14, verified by Codex); **Kafka and Pulsar have none**,
       and only the happy path is covered.

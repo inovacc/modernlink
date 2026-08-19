@@ -1,5 +1,5 @@
 # Known Issues and Limitations
-<!-- rev:003 (RFC 3339) 2026-08-14T07:27:46Z -->
+<!-- rev:004 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Constraints accepted on purpose or imposed by the platform. Defects that should be fixed live
 in [BUGS.md](BUGS.md); future work lives in [BACKLOG.md](BACKLOG.md).
@@ -142,11 +142,11 @@ accidental publish attempt is also guaranteed to collide with existing crates.io
 a JMX metrics MBean" is not exercised by any build. The `java6-classes/` directory in that tree
 is stale local output, not build evidence.
 
-**Status:** a fix exists but is **UNCOMMITTED** — `docker/java6/Dockerfile` now compiles the
-fixtures into a separate `build/fixtures` tree (kept out of the distributable JAR) and
-`.github/workflows/test.yml` runs `LegacyJmsJmxDemo`. Both changes sit in the working tree only,
-so this issue is **not** closed and a `git clean` would reopen it. Tracked as **VER-07** in
-[IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md).
+**Status:** **resolved in `76a17f0`.** `docker/java6/Dockerfile` compiles the fixtures into a
+separate `build/fixtures` tree (kept out of the distributable JAR) and
+`.github/workflows/test.yml` runs `LegacyJmsJmxDemo` in transparent `LEGACY_JMS` mode. Both
+changes are committed and both ran green on run
+[31782837766](https://github.com/inovacc/modernlink/actions/runs/31782837766). Closes **VER-07**.
 
 ### I-014 — the project's ambition tier is contradictory across documents
 
@@ -161,8 +161,9 @@ stricter (production) reading.
 
 ## Verification status
 
-No claim in this repository has been validated against the real Java 6 runtime, the target
-platforms, or real services. The README states this explicitly, and it remains true.
+The Java 6 *runtime* is now exercised; the **vendor host product** is not, and neither is its
+JMS implementation (I-009, I-011). That distinction is the whole of this section — do not
+collapse the two.
 
 **Documented reach of the test suites**, so this is not mistaken for coverage:
 - The 20 Rust tests in the default `cargo test --workspace` run exercise `InMemoryTransport`
@@ -171,4 +172,9 @@ platforms, or real services. The README states this explicitly, and it remains t
 - **13** Java test classes now exist and two of them cover messaging
   (`LegacyJmsMessagingTest`, `RoutingPolicyTest`), closing **VER-08**. Both use the in-process
   `LEGACY_JMS` transport, so they exercise the facade and the JNI boundary, not a broker.
-- The Rust CI gate has never executed — the fixing commit is unpushed ([BUGS.md](BUGS.md) B-001).
+- The Rust CI gate executes and passes: run
+  [31782837766](https://github.com/inovacc/modernlink/actions/runs/31782837766) at `d2479bd` ran
+  `test`, `check`, `fmt` and `clippy` green ([BUGS.md](BUGS.md) B-001 resolved). It proves those
+  four commands exit 0 on ubuntu — it does not reach a broker, because the three broker-backed
+  tests are `#[ignore]`d.
+- **No run against the vendor host product** has ever been recorded.

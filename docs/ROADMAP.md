@@ -1,14 +1,16 @@
 # Roadmap
-<!-- rev:004 (RFC 3339) 2026-08-14T08:05:00Z -->
+<!-- rev:005 (RFC 3339) 2026-08-19T00:00:00Z -->
 
-Status at HEAD `ad4bd2f` on `main` (**8 commits unpushed**). Phases follow the M1/M2 structure in
-[BACKLOG.md](BACKLOG.md); tasks are broken out in
+Status at HEAD `d2479bd` on `main` (pushed; in sync with `origin/main`). Phases follow the M1/M2
+structure in [BACKLOG.md](BACKLOG.md); tasks are broken out in
 [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md).
 
 **Read the qualifier first:** `[x]` here means *the code exists and compiles*. It does **not**
-mean the behavior was validated against the Java 6 host product, the target platforms, or a real
-broker. No such validation has been recorded — see [ISSUES.md](ISSUES.md) I-010. `[~]` means
-partially delivered, with the gap named inline.
+mean the behavior was validated against the Java 6 host product or the vendor's own JMS
+implementation — that has never been recorded, see [ISSUES.md](ISSUES.md) I-009/I-011. The Java 6
+*runtime* and two of three platforms **are** now exercised, and three of five brokers have one
+recorded round trip; the reach of each is stated inline. `[~]` means partially delivered, with
+the gap named.
 
 ## Definition of Done
 
@@ -79,7 +81,8 @@ until then this file is written against the production bar because that is the s
       NATS JetStream and RabbitMQ** (`crates/messaging/tests/broker_backed.rs`, all three passed
       2026-08-14, verified by Codex). **Kafka and Pulsar still have none.** One happy-path round
       trip only — durability, reconnect, ordering, concurrency and failure semantics remain
-      unexercised for every provider. The test file is currently **untracked**.
+      unexercised for every provider. The test file landed in `a2419b5`; all three tests are
+      `#[ignore]`d, so **no CI run executes them** — the evidence is a manual run only.
 - [ ] Per-adapter guarantee declarations — **MSG-04**, **DOC-03**
 - [ ] Payload categories beyond text (map, stream, bytes, object) — **MSG-05**
 
@@ -120,9 +123,8 @@ until then this file is written against the production bar because that is the s
 - [x] Crate-level `//!` docs on all five crates
 - [x] `publish = false` on all six manifests — **SC-01**, `315fe87`
 - [ ] Toolchain pin + declared MSRV — **SC-02**, **SC-03**
-- [x] `fmt` and `clippy` enforced in CI — **SC-04**, `dd080b2` (configured; the workflow has
-      never run — see B-001. `fmt --check` currently fails on the untracked
-      `crates/messaging/tests/broker_backed.rs`)
+- [x] `fmt` and `clippy` enforced in CI — **SC-04**, `dd080b2`; both executed and passed on run
+      [31782837766](https://github.com/inovacc/modernlink/actions/runs/31782837766) at `d2479bd`
 - [x] All **13** Java test classes enumerated in CI — **VER-03**, `dd080b2` (was three of ten;
       the count changed because VER-08 added two messaging tests and VER-05 added the native
       smoke test)
@@ -160,6 +162,7 @@ Wiring a coverage measurement that works is tracked as **SC-04** / P2 in
 | 3 — M1 compatibility scope | not started |
 | 4 — M2 routing and migration | not started |
 
-Roughly **two of five phases** are code-complete and none is validated. The single highest-value
-next step is **VER-01 → VER-02**: broker fixtures in CI, which convert Phase 2 from a set of
-claims into evidence. The cheapest is **SC-01**, one line in six manifests.
+Roughly **two of five phases** are code-complete; none is validated against the vendor product.
+The single highest-value next step is **VER-01 → VER-02**: broker fixtures in CI, which convert
+Phase 2 from a manual one-machine run into reproducible evidence. The cheapest remaining items
+are **SC-02** and **SC-03** — a toolchain pin and a declared MSRV.
