@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:015 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:016 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Status at HEAD `d2479bd` on `main` (pushed; in sync with `origin/main`). Phases follow the M1/M2
 structure in [BACKLOG.md](BACKLOG.md); tasks are broken out in
@@ -191,7 +191,13 @@ whole 0.08pp difference. The figure above is the captured baseline
    are close to untested — which is **VER-01/VER-02** restated as a measurement.
 
 The Java facade has **no coverage tooling at all**; there is no Maven or Gradle build, so no
-JaCoCo. Coverage is measured but **not gated** in CI — no threshold is enforced on any push.
+JaCoCo — see [ISSUES.md](ISSUES.md) I-003, which now records what that does to these numbers.
+Short version: the workspace figure describes the **Rust half only**, `crates/jni` is
+understated because the Java tests that drive it are invisible to llvm-cov, and the 15 Java
+classes are themselves entirely unmeasured.
+
+Coverage is measured but **not gated** in CI — no threshold is enforced on any push, and
+`crates/http` should not get one until it has a test seam (see [BACKLOG.md](BACKLOG.md)).
 
 Other verification facts:
 - `cargo test --workspace` now runs and passes in CI on ubuntu-latest (run 31781200582), plus

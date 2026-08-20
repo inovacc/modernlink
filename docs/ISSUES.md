@@ -1,5 +1,5 @@
 # Known Issues and Limitations
-<!-- rev:006 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:007 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Constraints accepted on purpose or imposed by the platform. Defects that should be fixed live
 in [BUGS.md](BUGS.md); future work lives in [BACKLOG.md](BACKLOG.md).
@@ -43,6 +43,24 @@ way to build or test the Java side without Docker, and no IDE project model.
 
 **Status:** deliberate for now — it guarantees the Java 6 compiler is the one that judges the
 facade. It also means Java changes are invisible to `cargo test`.
+
+**The measurement consequence (H-13), stated so the numbers are not misread.** No Maven or
+Gradle means no JaCoCo, so **there is no coverage measurement for `java/src` at all** — not a
+low number, no number. Two things follow, and both are easy to get wrong:
+
+1. **`crates/jni` reads 14.24% and is the most-exercised surface in the project.** Its 28
+   `Java_*` entry points are driven by the 15 Java test classes running against the packaged
+   JAR, which `cargo llvm-cov` cannot observe. The figure counts only what Rust tests reach.
+   Treating it as "the JNI boundary is barely tested" is exactly backwards.
+2. **The 15 Java classes are themselves unmeasured.** Nothing reports which facade branches
+   they miss, so "15 test classes pass" says they pass, not that they cover anything in
+   particular.
+
+Closing this needs a Java build system, which is what this issue is about. Until then the
+workspace coverage figure describes the Rust half only, and any statement about
+facade coverage is an opinion. **Two of the 15 classes have never been compiled or run at
+all** — `ProviderGuaranteesTest` and `PayloadCategoriesTest` were added after the last CI
+run.
 
 ### I-004 — the `java:6b38-jdk` base image is deprecated
 
