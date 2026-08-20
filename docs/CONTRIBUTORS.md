@@ -1,5 +1,5 @@
 # Contributors and Contributing Guide
-<!-- rev:003 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:004 (RFC 3339) 2026-08-20T00:00:00Z -->
 
 ## Maintainers
 
@@ -43,6 +43,25 @@ C via cmake, and `--features pulsar` needs protoc. Install `cmake`, `libcurl` an
 ever reached a real broker, and two of the five have never executed anywhere. What has and has
 not actually run is tracked in [BUGS.md](BUGS.md) under "Verification reach" — read it before
 describing this project as tested.
+
+## Checking the Java facade without Docker
+
+Docker is required to compile at `-source 1.6` and to run anything, but **type errors do not
+need it**:
+
+```bash
+find java/src/main/java -name '*.java' > /tmp/main.txt
+javac -source 8 -target 8 -nowarn -Xlint:-options -d /tmp/classes @/tmp/main.txt
+find java/src/test/java -name '*.java' > /tmp/test.txt
+javac -source 8 -target 8 -nowarn -Xlint:-options -cp /tmp/classes -d /tmp/classes @/tmp/test.txt
+```
+
+Java 6 syntax is a subset of 8, so anything that compiles at `-source 1.6` compiles here. The
+reverse is **not** true — this accepts lambdas and diamonds the real build rejects — so it is a
+fast pre-check, not a substitute for the Docker build.
+
+Worth doing: a `ModernPayload` change reached `main` without it and broke the CI JAR build with
+five `unreported exception` errors this catches in seconds.
 
 ## Commands
 
