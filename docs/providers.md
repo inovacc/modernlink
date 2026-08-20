@@ -1,5 +1,5 @@
 # Per-provider guarantees
-<!-- rev:003 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:004 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 **DOC-03**, and the documentation half of **MSG-04**. What each provider adapter in
 `crates/messaging` actually offers, so a capability gap is visible *before* traffic moves
@@ -91,6 +91,33 @@ queue *looks* durable is precisely how a guarantee table starts lying. Tracked a
 
 Server-side and CLIENT acknowledgement are VERIFIED: `rabbitmq_send_receive_ack` exercises
 the `BasicAck` path against a live broker.
+
+## `receive()` blocks on four of six providers
+
+The signature — `Result<Option<ReceivedMessage>>` in Rust, a nullable return in Java —
+promises *"there may be no message"*. **That promise holds for two providers.**
+
+| Provider | `receive()` when nothing is waiting |
+|---|---|
+| LEGACY_JMS | returns promptly with no message |
+| RABBITMQ | returns promptly with no message (`basic_get` is a poll) |
+| NATS | **blocks until a message arrives** |
+| NATS_JETSTREAM | **blocks until a message arrives** |
+| KAFKA | **blocks until a message arrives** |
+| PULSAR | **blocks until a message arrives** |
+
+For the four blocking providers `Ok(None)` is unreachable and the call simply never returns.
+There is no timeout and no way to cancel, and it runs inside a JNI call the legacy
+application cannot interrupt.
+
+A JMS application polling for work expects `receiveNoWait()` semantics — call, get null, do
+something else. Written against a blocking provider, that loop hangs on the first empty poll.
+
+Query it before writing such a loop:
+`ModernMessagingClient.guaranteesFor(provider).getReceiveSemantics().isSafeForPolling()`.
+
+Making the behaviour *consistent* is a change to delivery semantics and is the maintainer's
+call — tracked as [BUGS.md](BUGS.md) **B-010**. This section documents what is true today.
 
 ## Transactions and dead-lettering: nothing, everywhere
 

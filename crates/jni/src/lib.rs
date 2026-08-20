@@ -931,8 +931,8 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
 /// provider honour what we need?" *before* it moves traffic, which is precisely when no
 /// connection exists yet.
 ///
-/// The frame is nine pipe-separated fields: the provider name followed by the eight
-/// guarantees in declaration order. It carries capability metadata only — no endpoint,
+/// The frame is ten pipe-separated fields: the provider name, the eight guarantees in
+/// declaration order, and the receive semantics (H-16). It carries capability metadata only — no endpoint,
 /// no credential, no payload — so it is safe to log and safe for a JMX attribute.
 #[no_mangle]
 pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativeProviderGuarantees(
@@ -951,7 +951,7 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
         };
         let guarantees = provider.guarantees();
         let frame = format!(
-            "{}|{}|{}|{}|{}|{}|{}|{}|{}",
+            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
             messaging_provider_name(provider),
             guarantees.persistence.as_str(),
             guarantees.ordering.as_str(),
@@ -960,7 +960,8 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
             guarantees.transactions.as_str(),
             guarantees.redelivery.as_str(),
             guarantees.dead_lettering.as_str(),
-            guarantees.replay.as_str()
+            guarantees.replay.as_str(),
+            guarantees.receive_semantics.as_str()
         );
         match env.new_string(frame) {
             Ok(value) => value.into_raw(),

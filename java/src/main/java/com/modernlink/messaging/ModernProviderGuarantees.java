@@ -23,12 +23,14 @@ public final class ModernProviderGuarantees {
     private final ModernGuaranteeSupport redelivery;
     private final ModernGuaranteeSupport deadLettering;
     private final ModernGuaranteeSupport replay;
+    private final ModernReceiveSemantics receiveSemantics;
 
     private ModernProviderGuarantees(ModernMessagingProvider provider,
         ModernGuaranteeSupport persistence, ModernGuaranteeSupport ordering,
         ModernGuaranteeSupport serverSideAcknowledgement, ModernGuaranteeSupport clientAcknowledgement,
         ModernGuaranteeSupport transactions, ModernGuaranteeSupport redelivery,
-        ModernGuaranteeSupport deadLettering, ModernGuaranteeSupport replay) {
+        ModernGuaranteeSupport deadLettering, ModernGuaranteeSupport replay,
+        ModernReceiveSemantics receiveSemantics) {
         this.provider = provider;
         this.persistence = persistence;
         this.ordering = ordering;
@@ -38,6 +40,7 @@ public final class ModernProviderGuarantees {
         this.redelivery = redelivery;
         this.deadLettering = deadLettering;
         this.replay = replay;
+        this.receiveSemantics = receiveSemantics;
     }
 
     /** Decode the pipe-separated frame emitted by the native boundary. */
@@ -48,8 +51,8 @@ public final class ModernProviderGuarantees {
         // -1 keeps trailing empty fields, so a truncated frame is caught by the length
         // check below instead of being silently padded.
         String[] parts = frame.split("\\|", -1);
-        if (parts.length != 9) {
-            throw new IllegalArgumentException("guarantee frame must have 9 fields, got " + parts.length);
+        if (parts.length != 10) {
+            throw new IllegalArgumentException("guarantee frame must have 10 fields, got " + parts.length);
         }
         return new ModernProviderGuarantees(
             ModernMessagingProvider.valueOf(parts[0]),
@@ -60,7 +63,8 @@ public final class ModernProviderGuarantees {
             ModernGuaranteeSupport.decode(parts[5]),
             ModernGuaranteeSupport.decode(parts[6]),
             ModernGuaranteeSupport.decode(parts[7]),
-            ModernGuaranteeSupport.decode(parts[8]));
+            ModernGuaranteeSupport.decode(parts[8]),
+            ModernReceiveSemantics.decode(parts[9]));
     }
 
     public ModernMessagingProvider getProvider() {
@@ -111,6 +115,17 @@ public final class ModernProviderGuarantees {
     }
 
     /**
+     * What {@code receive()} does when no message is waiting (H-16).
+     *
+     * Check this before writing a polling loop. Four of six providers block indefinitely,
+     * through a JNI call the application cannot cancel, so a loop written against
+     * {@code receiveNoWait()} semantics will hang rather than return null.
+     */
+    public ModernReceiveSemantics getReceiveSemantics() {
+        return receiveSemantics;
+    }
+
+    /**
      * Whether this provider can honour the given acknowledgement mode.
      *
      * Callers should check this before moving traffic. A provider that cannot honour a
@@ -146,6 +161,7 @@ public final class ModernProviderGuarantees {
         builder.append(" redelivery=").append(redelivery.name());
         builder.append(" deadLettering=").append(deadLettering.name());
         builder.append(" replay=").append(replay.name());
+        builder.append(" receive=").append(receiveSemantics.name());
         return builder.toString();
     }
 }

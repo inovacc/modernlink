@@ -335,6 +335,33 @@ fn endpoint_requests_tls(endpoint: &str) -> bool {
     .any(|prefix| lower.starts_with(prefix))
 }
 
+/// What `MessageTransport::receive` does when no message is waiting (H-16, B-010).
+///
+/// The signature says `Result<Option<ReceivedMessage>, _>`, which promises "there may be no
+/// message". That promise holds for two of six providers. The other four block until one
+/// arrives, so their `Ok(None)` is unreachable and the call simply never returns.
+///
+/// This matters more than it looks. A legacy JMS application polling for work expects
+/// `receiveNoWait()` semantics — call, get null, do something else. On a blocking provider
+/// that call never comes back, through a JNI boundary the application cannot cancel. It is
+/// exactly the kind of capability gap MSG-04 exists to make visible before traffic moves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ReceiveSemantics {
+    /// Returns `Ok(None)` promptly when nothing is waiting.
+    NonBlocking,
+    /// Blocks until a message arrives. **There is no timeout and no way to cancel.**
+    BlocksIndefinitely,
+}
+
+impl ReceiveSemantics {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ReceiveSemantics::NonBlocking => "NON_BLOCKING",
+            ReceiveSemantics::BlocksIndefinitely => "BLOCKS_INDEFINITELY",
+        }
+    }
+}
+
 /// How well a guarantee is backed, for one provider.
 ///
 /// MSG-04 exists so a capability gap is **queryable before traffic moves**, and a gap is
@@ -394,6 +421,8 @@ pub struct ProviderGuarantees {
     pub dead_lettering: Support,
     /// Already-consumed messages can be re-read.
     pub replay: Support,
+    /// What `receive` does when nothing is waiting -- H-16.
+    pub receive_semantics: ReceiveSemantics,
 }
 
 impl ProviderGuarantees {
@@ -460,6 +489,7 @@ impl Provider {
                 redelivery: Unsupported,
                 dead_lettering: Unsupported,
                 replay: Unsupported,
+                receive_semantics: ReceiveSemantics::NonBlocking,
             },
             // Core NATS is fire-and-forget pub/sub. There is no broker-side state, so an
             // unacknowledged message is simply gone. `acknowledge` returns Acknowledged
@@ -474,6 +504,7 @@ impl Provider {
                 redelivery: Unsupported,
                 dead_lettering: Unsupported,
                 replay: Unsupported,
+                receive_semantics: ReceiveSemantics::BlocksIndefinitely,
             },
             // JetStream keeps a stream and a durable pull consumer with
             // AckPolicy::Explicit, so acknowledgement is genuinely server-side.
@@ -487,6 +518,7 @@ impl Provider {
                 redelivery: Declared,
                 dead_lettering: Unsupported,
                 replay: Declared,
+                receive_semantics: ReceiveSemantics::BlocksIndefinitely,
             },
             // Kafka commits offsets with CommitMode::Sync. Ordering holds per partition,
             // not per topic -- this transport does not choose partitions, so ordering is
@@ -501,6 +533,7 @@ impl Provider {
                 redelivery: Declared,
                 dead_lettering: Unsupported,
                 replay: Declared,
+                receive_semantics: ReceiveSemantics::BlocksIndefinitely,
             },
             Provider::Pulsar => ProviderGuarantees {
                 provider: self,
@@ -512,6 +545,7 @@ impl Provider {
                 redelivery: Declared,
                 dead_lettering: Unsupported,
                 replay: Declared,
+                receive_semantics: ReceiveSemantics::BlocksIndefinitely,
             },
             // The queue is declared durable, but the publisher sends
             // BasicProperties::default(), which is delivery_mode 1 (transient). A durable
@@ -529,6 +563,7 @@ impl Provider {
                 redelivery: Declared,
                 dead_lettering: Unsupported,
                 replay: Unsupported,
+                receive_semantics: ReceiveSemantics::NonBlocking,
             },
         }
     }
@@ -1969,8 +2004,8 @@ impl RouteConfig {
 mod tests {
     use super::{
         AcknowledgementMode, DeliveryMode, DeliveryState, DomainError, InMemoryTransport,
-        MessageEnvelope, MessageTransport, Mode, Payload, Provider, RouteConfig, RouteRule,
-        Support,
+        MessageEnvelope, MessageTransport, Mode, Payload, Provider, ReceiveSemantics, RouteConfig,
+        RouteRule, Support,
     };
 
     fn message() -> MessageEnvelope {
@@ -2673,6 +2708,60 @@ mod tests {
         assert!(
             text.contains("refused rather than made in plaintext"),
             "must state that no plaintext fallback happened: {text}"
+        );
+    }
+
+    // ---- H-16 / B-010: receive() blocking semantics must be queryable ----
+
+    /// The finding, pinned. The signature promises `Option`, i.e. "there may be no message".
+    /// That promise holds for two of six providers; for the other four `Ok(None)` is
+    /// unreachable and the call never returns. A caller must be able to find that out
+    /// without discovering it as a hang in production.
+    #[test]
+    fn receive_semantics_are_declared_for_every_provider() {
+        use ReceiveSemantics::{BlocksIndefinitely, NonBlocking};
+        let expected = [
+            (Provider::LegacyJms, NonBlocking),
+            (Provider::RabbitMq, NonBlocking),
+            (Provider::Nats, BlocksIndefinitely),
+            (Provider::NatsJetStream, BlocksIndefinitely),
+            (Provider::Kafka, BlocksIndefinitely),
+            (Provider::Pulsar, BlocksIndefinitely),
+        ];
+        for (provider, semantics) in expected {
+            assert_eq!(
+                provider.guarantees().receive_semantics,
+                semantics,
+                "{provider:?} declares the wrong receive semantics - see docs/BUGS.md B-010"
+            );
+        }
+    }
+
+    /// LEGACY_JMS is the transparent-mode fixture the Java 6 tests drive, and its
+    /// non-blocking behaviour is observable here rather than merely declared.
+    #[test]
+    fn the_in_process_transport_really_does_return_none_when_empty() {
+        let transport = InMemoryTransport::new(Provider::LegacyJms);
+        assert!(
+            transport
+                .receive()
+                .expect("receive must not fail")
+                .is_none(),
+            "LEGACY_JMS must return Ok(None) on an empty queue, as its guarantee declares"
+        );
+        assert_eq!(
+            Provider::LegacyJms.guarantees().receive_semantics,
+            ReceiveSemantics::NonBlocking,
+            "the declaration must match the behaviour just observed"
+        );
+    }
+
+    #[test]
+    fn blocking_and_non_blocking_render_distinctly_for_the_java_boundary() {
+        assert_eq!(ReceiveSemantics::NonBlocking.as_str(), "NON_BLOCKING");
+        assert_eq!(
+            ReceiveSemantics::BlocksIndefinitely.as_str(),
+            "BLOCKS_INDEFINITELY"
         );
     }
 }

@@ -1,5 +1,5 @@
 # Bugs
-<!-- rev:016 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:017 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Behaviour that is **wrong and should be fixed**. Deliberate constraints belong in
 [ISSUES.md](ISSUES.md); planned work belongs in [BACKLOG.md](BACKLOG.md).
@@ -15,6 +15,7 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 | B-007 | medium | **resolved** | A contained panic can leave a transport permanently degraded while the client still looks open |
 | B-008 | medium | **open** | `NativeResponse` still uses a leaked `Box` address as its handle, dereferenced with only a null check |
 | B-009 | high | **open** | `async-nats 0.38` pulls `rustls-webpki 0.102.8` with 4 advisories, incl. two certificate-validation bypasses and a reachable panic |
+| B-010 | high | **open** | `receive()` returns `Ok(None)` on two providers and blocks forever on four, from the same API |
 
 ## Open
 
@@ -94,6 +95,41 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 - **Seen at commit:** `a32e1dd`.
 - **Regression test:** assert a URI containing `user:password@` never appears in the
   `Display` of the resulting error.
+
+### B-010 — `receive()` has two different meanings depending on the provider
+
+- **Severity:** high — a hang in a legacy application, through a JNI call it cannot cancel,
+  reached by writing the loop the API's own signature invites.
+- **Observed:** `MessageTransport::receive` returns `Result<Option<ReceivedMessage>>`, which
+  says "there may be no message". Two providers honour that. Four do not:
+
+  | Provider | when nothing is waiting |
+  |---|---|
+  | LEGACY_JMS | `Ok(None)` — `pop_front()` on an empty queue |
+  | RABBITMQ | `Ok(None)` — `basic_get` is a poll and has an explicit `else { return Ok(None) }` |
+  | NATS | blocks on `subscription.next()` |
+  | NATS_JETSTREAM | blocks on `stream.next()` |
+  | KAFKA | blocks on `consumer.recv()` |
+  | PULSAR | blocks on `consumer.next()` |
+
+  For the four, `Ok(None)` is unreachable — the call never returns rather than reporting
+  nothing. No timeout, no cancellation.
+- **Why it matters:** a JMS application polling for work expects `receiveNoWait()` — call,
+  get null, do something else. Against a blocking provider that loop hangs on its first empty
+  poll, and the legacy application cannot interrupt a JNI call. Switching provider, which
+  this layer exists to make easy, silently changes the meaning of the poll.
+- **Found by:** the `/project:harden` recheck after H-02 bounded the *connect* paths. H-02
+  deliberately scoped to connects; this is the same hazard on the hot path.
+- **Expected:** one meaning for one signature. Either every provider polls and reports
+  nothing, or the blocking ones take a timeout and the type says so.
+- **Not fixed, deliberately.** Both directions change delivery semantics on the default path
+  for four providers, and none of them can be verified here — Kafka and Pulsar have never
+  been executed at all. This is the same class of decision as B-003 and belongs to the
+  maintainer.
+- **Mitigated meanwhile:** the semantics are now *declared and queryable* before traffic
+  moves — `Provider::guarantees().receive_semantics`, and from Java 6
+  `getReceiveSemantics().isSafeForPolling()`. Documented in `docs/providers.md`.
+- **Seen at commit:** `b1a23fe`.
 
 ### B-009 — the NATS TLS path uses a rustls-webpki with four open advisories
 
