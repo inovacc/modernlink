@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:017 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:018 (RFC 3339) 2026-08-20T00:00:00Z -->
 
 Status at HEAD `d2479bd` on `main` (pushed; in sync with `origin/main`). Phases follow the M1/M2
 structure in [BACKLOG.md](BACKLOG.md); tasks are broken out in
@@ -42,10 +42,12 @@ until then this file is written against the production bar because that is the s
 - [x] Cross-compilation to linux-x86_64, linux-aarch64, windows-x86_64 via `cargo-zigbuild`
 - [x] SHA-256 content-addressed native extraction with cleanup on failure
 - [x] ADR recording embedded-JNI over sidecar ([adr/0001](adr/0001-jni-boundary-over-sidecar.md))
-- [~] Native-load smoke test per platform resource — **VER-05**. windows-x86_64 (local, JVM 21)
+- [x] Native-load smoke test per platform resource — **VER-05**. windows-x86_64 (local, JVM 21)
       and linux-x86_64 (CI, JVM 1.6.0_38) both load. A `linux-aarch64 native load` job now runs
       `NativeLoadSmokeTest` on an `ubuntu-24.04-arm` runner against the JAR built by the amd64
-      job, and asserts the platform line really reports `aarch64`. **That job has never run**
+      job, and asserts the platform line really reports `aarch64`. **It ran and passed** on CI
+      run [32386474212](https://github.com/inovacc/modernlink/actions/runs/32386474212), so
+      linux-aarch64 has now been loaded on a JVM. All three shipped natives are proven
 - [ ] Java 6 base image that is not deprecated — **VER-06**
 
 ## Phase 1 — HTTPS and TLS · `[COMPLETE — unvalidated]`
@@ -77,20 +79,22 @@ until then this file is written against the production bar because that is the s
       test fail, reverting made it pass.
 - [x] Read-only JMX metrics MBean, Java 6-compatible
 - [x] Contract fixtures under `hacks/` for publisher/consumer across providers
-- [~] **Broker fixtures in CI** — **VER-01**. A `Broker-backed messaging` job in
+- [x] **Broker fixtures in CI** — **VER-01**. A `Broker-backed messaging` job in
       `.github/workflows/test.yml` starts `nats:2.10 -js` and `rabbitmq:3.13`, waits on their
       logs, and runs the three `#[ignore]`d tests explicitly, asserting all three actually ran.
       **Kafka and Pulsar are not in it** — they have no broker-backed test (VER-02). **The job
-      has never executed**: a workflow edit cannot be verified locally, so this is implemented,
-      not proven.
-- [~] **Broker-backed send/receive/ack test per provider** — **VER-02**. A test now exists for
-      all five. **Proven for three**: NATS core, JetStream and RabbitMQ passed against live
-      brokers 2026-08-14 (`tests/broker_backed.rs`, Codex-verified). **Written but never executed
-      for two**: Kafka (`tests/broker_backed_kafka.rs`) and Pulsar
-      (`tests/broker_backed_pulsar.rs`) — a test nobody has run is not evidence. All five are
-      `#[ignore]`d and driven by dedicated CI jobs, neither of which has run yet. One happy-path
-      round trip only; durability, reconnect, ordering, concurrency and failure semantics remain
-      unexercised for **every** provider.
+      ran and passed** on run
+      [32386474212](https://github.com/inovacc/modernlink/actions/runs/32386474212): NATS,
+      JetStream and RabbitMQ against real brokers, in CI, reproducible by anyone. **VER-01 is
+      done** — it is no longer one operator's manual run.
+- [x] **Broker-backed send/receive/ack test per provider** — **VER-02**. **Proven for all five.**
+      NATS core, JetStream and RabbitMQ passed against live brokers on 2026-08-14
+      (`tests/broker_backed.rs`, Codex-verified); Kafka and Pulsar
+      (`tests/broker_backed_{kafka,pulsar}.rs`) had never executed anywhere until run
+      [32386474212](https://github.com/inovacc/modernlink/actions/runs/32386474212), where they
+      passed first time. All five are `#[ignore]`d and driven by dedicated CI jobs that execute
+      on every push. **One happy-path round trip only** — durability, reconnect, ordering,
+      concurrency and failure semantics remain unexercised for **every** provider.
 - [x] Per-adapter guarantee declarations — **MSG-04**, **DOC-03**. `Provider::guarantees()`
       returns a three-level table (VERIFIED / DECLARED / UNSUPPORTED) per provider, reachable
       from Java 6 via `ModernMessagingClient.guaranteesFor(...)` **without opening a
@@ -140,7 +144,7 @@ until then this file is written against the production bar because that is the s
 - [x] `publish = false` on all six manifests — **SC-01**, `315fe87`
 - [x] Toolchain pin + declared MSRV — **SC-02**, **SC-03**; `rust-toolchain.toml` pins
       `1.96.0` and `[workspace.package] rust-version = "1.96"` reaches all six crates. The
-      CI and Docker halves are **unproven until a run** — neither was executed for this change
+      CI and Docker halves **both ran green** on run 32386474212
 - [x] `fmt` and `clippy` enforced in CI — **SC-04**, `dd080b2`; both executed and passed on run
       [31782837766](https://github.com/inovacc/modernlink/actions/runs/31782837766) at `d2479bd`
 - [x] All **15** Java test classes enumerated in CI — **VER-03**, `dd080b2` (was three of ten;

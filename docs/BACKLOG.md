@@ -1,5 +1,5 @@
 # ModernLink Messaging Compatibility Backlog
-<!-- rev:019 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:020 (RFC 3339) 2026-08-20T00:00:00Z -->
 
 ## Objective
 
@@ -271,8 +271,9 @@ remains open, and why this is still P1 and still the largest gap:
   expected to need tuning on its first attempts.
 - The three existing tests are `#[ignore]`d (`:117`, `:132`, `:149`). A `Broker-backed
   messaging` CI job now runs them explicitly against `nats:2.10 -js` and `rabbitmq:3.13`, but
-  **that job has never executed** — until it does, the only evidence remains one operator's
-  manual run against local containers.
+  **that job ran green** on run
+  [32386474212](https://github.com/inovacc/modernlink/actions/runs/32386474212), so the
+  evidence is now reproducible in CI rather than one operator's manual run.
 - Only the happy path is covered. Durability, acknowledgement under failure, reconnect,
   ordering, concurrency and redelivery remain source-level claims for **every** provider.
 

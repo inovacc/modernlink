@@ -3,6 +3,11 @@
 /build/
 /crates/core/.git-generated-backup/
 /docs/.project/
+# Agent working notes: the original design spec and implementation plan. Local-only
+# scratch, not a project record - the delivered state lives in docs/ARCHITECTURE.md,
+# docs/ROADMAP.md and docs/adr/. Untracked in the same commit that added this line, so
+# the files remain on disk and in git history but leave the repository's HEAD.
+/docs/superpowers/
 /hacks/java6-messaging/classes/
 /hacks/java6-messaging/java6-classes/
 /hacks/java6-messaging/java8-classes/

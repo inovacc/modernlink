@@ -1,5 +1,5 @@
 # Contributors and Contributing Guide
-<!-- rev:004 (RFC 3339) 2026-08-20T00:00:00Z -->
+<!-- rev:005 (RFC 3339) 2026-08-20T00:00:00Z -->
 
 ## Maintainers
 
@@ -40,7 +40,7 @@ C via cmake, and `--features pulsar` needs protoc. Install `cmake`, `libcurl` an
 `protobuf-compiler` before using `--all-features` or building the distributable.
 
 **Read a green CI run precisely.** The broker-backed tests are `#[ignore]`d, so no CI run has
-ever reached a real broker, and two of the five have never executed anywhere. What has and has
+now run against real brokers in dedicated CI jobs — all five providers, run 32386474212. What has and has
 not actually run is tracked in [BUGS.md](BUGS.md) under "Verification reach" — read it before
 describing this project as tested.
 

@@ -1,5 +1,5 @@
 # AGENTS.md — ModernLink
-<!-- rev:013 (RFC 3339) 2026-08-20T00:00:00Z -->
+<!-- rev:014 (RFC 3339) 2026-08-20T00:00:00Z -->
 
 Canonical cross-tool agent instructions for the ModernLink repo (read by Claude Code,
 Codex, Cursor, Gemini, etc. — Claude Code imports this from `CLAUDE.md`). Must-know
@@ -79,14 +79,17 @@ alongside them as of SC-07. Coverage is still not gated. The Java side has **no
 Maven or Gradle build** — `javac` runs inside `docker/java6/Dockerfile`, which is the only
 supported way to compile and package the facade.
 
-**The last green CI run was `31782837766` at `d2479bd`. Commits have landed since, and CI has
-not run on them** — check the run for the current HEAD before citing CI at all.
+**CI runs on every push to `main` and on every PR, and it now reaches real brokers.** Six jobs:
+the Rust workspace, the Java 6 JAR on JVM 1.6.0_38, NATS/JetStream/RabbitMQ against live
+brokers, Kafka and Pulsar against live brokers, the linux-aarch64 native load, and a dependency
+audit.
 
-**Read a green gate precisely — it is narrower than it looks.** The broker-backed tests are
-`#[ignore]`d, so a green `cargo test --workspace` asserts **nothing** about any real broker, and
-two of the five have never been executed anywhere. What has and has not actually been run is
-tracked in the "Verification reach" section of [docs/BUGS.md](docs/BUGS.md) — read it before
-describing this project as tested.
+**Two of those greens still need reading precisely.** `cargo test --workspace` skips the five
+`#[ignore]`d broker tests, so the *local* command asserts nothing about a broker — only the
+dedicated CI jobs do. And the **dependency-audit job is `continue-on-error`**, so it reports
+green while `cargo audit` exits 1 on four open advisories (B-009); that flag comes off when
+B-009 closes. What has and has not been run is tracked in the "Verification reach" section of
+[docs/BUGS.md](docs/BUGS.md) — read it before describing this project as tested.
 
 The native libraries are cross-compiled with `cargo-zigbuild` for three targets inside that same
 Dockerfile; the `kafka` and `pulsar` features need `cmake`, `libcurl` and `protobuf-compiler`

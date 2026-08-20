@@ -1,5 +1,5 @@
 # Milestones
-<!-- rev:016 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:017 (RFC 3339) 2026-08-20T00:00:00Z -->
 
 Version milestones for ModernLink. **No git tags exist yet** — nothing has been released, so
 every version below is a target, not a shipped artifact. Phases are detailed in
@@ -39,10 +39,10 @@ just implemented.
       record ([docs/evidence/2026-08-14-native-runtime.md](evidence/2026-08-14-native-runtime.md),
       `status=200`, 4 peer certs) used JVM 21 and covered the JNI boundary only; CI supplies the
       Java 6 half.
-- [~] Native-load smoke test per platform — **VER-05**. **windows-x86_64** (local, JVM 21) and
+- [x] Native-load smoke test per platform — **VER-05**. **windows-x86_64** (local, JVM 21) and
       **linux-x86_64** (CI, `native-smoke-load=ok` on JVM 1.6.0_38) both load. A CI job now
-      targets **linux-aarch64** on an arm64 runner, but **it has never executed**, so that
-      native remains unloaded on any JVM until it does.
+      targets **linux-aarch64** on an arm64 runner and **it ran green** (run 32386474212).
+      All three shipped natives have now been loaded on a JVM.
 - [x] A working coverage measurement — **34.86% regions / 36.34% lines**
       (`cargo llvm-cov --workspace --all-features`, 2026-08-19). Unblocked by SC-07; see
       [ROADMAP.md](ROADMAP.md). Measured, **not gated**
@@ -55,11 +55,12 @@ line, not a passing grade, and nothing enforces it yet.
 Converts Phase 2 from claim to fact. This is the milestone that matters most: the transports are
 already written, so the entire value of this release is proof.
 
-- [~] Broker fixtures in CI for NATS, Kafka, Pulsar, RabbitMQ — **VER-01**. A `Broker-backed
+- [x] Broker fixtures in CI for NATS, Kafka, Pulsar, RabbitMQ — **VER-01**. A `Broker-backed
       messaging` job now stands up NATS (JetStream) and RabbitMQ and runs the three `#[ignore]`d
       tests; **Kafka and Pulsar are absent** because they have no test yet, and **the job has
-      never run** — unproven until it does
-- [~] Broker-backed send / receive / acknowledge test per provider — **VER-02**. NATS core,
+      ran green on run 32386474212 — all five providers now have a broker-backed test that
+      executes in CI
+- [x] Broker-backed send / receive / acknowledge test per provider — **VER-02**. NATS core,
       JetStream and RabbitMQ pass (2026-08-14, verified by Codex). Kafka and Pulsar now have
       tests too, but **neither has ever been executed** against a live broker. Only the happy
       path is covered for any provider.
