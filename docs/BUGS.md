@@ -1,5 +1,5 @@
 # Bugs
-<!-- rev:012 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:013 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Behaviour that is **wrong and should be fixed**. Deliberate constraints belong in
 [ISSUES.md](ISSUES.md); planned work belongs in [BACKLOG.md](BACKLOG.md).
@@ -12,7 +12,7 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 | B-004 | critical | **open** | No `catch_unwind` on any of the 28 `Java_*` entry points; a Rust panic unwinds into JVM frames (UB) |
 | B-005 | high | **open** | The native messaging handle is a raw pointer dereferenced with only a null check |
 | B-006 | high | **open** | Broker URLs carry credentials into error strings that cross into Java exception messages |
-| B-007 | medium | **open** | A contained panic can leave a transport permanently degraded while the client still looks open |
+| B-007 | medium | **resolved** | A contained panic can leave a transport permanently degraded while the client still looks open |
 
 ## Open
 
@@ -97,6 +97,14 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 - **Reproduction:** read `crates/messaging/src/lib.rs:620-642`; the take at `:621-628`, the
   await at `:633-638`, the replace at `:639-642`.
 - **Seen at commit:** the B-004 fix on `harden/h-01-catch-unwind`.
+- **RESOLVED** by `RestoreOnDrop` (`crates/messaging/src/lib.rs`), fix (a) below. Both the
+  core NATS and the JetStream receive paths now restore through `Drop`, so the happy path and
+  the unwinding path take the same route. **The JetStream path had the same defect** — B-007
+  suspected it and it was confirmed while fixing. Falsified: making `Drop` skip the restore
+  makes `a_panic_between_take_and_replace_still_restores_the_value` fail. A structural test
+  fails if any receive path goes back to restoring by hand.
+- Kafka, Pulsar and RabbitMQ were checked: their pending-acknowledgement maps are mutated
+  under a lock without an await in between, so they do not have this window.
 - **Candidate fixes:** (a) hold the restore in a guard whose `Drop` puts the subscription
   back, so an unwind cannot skip it — contained and local; (b) mark the client poisoned in
   `jni_guard` and refuse later calls, which needs the handle registry from **B-005** to do

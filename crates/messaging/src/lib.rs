@@ -239,6 +239,74 @@ fn transport_error(error: impl std::fmt::Display) -> DomainError {
     DomainError::Transport(redact_credentials(&error.to_string()))
 }
 
+/// Put a borrowed-out value back in its slot even if the work in between unwinds (B-007).
+///
+/// `NatsTransport::receive` and `NatsJetStreamTransport::receive` take their subscription
+/// out of a `Mutex<Option<_>>`, await the next message, and put it back afterwards. If the
+/// await unwinds, the value is dropped on the stack and the slot stays `None` **for the life
+/// of the client** — every later `receive` then reports "unavailable" on a handle that still
+/// looks open. The `Mutex` is not poisoned by this, because the guard is released before the
+/// await, so Rust's own protection never fires.
+///
+/// Before H-01 that unwind was undefined behaviour crossing into the JVM, i.e. usually a
+/// crash. Containing the panic converted it into this silent permanent degradation, which is
+/// an improvement and a new failure mode. This closes it: restoration happens in `Drop`, so
+/// the normal path and the unwinding path take the same route.
+// Only the two NATS receive paths borrow out of a slot like this, so this is dead in every
+// other build. `test` is included so the B-007 regression tests run in the default gate --
+// that is where a regression would otherwise hide.
+#[cfg(any(test, feature = "nats"))]
+struct RestoreOnDrop<'a, T> {
+    slot: &'a Mutex<Option<T>>,
+    value: Option<T>,
+}
+
+// Only the two NATS receive paths borrow out of a slot like this, so this is dead in every
+// other build. `test` is included so the B-007 regression tests run in the default gate --
+// that is where a regression would otherwise hide.
+#[cfg(any(test, feature = "nats"))]
+impl<'a, T> RestoreOnDrop<'a, T> {
+    /// Take the value out, or report `missing` if the slot is empty or the lock is poisoned.
+    fn take_from(slot: &'a Mutex<Option<T>>, missing: &str) -> Result<Self, DomainError> {
+        let value = slot
+            .lock()
+            .map_err(|_| DomainError::Transport(missing.to_string()))?
+            .take()
+            .ok_or_else(|| DomainError::Transport(missing.to_string()))?;
+        Ok(Self {
+            slot,
+            value: Some(value),
+        })
+    }
+
+    /// Borrow the taken value.
+    ///
+    /// Returns `Option` rather than unwrapping an invariant: the value is `Some` for this
+    /// type's whole lifetime except inside `Drop`, so an `expect` here would be provably
+    /// unreachable — and an unreachable panic is still a panic path in a library that just
+    /// spent H-01 removing them.
+    fn value_mut(&mut self) -> Option<&mut T> {
+        self.value.as_mut()
+    }
+}
+
+// Only the two NATS receive paths borrow out of a slot like this, so this is dead in every
+// other build. `test` is included so the B-007 regression tests run in the default gate --
+// that is where a regression would otherwise hide.
+#[cfg(any(test, feature = "nats"))]
+impl<T> Drop for RestoreOnDrop<'_, T> {
+    fn drop(&mut self) {
+        if let Some(value) = self.value.take() {
+            // A poisoned lock means another thread panicked holding it. Nothing useful can
+            // be done here and Drop must not panic, so the value is dropped rather than
+            // restored — the slot was already unusable in that case.
+            if let Ok(mut slot) = self.slot.lock() {
+                *slot = Some(value);
+            }
+        }
+    }
+}
+
 /// How well a guarantee is backed, for one provider.
 ///
 /// MSG-04 exists so a capability gap is **queryable before traffic moves**, and a gap is
@@ -794,28 +862,25 @@ impl MessageTransport for NatsTransport {
     }
 
     fn receive(&self) -> Result<Option<ReceivedMessage>, DomainError> {
-        let mut subscription = self
-            .subscription
-            .lock()
-            .map_err(|_| DomainError::Transport("NATS subscription is unavailable".to_string()))?
-            .take()
-            .ok_or_else(|| {
-                DomainError::Transport("NATS subscription is unavailable".to_string())
-            })?;
+        // B-007: the subscription is restored by Drop, so an unwind between here and the
+        // end of the borrow cannot leave the slot empty for the life of the client.
+        let mut subscription =
+            RestoreOnDrop::take_from(&self.subscription, "NATS subscription is unavailable")?;
         let runtime = self
             .runtime
             .as_ref()
             .ok_or_else(|| DomainError::Transport("NATS runtime is unavailable".to_string()))?;
         let message = runtime.block_on(async {
             subscription
+                .value_mut()
+                .ok_or_else(|| {
+                    DomainError::Transport("NATS subscription is unavailable".to_string())
+                })?
                 .next()
                 .await
                 .ok_or_else(|| DomainError::Transport("NATS subscription ended".to_string()))
         });
-        self.subscription
-            .lock()
-            .map_err(|_| DomainError::Transport("NATS subscription is unavailable".to_string()))?
-            .replace(subscription);
+        drop(subscription);
         let message = message?;
         let message: MessageEnvelope = serde_json::from_slice(&message.payload)
             .map_err(|error| DomainError::Serialization(error.to_string()))?;
@@ -974,32 +1039,24 @@ impl MessageTransport for NatsJetStreamTransport {
     }
 
     fn receive(&self) -> Result<Option<ReceivedMessage>, DomainError> {
-        let mut stream = self
-            .stream
-            .lock()
-            .map_err(|_| {
-                DomainError::Transport("NATS JetStream stream is unavailable".to_string())
-            })?
-            .take()
-            .ok_or_else(|| {
-                DomainError::Transport("NATS JetStream stream is unavailable".to_string())
-            })?;
+        // B-007: same restore-on-unwind contract as the core NATS receive.
+        let mut stream =
+            RestoreOnDrop::take_from(&self.stream, "NATS JetStream stream is unavailable")?;
         let runtime = self.runtime.as_ref().ok_or_else(|| {
             DomainError::Transport("NATS JetStream runtime is unavailable".to_string())
         })?;
         let result = runtime.block_on(async {
             stream
+                .value_mut()
+                .ok_or_else(|| {
+                    DomainError::Transport("NATS JetStream stream is unavailable".to_string())
+                })?
                 .next()
                 .await
                 .ok_or_else(|| DomainError::Transport("NATS JetStream consumer ended".to_string()))?
                 .map_err(transport_error)
         });
-        self.stream
-            .lock()
-            .map_err(|_| {
-                DomainError::Transport("NATS JetStream stream is unavailable".to_string())
-            })?
-            .replace(stream);
+        drop(stream);
         let message = result?;
         let (message, acker) = message.split();
         let message: MessageEnvelope = serde_json::from_slice(&message.payload)
@@ -2443,5 +2500,73 @@ mod tests {
         let _ = r("://");
         let _ = r("://@");
         let _ = r("");
+    }
+
+    // ---- H-15 / B-007: a contained panic must not permanently break a transport ----
+
+    /// The defect, reproduced directly: take a value out, panic before putting it back, and
+    /// the slot must still hold it. Against the old take/await/replace code this fails -
+    /// the slot stays None forever and every later receive reports "unavailable" on a
+    /// client that still looks open.
+    #[test]
+    fn a_panic_between_take_and_replace_still_restores_the_value() {
+        let slot: std::sync::Mutex<Option<String>> =
+            std::sync::Mutex::new(Some("subscription".to_string()));
+
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut guard =
+                super::RestoreOnDrop::take_from(&slot, "missing").expect("the slot is populated");
+            assert_eq!(guard.value_mut().map(|v| v.as_str()), Some("subscription"));
+            panic!("the broker await blew up");
+        }));
+
+        assert!(outcome.is_err(), "the panic must actually have happened");
+        let restored = slot.lock().expect("slot lock").clone();
+        assert_eq!(
+            restored,
+            Some("subscription".to_string()),
+            "the value must be back in the slot after an unwind, or the client is broken \
+             for good - see docs/BUGS.md B-007"
+        );
+    }
+
+    #[test]
+    fn the_happy_path_restores_through_the_same_route() {
+        let slot: std::sync::Mutex<Option<u32>> = std::sync::Mutex::new(Some(7));
+        {
+            let mut guard = super::RestoreOnDrop::take_from(&slot, "missing").expect("populated");
+            assert_eq!(guard.value_mut().copied(), Some(7));
+            assert!(
+                slot.lock().expect("slot lock").is_none(),
+                "while borrowed the slot is empty - that is the window B-007 is about"
+            );
+        }
+        assert_eq!(*slot.lock().expect("slot lock"), Some(7));
+    }
+
+    #[test]
+    fn an_empty_slot_is_reported_not_panicked() {
+        let slot: std::sync::Mutex<Option<u32>> = std::sync::Mutex::new(None);
+        let error = super::RestoreOnDrop::take_from(&slot, "stream is unavailable")
+            .err()
+            .expect("an empty slot must be an error");
+        assert!(
+            error.to_string().contains("stream is unavailable"),
+            "{error}"
+        );
+    }
+
+    /// Structural guard: no receive path may go back to take/await/manual-replace. This is
+    /// what fails if a sixth transport copies the old shape.
+    #[test]
+    fn no_receive_path_replaces_a_borrowed_value_by_hand() {
+        let source = include_str!("lib.rs");
+        let needle = concat!(".replace(sub", "scription);");
+        assert_eq!(
+            source.matches(needle).count(),
+            0,
+            "a receive path restores its subscription by hand instead of via RestoreOnDrop; \
+             an unwind before that line leaves the client broken for good - B-007."
+        );
     }
 }
