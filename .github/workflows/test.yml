@@ -259,7 +259,7 @@ jobs:
       # whether the aarch64 .so loads and its JNI entry points return real values - the
       # same question windows-x86_64 was answered with on JVM 21. The Java 6 *language*
       # level is already proven by the amd64 job; this proves the aarch64 *binary*.
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
