@@ -11,7 +11,7 @@ jobs:
     name: Rust workspace
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       # SC-02: no toolchain is installed here on purpose. rust-toolchain.toml is the
       # single source of truth, and the runner's rustup honours it — installing
       # `@stable` alongside it would download a second toolchain that never gets used
@@ -59,7 +59,7 @@ jobs:
     name: Java 6 JAR integration
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Build Java 6 distributable JAR
         run: docker build -f docker/java6/Dockerfile -t modernlink-java6-https .
       # VER-05: the JAR is built here (the java:6b38-jdk base image is amd64-only) and
@@ -121,7 +121,7 @@ jobs:
     name: Broker-backed messaging (VER-01)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       # VER-01. Until now the three broker-backed tests existed but ran nowhere: they
       # are #[ignore]d, so every green CI run asserted exactly nothing about a real
       # broker, and the only evidence was one operator's manual run on one machine.
@@ -183,7 +183,7 @@ jobs:
     name: Broker-backed messaging - Kafka + Pulsar (VER-02, UNPROVEN)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       # Deliberately a SEPARATE job from `broker-backed`. Those three tests have passed
       # against live brokers; these two have never run anywhere. Keeping them apart
       # means a failure here cannot be mistaken for the NATS/RabbitMQ evidence breaking,
@@ -246,7 +246,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     needs: java6-jar
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
         with:
           name: modernlink-jar
@@ -283,7 +283,7 @@ jobs:
     name: Dependency advisories (H-09)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       # H-09 / BACKLOG P2. Nothing has ever inspected this dependency graph, which pulls
       # rdkafka (vendoring and building librdkafka from C), pulsar, lapin, async-nats,
       # hyper and rustls. SC-07 shrank the DEFAULT surface by making the providers
