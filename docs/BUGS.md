@@ -1,5 +1,5 @@
 # Bugs
-<!-- rev:018 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:019 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Behaviour that is **wrong and should be fixed**. Deliberate constraints belong in
 [ISSUES.md](ISSUES.md); planned work belongs in [BACKLOG.md](BACKLOG.md).
@@ -9,11 +9,11 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 | B-001 | high | **resolved** `dd080b2` | CI `Rust workspace` job could not build `rdkafka-sys`; the Rust suite never ran in CI |
 | B-002 | high | **resolved** `ad4bd2f` | The routing policy engine was unreachable from Java — every `RouteConfig` was built with zero rules |
 | B-003 | high | **open** | `MessageEnvelope.delivery_mode` defaults to `Persistent` and is read by no transport; RabbitMQ publishes transient messages to a durable queue |
-| B-004 | critical | **open** | No `catch_unwind` on any of the 28 `Java_*` entry points; a Rust panic unwinds into JVM frames (UB) |
-| B-005 | high | **resolved** | The native messaging handle is a raw pointer dereferenced with only a null check |
-| B-006 | high | **open** | Broker URLs carry credentials into error strings that cross into Java exception messages |
-| B-007 | medium | **resolved** | A contained panic can leave a transport permanently degraded while the client still looks open |
-| B-008 | medium | **resolved** | `NativeResponse` still uses a leaked `Box` address as its handle, dereferenced with only a null check |
+| B-004 | critical | **resolved** `f7b6081` | No `catch_unwind` on any of the 28 `Java_*` entry points; a Rust panic unwinds into JVM frames (UB) |
+| B-005 | high | **resolved** `700ce4d` | The native messaging handle is a raw pointer dereferenced with only a null check |
+| B-006 | high | **resolved** `cb8bf8e` | Broker URLs carry credentials into error strings that cross into Java exception messages |
+| B-007 | medium | **resolved** `95c84fe` | A contained panic can leave a transport permanently degraded while the client still looks open |
+| B-008 | medium | **resolved** `3f97281` | `NativeResponse` still uses a leaked `Box` address as its handle, dereferenced with only a null check |
 | B-009 | high | **open** | `async-nats 0.38` pulls `rustls-webpki 0.102.8` with 4 advisories, incl. two certificate-validation bypasses and a reachable panic |
 | B-010 | high | **open** | `receive()` returns `Ok(None)` on two providers and blocks forever on four, from the same API |
 
@@ -42,6 +42,17 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 - **Seen at commit:** `a32e1dd`.
 - **A regression test must fail against the current code:** add an entry point whose body
   panics and assert the sentinel is returned rather than the process dying.
+- **RESOLVED in `f7b6081`** (hardening item H-01). All 28 entry points run their body inside
+  `jni_guard(sentinel, move || …)`; a caught panic is recorded through the existing
+  `LAST_ERROR` channel and the caller receives the type's sentinel — `0` for `jlong`/`jint`,
+  `null_mut()` for every object return — so the Java side raises `LegacyHttpException`
+  exactly as it does for any ordinary failure. Six tests, written before the fix: the
+  structural one counts exported entry points against guard call sites and failed at 0-of-28,
+  which is what justified the change. **Falsified:** removing the guard from `nativeV4` fails
+  it with `27 vs 28`; reverting passes.
+- **What it does and does not buy.** It converts undefined behaviour into a reported error.
+  It does **not** make a panic acceptable, and it did not initially make the affected client
+  usable again — that gap was found by review and filed as **B-007**, since closed.
 
 ### B-005 — the native messaging handle is dereferenced without validation
 
@@ -95,6 +106,22 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 - **Seen at commit:** `a32e1dd`.
 - **Regression test:** assert a URI containing `user:password@` never appears in the
   `Display` of the resulting error.
+- **RESOLVED in `cb8bf8e`** (hardening item H-03). `redact_credentials` rewrites the userinfo
+  of every `scheme://user:pass@host` it finds to `***`, and all **40** sites that built a
+  transport error from a raw provider string now go through `transport_error`. It scrubs the
+  *message*, not just the endpoint passed in, because the text comes from
+  `lapin`/`async-nats`/`rdkafka`/`pulsar` and this crate does not control what they embed.
+  13 tests, including a structural guard — **falsified** by reintroducing one unredacted
+  site, which fails with the count and a pointer back here.
+- **The "not yet confirmed" question above is now moot** for the fix, though still unanswered
+  for `lapin` itself: the redaction is applied regardless of whether a given provider crate
+  embeds the URI, so the path is closed by construction rather than by trusting a dependency.
+- **Verified separately:** no `DomainError` in `crates/messaging` and no `format!` in
+  `crates/jni` interpolates a url, uri, endpoint or broker list, so there is no second path
+  by which a credential reaches an error string.
+- **Known limit, recorded in the code:** a scheme-less `user:pass@host` is not redacted —
+  without a scheme nothing distinguishes it from prose containing a colon and an `@`, and
+  matching that shape would eat email addresses out of diagnostics.
 
 ### B-010 — `receive()` has two different meanings depending on the provider
 
