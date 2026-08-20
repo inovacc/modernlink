@@ -25,7 +25,7 @@ jobs:
     name: Build Java 6 distributable
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Build container
         run: docker build -f docker/java6/Dockerfile -t modernlink-java6-https .
       - name: Extract JAR
@@ -33,7 +33,7 @@ jobs:
           container_id=$(docker create modernlink-java6-https)
           trap 'docker rm "$container_id"' EXIT
           docker cp "$container_id:/workspace/modernlink.jar" modernlink.jar
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: modernlink-java6-jar
           path: modernlink.jar
