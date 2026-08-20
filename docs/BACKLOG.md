@@ -1,5 +1,5 @@
 # ModernLink Messaging Compatibility Backlog
-<!-- rev:016 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:017 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 ## Objective
 
@@ -394,14 +394,30 @@ thread forever — and that thread belongs to the vendor-locked Java 6 applicati
 cannot cancel a JNI call. Bound each connect and fail closed on expiry. Found by
 `/project:harden` (H-02).
 
+### P2 — `crates/http` still shadows the external `http` crate (SC-05/SC-06 missed it)
+
+`cargo check -p http` is ambiguous and must be spelled `-p http@0.1.0`, exactly the footgun
+SC-05 and SC-06 removed for `jni` and `core`. Found while touching `crates/tls`. `tls` and
+`messaging` are unambiguous; `http` is the last one. Same fix as the others: give the package
+a distinguishing name and keep the folder path.
+
 ### P2 — `PulsarTransport` is the only transport without an explicit `Drop`
 
 `impl Drop` exists for `NatsTransport`, `NatsJetStreamTransport`, `RabbitMqTransport` and
 `KafkaTransport`, and not for `PulsarTransport` — which owns
-`runtime: Arc<tokio::runtime::Runtime>` and spawns named worker threads. Four transports
-needed explicit shutdown; the fifth relies on refcount order. Dropping a tokio `Runtime`
-inside an async context panics, which until B-004 lands crosses the FFI boundary.
-`/project:harden` H-06.
+`runtime: Arc<tokio::runtime::Runtime>` and spawns named worker threads.
+
+**Investigated 2026-08-19 and downgraded.** The stated hazard — dropping a tokio `Runtime`
+from inside an async context, which panics — is **not reachable through the JNI path**:
+`PulsarTransport` is dropped when the client leaves the handle registry, which happens on the
+JVM thread that called `nativeClose`, never on a runtime worker. The residual value is a
+graceful consumer close, and unacknowledged messages are redelivered anyway, so nothing is
+lost by its absence.
+
+The clean fix is to make the fields `Option<_>` so `Drop` can `take()` them the way the other
+four do. That is a struct-wide change to a transport with **no executed test** — the Pulsar
+broker-backed test has never run — so it would be an unverifiable restructure of the least
+proven code in the crate. Deferred deliberately rather than forced. `/project:harden` H-06.
 
 ### P2 — no dependency vulnerability audit has ever been run
 

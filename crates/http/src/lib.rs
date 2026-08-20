@@ -34,13 +34,20 @@ async fn execute_async(request: &Request) -> Result<Response, Error> {
         let response = execute_once_async(&current).await?;
         let location = response.headers.get("location").cloned();
         let redirect_status = matches!(response.status, 301 | 302 | 303 | 307 | 308);
-        if !current.follow_redirects || !redirect_status || location.is_none() {
+        if !current.follow_redirects || !redirect_status {
             return Ok(response);
         }
+        // H-14: `let ... else` rather than an `is_none()` guard plus `unwrap()`. The old
+        // shape was correct, and correct only by convention - the compiler did not enforce
+        // the relationship, so one edit between the check and the unwrap would have
+        // reintroduced a panic on a path reachable from the JNI boundary.
+        let Some(location) = location.as_ref() else {
+            return Ok(response);
+        };
         if redirects >= current.max_redirects {
             return Ok(response);
         }
-        let target = redirect_target(&current.url, location.as_ref().unwrap())?;
+        let target = redirect_target(&current.url, location)?;
         if target.scheme() != "https" {
             return Err(Error::InvalidRequest(
                 "redirect target must use https://".to_string(),
@@ -94,7 +101,7 @@ async fn execute_once_async(request: &Request) -> Result<Response, Error> {
         .map_err(|error| Error::Tls(error.to_string()))?;
     let connector = TlsConnector::from(tls::client_config(tls::TlsConfig::with_minimum_version(
         request.minimum_tls_version,
-    )));
+    ))?);
     let tls_connect = connector.connect(server_name, tcp);
     let tls_stream = if let Some(duration) = request.connect_timeout {
         timeout(duration, tls_connect)
