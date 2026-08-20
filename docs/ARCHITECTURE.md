@@ -1,5 +1,5 @@
 # Architecture
-<!-- rev:002 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:003 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Diagrams reflect the code at HEAD `af02427`. Where a path is designed but not proven at
 runtime, the diagram says so rather than implying it works.
@@ -199,7 +199,7 @@ crates/messaging      InMemory · NATS · JetStream · Kafka · Pulsar · Rabbit
 crates/jni            package `jni-bridge` - 28 Java_* entry points; builds libmodernlink
 hacks/messaging-demo  executable contract fixtures (Rust, 7 binaries)
 hacks/java6-messaging Java 6 JMS/JMX-shaped fixture (4 classes)
-java/src/main/java    com.modernlink facade (34 classes)
+java/src/main/java    com.modernlink facade (35 classes)
 java/src/test/java    standalone main-style tests (15 classes)
 docker/java6          the packaging build
 

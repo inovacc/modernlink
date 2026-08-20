@@ -1,5 +1,5 @@
 # ModernLink Messaging Compatibility Backlog
-<!-- rev:018 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:019 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 ## Objective
 
@@ -280,7 +280,7 @@ See ISSUES I-010.
 
 ### P2 — `crates/http` coverage is structurally capped, not merely low (H-12)
 
-`crates/http` sits at **17.29% lines** and cannot meaningfully be raised by writing more
+`crates/http` sits at **28.52% lines** and cannot meaningfully be raised by writing more
 unit tests. Its pure functions — `redirect_target`, `host_header` — are already covered by 12
 tests. Everything else is `execute_once_async` and `collect_response`, which need a live
 HTTPS server.
@@ -306,13 +306,13 @@ low it asserts nothing.
 **SC-07 unblocked it, as predicted.** With the provider clients optional, llvm-cov compiles the
 graph and reports, on 2026-08-19 (Windows, rustc 1.96.0):
 
-- `cargo llvm-cov --workspace --all-features --summary-only` → **21.40% regions / 23.94% lines**
+- `cargo llvm-cov --workspace --all-features --summary-only` → **34.86% regions / 36.34% lines**
 - `cargo llvm-cov --workspace --summary-only` (broker-free) reads **higher**, and is the
   misleading one — see ROADMAP. It was 27.37% / 30.58% before the MSG-04/MSG-05 tests and has
   not been re-measured since; no current figure is quoted here rather than a stale one.
 
 **Quote the `--all-features` figure.** The broker-free run flatters `crates/messaging` by
-compiling the five transports out; with them in it is **29.70%**. That gap is VER-01/VER-02
+compiling the five transports out; with them in it is **46.53%**. That gap is VER-01/VER-02
 expressed as a number: the domain, routing and guarantee logic are well covered, the transports
 are close to untested.
 
