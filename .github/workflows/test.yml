@@ -71,7 +71,7 @@ jobs:
           docker cp "$container":/workspace/modernlink.jar ./modernlink.jar
           docker rm "$container"
           ls -l modernlink.jar
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: modernlink-jar
           path: modernlink.jar

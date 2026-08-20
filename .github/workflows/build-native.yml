@@ -33,7 +33,7 @@ jobs:
           container_id=$(docker create modernlink-java6-https)
           trap 'docker rm "$container_id"' EXIT
           docker cp "$container_id:/workspace/modernlink.jar" modernlink.jar
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: modernlink-java6-jar
           path: modernlink.jar
