@@ -1,5 +1,5 @@
 # ModernLink Messaging Compatibility Backlog
-<!-- rev:015 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:016 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 ## Objective
 
@@ -360,6 +360,28 @@ been tried**, so it is a pin, not a measured floor.
 
 Original text: _CI resolves `dtolnay/rust-toolchain@stable` while the packaging image pins
 `rust:1.96-bookworm`, so the two can drift apart. No crate declares `rust-version`._
+
+### P1 — broker connections are not TLS-terminated, and Kafka cannot be at all (H-07)
+
+No provider connection terminates through `crates/tls`; only the HTTPS path does. There is no
+way for a caller to request TLS explicitly — the endpoint scheme is the only signal the API
+carries — so a deployment cannot state its intent and have it enforced.
+
+`rustls` is present in the graph for NATS/JetStream (`async-nats`), RabbitMQ
+(`rustls-connector`) and Pulsar (`tokio-rustls`), so those three would negotiate TLS from
+`tls://`, `amqps://` and `pulsar+ssl://` respectively — **declared, never tested against a
+broker**. **Kafka cannot**: `rdkafka` is compiled with `cmake-build` and `libz` only, with no
+`ssl` feature, so librdkafka has no OpenSSL and the transport sets no `security.protocol`.
+
+Partially closed: a TLS-looking Kafka endpoint is now **refused** rather than connected in
+plaintext, because a deployment that believes its credentials are encrypted and is wrong is
+worse off than one that gets an error. What remains:
+
+- enable `rdkafka`'s `ssl` feature (adds an OpenSSL build to the `kafka` feature),
+- expose TLS configuration through the Java API instead of inferring it from a scheme,
+- terminate through `crates/tls` so brokers inherit the TLS 1.2 floor the HTTPS path has,
+- and actually verify a negotiated protocol against a TLS broker, the way the HTTPS path
+  records `tls-protocol=TLSv1_3`.
 
 ### P1 — broker connects have no timeout and block a JVM thread indefinitely
 

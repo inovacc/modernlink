@@ -307,6 +307,34 @@ impl<T> Drop for RestoreOnDrop<'_, T> {
     }
 }
 
+/// Does this endpoint ask for an encrypted connection? (H-07)
+///
+/// Checked by scheme because that is the only TLS signal this API carries — there is no
+/// way for a caller to request TLS explicitly, which is itself the gap H-07 names.
+///
+/// Used to FAIL CLOSED where the transport cannot honour the request. Silently connecting
+/// in plaintext to an endpoint the caller marked as encrypted is the worst outcome
+/// available: the deployment believes its broker traffic and credentials are protected, and
+/// nothing anywhere says otherwise.
+// Only Kafka consults this today, because it is the only transport that cannot honour a
+// TLS request at all. `test` is included so the scheme-recognition tests run in the default
+// gate. When the other transports gain explicit TLS selection this widens with them.
+#[cfg(any(test, feature = "kafka"))]
+fn endpoint_requests_tls(endpoint: &str) -> bool {
+    let lower = endpoint.trim().to_ascii_lowercase();
+    [
+        "amqps://",
+        "nats+tls://",
+        "tls://",
+        "ssl://",
+        "sasl_ssl://",
+        "pulsar+ssl://",
+        "https://",
+    ]
+    .iter()
+    .any(|prefix| lower.starts_with(prefix))
+}
+
 /// How well a guarantee is backed, for one provider.
 ///
 /// MSG-04 exists so a capability gap is **queryable before traffic moves**, and a gap is
@@ -1520,6 +1548,21 @@ impl KafkaTransport {
         }
         let runtime = tokio::runtime::Runtime::new().map_err(transport_error)?;
         let _runtime_guard = runtime.enter();
+        // H-07: this build has no Kafka TLS. rdkafka is compiled with `cmake-build` and
+        // `libz` only - no `ssl` feature - so librdkafka is built without OpenSSL, and this
+        // transport sets no `security.protocol`. A TLS-looking endpoint therefore cannot be
+        // honoured, and connecting in plaintext instead would leave the deployment believing
+        // its traffic and credentials are encrypted. Refuse instead.
+        if endpoint_requests_tls(brokers) {
+            return Err(DomainError::Unsupported(
+                concat!(
+                    "Kafka TLS is not available in this build: rdkafka is compiled without ",
+                    "the `ssl` feature and this transport exposes no `security.protocol` ",
+                    "setting. The connection was refused rather than made in plaintext."
+                )
+                .to_string(),
+            ));
+        }
         let admin = ClientConfig::new()
             .set("bootstrap.servers", brokers)
             .create::<AdminClient<DefaultClientContext>>()
@@ -2567,6 +2610,69 @@ mod tests {
             0,
             "a receive path restores its subscription by hand instead of via RestoreOnDrop; \
              an unwind before that line leaves the client broken for good - B-007."
+        );
+    }
+
+    // ---- H-07: a TLS request that cannot be honoured must be refused, not downgraded ----
+
+    #[test]
+    fn tls_schemes_are_recognised_across_providers() {
+        for endpoint in [
+            "amqps://host:5671",
+            "AMQPS://host:5671",
+            "  amqps://host:5671  ",
+            "nats+tls://host:4222",
+            "tls://host:4222",
+            "ssl://host:9093",
+            "sasl_ssl://host:9093",
+            "pulsar+ssl://host:6651",
+            "https://host",
+        ] {
+            assert!(
+                super::endpoint_requests_tls(endpoint),
+                "must be recognised as a TLS request: {endpoint}"
+            );
+        }
+    }
+
+    #[test]
+    fn plaintext_schemes_are_not_mistaken_for_tls() {
+        for endpoint in [
+            "amqp://host:5672",
+            "nats://host:4222",
+            "pulsar://host:6650",
+            "host:9092",
+            "http://host",
+            "",
+        ] {
+            assert!(
+                !super::endpoint_requests_tls(endpoint),
+                "must NOT be read as a TLS request: {endpoint}"
+            );
+        }
+    }
+
+    /// The defect this closes: a deployment that writes an encrypted endpoint and gets a
+    /// plaintext connection believes its broker traffic and credentials are protected.
+    /// Silence is the whole danger, so the refusal must be explicit and must say why.
+    #[cfg(feature = "kafka")]
+    #[test]
+    fn kafka_refuses_a_tls_endpoint_rather_than_connecting_in_plaintext() {
+        let error = super::KafkaTransport::connect("ssl://broker:9093", "orders", "group")
+            .err()
+            .expect("a TLS endpoint must be refused, not silently downgraded");
+        assert!(
+            matches!(error, DomainError::Unsupported(_)),
+            "a capability gap is Unsupported, not a Transport failure: {error:?}"
+        );
+        let text = error.to_string();
+        assert!(
+            text.contains("ssl"),
+            "must name the missing feature: {text}"
+        );
+        assert!(
+            text.contains("refused rather than made in plaintext"),
+            "must state that no plaintext fallback happened: {text}"
         );
     }
 }

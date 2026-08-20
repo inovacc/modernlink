@@ -1,5 +1,5 @@
 # Per-provider guarantees
-<!-- rev:002 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:003 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 **DOC-03**, and the documentation half of **MSG-04**. What each provider adapter in
 `crates/messaging` actually offers, so a capability gap is visible *before* traffic moves
@@ -123,11 +123,40 @@ Expiry is reported as a transport failure saying the operation was *refused rath
 to block*, and the message carries no endpoint, so it cannot become a new path for the
 credential leak in [BUGS.md](BUGS.md) B-006.
 
+## TLS — what is actually true today
+
+**No provider connection terminates through `crates/tls`.** Only the HTTPS path does. What
+each transport can do is whatever its own client library negotiates from the endpoint scheme,
+and there is **no way for a caller to request TLS explicitly** — the scheme is the only
+signal this API carries.
+
+| Provider | TLS stack present in the build | How it would be selected |
+|---|---|---|
+| NATS / JetStream | `rustls` via `async-nats` | `tls://` or `nats+tls://` scheme |
+| RabbitMQ | `rustls-connector` via `lapin` | `amqps://` scheme |
+| Pulsar | `tokio-rustls` (`tokio-rustls-runtime-ring`) | `pulsar+ssl://` scheme |
+| **Kafka** | **none** | **not possible — see below** |
+
+The first three are **DECLARED, not verified**: the crates are in the dependency graph and
+the schemes are the documented selectors, but no test in this repo has ever negotiated TLS
+with a broker. Do not read the table as evidence.
+
+**Kafka cannot do TLS in this build at all.** `rdkafka` is compiled with `cmake-build` and
+`libz` only — there is no `ssl` feature — so librdkafka is built without OpenSSL, and
+`KafkaTransport` sets only `bootstrap.servers` with no `security.protocol`. A TLS-looking
+endpoint (`ssl://`, `sasl_ssl://`) is therefore **refused** rather than connected in
+plaintext. Silently downgrading would leave a deployment believing its broker traffic and
+credentials were encrypted, which is the worst outcome available.
+
+Wiring real TLS — enabling `rdkafka`'s `ssl` feature, exposing TLS configuration through the
+Java API, and terminating through `crates/tls` so brokers inherit the TLS 1.2 floor the HTTPS
+path has — is tracked in [BACKLOG.md](BACKLOG.md).
+
 ## What is deliberately not in this table
 
-- **TLS and authentication per provider.** The broker connections are not yet TLS-terminated
-  through `crates/tls`; only the HTTPS path is. Documenting a TLS column today would imply a
-  boundary that does not exist.
+- **A TLS *guarantee* column.** See the TLS section above for what is actually true today.
+  Broker connections do not terminate through `crates/tls` — only the HTTPS path does — so a
+  column in the guarantee table would imply a boundary that does not exist.
 - **Backpressure.** No adapter exposes or applies one, so there is nothing to describe.
 
 Both belong here once they are real. Adding empty columns now would suggest the analysis was
