@@ -1,5 +1,5 @@
 # Contributors and Contributing Guide
-<!-- rev:002 (RFC 3339) 2026-08-14T02:22:19Z -->
+<!-- rev:003 (RFC 3339) 2026-08-20T00:00:00Z -->
 
 ## Maintainers
 
@@ -40,6 +40,25 @@ host, install `cmake`, `libcurl`, and `protobuf-compiler` first, or the workspac
 failed on five consecutive pushes for exactly this reason — see [BUGS.md](BUGS.md) B-001. Do not
 treat CI as evidence that `cargo test --workspace` passes; run it locally and report what you
 actually saw.
+
+## Checking the Java facade without Docker
+
+Docker is required to compile at `-source 1.6` and to run anything, but **type errors do not
+need it**:
+
+```bash
+find java/src/main/java -name '*.java' > /tmp/main.txt
+javac -source 8 -target 8 -nowarn -Xlint:-options -d /tmp/classes @/tmp/main.txt
+find java/src/test/java -name '*.java' > /tmp/test.txt
+javac -source 8 -target 8 -nowarn -Xlint:-options -cp /tmp/classes -d /tmp/classes @/tmp/test.txt
+```
+
+Java 6 syntax is a subset of 8, so anything that compiles at `-source 1.6` compiles here. The
+reverse is **not** true — this accepts lambdas and diamonds the real build rejects — so it is a
+fast pre-check, not a substitute for the Docker build.
+
+Worth doing: a `ModernPayload` change reached `main` without it and broke the CI JAR build with
+five `unreported exception` errors this catches in seconds.
 
 ## Commands
 

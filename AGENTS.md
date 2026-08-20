@@ -1,5 +1,5 @@
 # AGENTS.md — ModernLink
-<!-- rev:011 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:012 (RFC 3339) 2026-08-20T00:00:00Z -->
 
 Canonical cross-tool agent instructions for the ModernLink repo (read by Claude Code,
 Codex, Cursor, Gemini, etc. — Claude Code imports this from `CLAUDE.md`). Must-know
@@ -113,6 +113,12 @@ present. The default build needs none of them (SC-07).
   `java/src/test/java/com/modernlink/messaging/` (4 classes), **15 in total**. As of `dd080b2`
   the workflow enumerates and runs all of them; add new ones the same way and wire them into
   `.github/workflows/test.yml`, because a class the workflow does not name never runs.
+- **A local `javac` catches most Java errors — use it before pushing.** Docker is needed for
+  the Java 6 *language level* and the runtime, not for type checking. `javac -source 8` over
+  `java/src/main/java` then `java/src/test/java` catches unreported checked exceptions,
+  missing methods and type errors in seconds. A `ModernPayload` change reached `main` without
+  it and broke the CI JAR build with five `unreported exception` errors that this catches
+  immediately. Recipe in [docs/CONTRIBUTORS.md](docs/CONTRIBUTORS.md).
 - The fixtures under `hacks/` are deterministic contract probes. They are **not** evidence of
   broker-backed behavior. The only broker-backed evidence is
   `crates/messaging/tests/broker_backed.rs`, it covers NATS, JetStream and RabbitMQ only, it is

@@ -1,5 +1,6 @@
 package com.modernlink.messaging;
 
+import com.modernlink.LegacyHttpException;
 import com.modernlink.ModernBase64;
 import java.io.UnsupportedEncodingException;
 import java.util.Iterator;
@@ -55,8 +56,12 @@ public final class ModernPayload {
      *
      * A TreeMap is used so the encoding is deterministic: two equal maps encode
      * identically, which keeps the frame comparable in tests and logs.
+     *
+     * Declares {@link LegacyHttpException} because base64 crosses the JNI boundary, and the
+     * native side reports failure as a checked exception. Wrapping it in an unchecked one
+     * here would hide a real native failure behind a generic runtime error.
      */
-    public static ModernPayload map(Map entries) {
+    public static ModernPayload map(Map entries) throws LegacyHttpException {
         if (entries == null) {
             throw new IllegalArgumentException("map payload is required");
         }
@@ -98,7 +103,7 @@ public final class ModernPayload {
     }
 
     /** The map body. Refuses rather than guessing when this is not a MAP payload. */
-    public Map asMap() {
+    public Map asMap() throws LegacyHttpException {
         requireKind(ModernPayloadKind.MAP);
         TreeMap entries = new TreeMap();
         String encoded = fromUtf8(bytes);
@@ -119,7 +124,7 @@ public final class ModernPayload {
     }
 
     /** The base64 form carried in the native frame. */
-    String encodeBody() {
+    String encodeBody() throws LegacyHttpException {
         return ModernBase64.encode(bytes);
     }
 
