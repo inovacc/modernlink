@@ -1,5 +1,5 @@
 # Bugs
-<!-- rev:013 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:014 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Behaviour that is **wrong and should be fixed**. Deliberate constraints belong in
 [ISSUES.md](ISSUES.md); planned work belongs in [BACKLOG.md](BACKLOG.md).
@@ -10,9 +10,10 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 | B-002 | high | **resolved** `ad4bd2f` | The routing policy engine was unreachable from Java — every `RouteConfig` was built with zero rules |
 | B-003 | high | **open** | `MessageEnvelope.delivery_mode` defaults to `Persistent` and is read by no transport; RabbitMQ publishes transient messages to a durable queue |
 | B-004 | critical | **open** | No `catch_unwind` on any of the 28 `Java_*` entry points; a Rust panic unwinds into JVM frames (UB) |
-| B-005 | high | **open** | The native messaging handle is a raw pointer dereferenced with only a null check |
+| B-005 | high | **resolved** | The native messaging handle is a raw pointer dereferenced with only a null check |
 | B-006 | high | **open** | Broker URLs carry credentials into error strings that cross into Java exception messages |
 | B-007 | medium | **resolved** | A contained panic can leave a transport permanently degraded while the client still looks open |
+| B-008 | medium | **open** | `NativeResponse` still uses a leaked `Box` address as its handle, dereferenced with only a null check |
 
 ## Open
 
@@ -51,7 +52,22 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 - **Expected:** a handle that is not live is refused, not dereferenced.
 - **Reproduction:** call any native method with an arbitrary non-zero `long`.
 - **Seen at commit:** `a32e1dd`.
-- **Candidate fix:** a registry mapping opaque ids to boxed clients, which also makes a
+- **RESOLVED.** Handles are now ids into a registry (`CLIENTS` in `crates/jni/src/lib.rs`),
+  not addresses, so an unknown id is a lookup miss and an ordinary error rather than a
+  dereference. Ids are never reused, so a stale handle cannot silently address a *different*
+  client — which would be worse than a miss, because the caller would get plausible results
+  from the wrong connection. Lookup clones an `Arc` and releases the lock immediately: an
+  in-flight call therefore survives a concurrent `close()` instead of having memory pulled
+  out from under it, and no global mutex is held across a blocking broker receive. Six
+  regression tests; falsified by recycling ids. A structural test fails if a handle is ever
+  cast back to a pointer.
+- **Not covered:** `NativeResponse` (the HTTP side, `crates/jni/src/lib.rs`) still uses the
+  same leaked-`Box`-as-handle pattern. Same defect class, narrower blast radius, and out of
+  scope for B-005 which named the messaging handle. Tracked as **B-008**.
+- **Still open, separately:** a client that is never closed stays in the registry for the
+  life of the JVM. The registry makes that leak enumerable, which is the precondition for
+  fixing it — see hardening item H-08.
+- **Original candidate fix:** a registry mapping opaque ids to boxed clients, which also makes a
   leaked client (B-005's sibling, an unclosed handle) enumerable. A magic/generation word is
   the cheaper alternative.
 
@@ -75,6 +91,19 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 - **Seen at commit:** `a32e1dd`.
 - **Regression test:** assert a URI containing `user:password@` never appears in the
   `Display` of the resulting error.
+
+### B-008 — the HTTP response handle is still a raw pointer
+
+- **Severity:** medium — same defect class as B-005, narrower blast radius. The response
+  handle is short-lived and used by one caller, where the messaging client is long-lived and
+  shared.
+- **Observed:** `crates/jni/src/lib.rs` still does `Box::into_raw(Box::new(NativeResponse(...)))`
+  and `drop(Box::from_raw(handle as *mut NativeResponse))`, with the accessor dereferencing
+  the `jlong` after a null check only. A stale or fabricated handle is a use-after-free.
+- **Expected:** the same registry treatment B-005 got.
+- **Seen at commit:** the B-005 fix.
+- **Why not fixed with B-005:** B-005 named the messaging handle, and widening a security fix
+  mid-item is how scope discipline is lost. Filed rather than done.
 
 ### B-007 — a contained panic leaves the client alive and permanently broken
 

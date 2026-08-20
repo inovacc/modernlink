@@ -123,11 +123,58 @@ struct NativeMessagingClient {
     route: RouteConfig,
 }
 
-unsafe fn messaging_client<'a>(handle: jlong) -> Option<&'a NativeMessagingClient> {
-    if handle == 0 {
-        None
-    } else {
-        Some(&*(handle as *const NativeMessagingClient))
+/// Live messaging clients, keyed by an opaque handle (B-005, H-05).
+///
+/// The handle used to be the address of a leaked `Box`, dereferenced after a null check and
+/// nothing else. A stale, copied or fabricated `jlong` therefore reached
+/// `&*(handle as *const _)` unchecked — a use-after-free inside the host JVM, which is the
+/// one thing this product must never cause.
+///
+/// Handles are now ids into this map, so an unknown id is a lookup miss and an ordinary
+/// error rather than undefined behaviour. Ids are never reused (`NEXT_HANDLE` only
+/// increments), so a handle from a closed client cannot collide with a later one.
+///
+/// Lookup clones the `Arc` and releases the lock immediately. Holding it across a blocking
+/// broker receive would serialise every client in the process behind one mutex — a real
+/// throughput regression in the name of safety. The `Arc` also means `close()` racing with
+/// an in-flight call frees only after that call finishes, instead of pulling memory out from
+/// under it.
+static CLIENTS: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<u64, std::sync::Arc<NativeMessagingClient>>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+/// Starts at 1 so 0 stays the "invalid handle" sentinel the Java side already checks.
+static NEXT_HANDLE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+fn register_client(client: NativeMessagingClient) -> jlong {
+    let handle = NEXT_HANDLE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    match CLIENTS.lock() {
+        Ok(mut clients) => {
+            clients.insert(handle, std::sync::Arc::new(client));
+            handle as jlong
+        }
+        // A poisoned registry means a thread panicked holding the lock. Refusing to hand
+        // out a handle is the fail-closed answer: the alternative is a client the caller
+        // believes is open and that nothing can ever look up.
+        Err(_) => set_error("messaging client registry is unavailable".to_string()),
+    }
+}
+
+fn client_for(handle: jlong) -> Option<std::sync::Arc<NativeMessagingClient>> {
+    if handle <= 0 {
+        return None;
+    }
+    CLIENTS.lock().ok()?.get(&(handle as u64)).cloned()
+}
+
+/// Remove a client. Idempotent: closing twice, or closing an unknown handle, is a no-op
+/// rather than a double free.
+fn unregister_client(handle: jlong) {
+    if handle <= 0 {
+        return;
+    }
+    if let Ok(mut clients) = CLIENTS.lock() {
+        clients.remove(&(handle as u64));
     }
 }
 
@@ -567,7 +614,7 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
             Ok(value) => value,
             Err(error) => return messaging_error(error),
         };
-        Box::into_raw(Box::new(NativeMessagingClient { transport, route })) as jlong
+        register_client(NativeMessagingClient { transport, route })
     })
 }
 
@@ -632,7 +679,7 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
             Ok(value) => value,
             Err(error) => return messaging_error(error),
         };
-        Box::into_raw(Box::new(NativeMessagingClient { transport, route })) as jlong
+        register_client(NativeMessagingClient { transport, route })
     })
 }
 
@@ -653,7 +700,7 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
     header_value: JString,
 ) -> jni::sys::jstring {
     jni_guard(std::ptr::null_mut(), move || {
-        let client = match unsafe { messaging_client(handle) } {
+        let client = match client_for(handle) {
             Some(client) => client,
             None => return messaging_string_error("messaging client is closed".to_string()),
         };
@@ -710,7 +757,7 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
     payload_kind: JString,
 ) -> jni::sys::jstring {
     jni_guard(std::ptr::null_mut(), move || {
-        let client = match unsafe { messaging_client(handle) } {
+        let client = match client_for(handle) {
             Some(value) => value,
             None => {
                 return messaging_string_error("messaging client handle is invalid".to_string())
@@ -788,7 +835,7 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
     handle: jlong,
 ) -> jni::sys::jstring {
     jni_guard(std::ptr::null_mut(), move || {
-        let client = match unsafe { messaging_client(handle) } {
+        let client = match client_for(handle) {
             Some(value) => value,
             None => {
                 return messaging_string_error("messaging client handle is invalid".to_string())
@@ -823,7 +870,7 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
     trace_id: JString,
 ) -> jni::sys::jstring {
     jni_guard(std::ptr::null_mut(), move || {
-        let client = match unsafe { messaging_client(handle) } {
+        let client = match client_for(handle) {
             Some(value) => value,
             None => {
                 return messaging_string_error("messaging client handle is invalid".to_string())
@@ -874,11 +921,7 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
     handle: jlong,
 ) {
     jni_guard((), move || {
-        if handle != 0 {
-            unsafe {
-                drop(Box::from_raw(handle as *mut NativeMessagingClient));
-            }
-        }
+        unregister_client(handle);
     })
 }
 
@@ -1684,6 +1727,108 @@ mod panic_containment_tests {
             exported,
             guarded - non_entry_uses,
             non_entry_uses
+        );
+    }
+}
+
+#[cfg(test)]
+mod handle_registry_tests {
+    use super::*;
+
+    fn a_client() -> NativeMessagingClient {
+        NativeMessagingClient {
+            transport: MessageTransportKind::LegacyJms(InMemoryTransport::new(Provider::LegacyJms)),
+            route: RouteConfig {
+                default_mode: Mode::Transparent,
+                default_provider: Provider::LegacyJms,
+                rules: Vec::new(),
+            },
+        }
+    }
+
+    /// The defect B-005 named: a handle the registry never issued must be a miss, not a
+    /// dereference. Against the old code this address would have been cast to a pointer and
+    /// read.
+    #[test]
+    fn a_fabricated_handle_is_refused_rather_than_dereferenced() {
+        assert!(client_for(0).is_none(), "zero is the invalid sentinel");
+        assert!(
+            client_for(-1).is_none(),
+            "a negative handle is not an address"
+        );
+        assert!(
+            client_for(0x7fff_dead_beef).is_none(),
+            "an arbitrary value must miss, not be dereferenced"
+        );
+    }
+
+    #[test]
+    fn a_registered_client_is_found_and_stays_found_until_closed() {
+        let handle = register_client(a_client());
+        assert!(handle > 0, "a live client gets a non-zero handle");
+        assert!(client_for(handle).is_some());
+        assert!(
+            client_for(handle).is_some(),
+            "lookup does not consume the entry"
+        );
+        unregister_client(handle);
+        assert!(client_for(handle).is_none(), "a closed handle must miss");
+    }
+
+    /// Java's close() is synchronized and zeroes its field, but nothing stops a second
+    /// caller holding a copy of the long. Under the old code that was a double free.
+    #[test]
+    fn closing_twice_is_a_no_op_not_a_double_free() {
+        let handle = register_client(a_client());
+        unregister_client(handle);
+        unregister_client(handle);
+        unregister_client(handle);
+        assert!(client_for(handle).is_none());
+    }
+
+    /// Ids are never reused, so a stale handle cannot silently address a different client -
+    /// which would be worse than a miss, because the caller would get plausible results
+    /// from the wrong connection.
+    #[test]
+    fn a_closed_handle_is_never_reissued_to_a_later_client() {
+        let first = register_client(a_client());
+        unregister_client(first);
+        let second = register_client(a_client());
+        assert_ne!(first, second, "handles must not be recycled");
+        assert!(client_for(first).is_none(), "the stale handle stays dead");
+        unregister_client(second);
+    }
+
+    /// An in-flight call holds an Arc, so a concurrent close cannot pull the memory out
+    /// from under it - it frees when the last user finishes.
+    #[test]
+    fn an_in_flight_borrow_survives_a_concurrent_close() {
+        let handle = register_client(a_client());
+        let in_flight = client_for(handle).expect("registered");
+        unregister_client(handle);
+        assert!(client_for(handle).is_none(), "new lookups miss immediately");
+        assert_eq!(
+            in_flight.transport.provider(),
+            Provider::LegacyJms,
+            "the in-flight borrow is still usable"
+        );
+    }
+
+    /// Structural guard: the handle must never go back to being a raw pointer.
+    #[test]
+    fn no_handle_is_cast_to_a_messaging_client_pointer() {
+        let source = include_str!("lib.rs");
+        let needle = concat!("handle as *", "const NativeMessagingClient");
+        let mut_needle = concat!("handle as *", "mut NativeMessagingClient");
+        assert_eq!(
+            source.matches(needle).count(),
+            0,
+            "handle cast to a const pointer - B-005"
+        );
+        assert_eq!(
+            source.matches(mut_needle).count(),
+            0,
+            "handle cast to a mut pointer - B-005"
         );
     }
 }
