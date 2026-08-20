@@ -1,5 +1,5 @@
 # Bugs
-<!-- rev:015 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:016 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Behaviour that is **wrong and should be fixed**. Deliberate constraints belong in
 [ISSUES.md](ISSUES.md); planned work belongs in [BACKLOG.md](BACKLOG.md).
@@ -65,9 +65,11 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 - **Not covered:** `NativeResponse` (the HTTP side, `crates/jni/src/lib.rs`) still uses the
   same leaked-`Box`-as-handle pattern. Same defect class, narrower blast radius, and out of
   scope for B-005 which named the messaging handle. Tracked as **B-008**.
-- **Still open, separately:** a client that is never closed stays in the registry for the
-  life of the JVM. The registry makes that leak enumerable, which is the precondition for
-  fixing it — see hardening item H-08.
+- **The leak it exposed is now bounded, not closed.** A client that is never closed used to
+  stay in the registry for the life of the JVM. `ModernMessagingClient.finalize()` now calls
+  `close()` as a backstop (H-08). That is a bound, not a guarantee: finalizers run at the
+  GC's discretion and may never run before exit, and Java 6 has no try-with-resources, so
+  callers must still close explicitly.
 - **Original candidate fix:** a registry mapping opaque ids to boxed clients, which also makes a
   leaked client (B-005's sibling, an unclosed handle) enumerable. A magic/generation word is
   the cheaper alternative.
