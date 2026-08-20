@@ -1,5 +1,5 @@
 # Bugs
-<!-- rev:014 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:015 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Behaviour that is **wrong and should be fixed**. Deliberate constraints belong in
 [ISSUES.md](ISSUES.md); planned work belongs in [BACKLOG.md](BACKLOG.md).
@@ -14,6 +14,7 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 | B-006 | high | **open** | Broker URLs carry credentials into error strings that cross into Java exception messages |
 | B-007 | medium | **resolved** | A contained panic can leave a transport permanently degraded while the client still looks open |
 | B-008 | medium | **open** | `NativeResponse` still uses a leaked `Box` address as its handle, dereferenced with only a null check |
+| B-009 | high | **open** | `async-nats 0.38` pulls `rustls-webpki 0.102.8` with 4 advisories, incl. two certificate-validation bypasses and a reachable panic |
 
 ## Open
 
@@ -91,6 +92,40 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 - **Seen at commit:** `a32e1dd`.
 - **Regression test:** assert a URI containing `user:password@` never appears in the
   `Display` of the resulting error.
+
+### B-009 — the NATS TLS path uses a rustls-webpki with four open advisories
+
+- **Severity:** high — two of the four are certificate-validation bypasses, in a project
+  whose stated security posture is that *"TLS terminates and verifies in Rust"*. A third is a
+  reachable panic, in a library where B-004 has just finished making panics survivable rather
+  than undefined.
+- **Observed:** first ever run of `cargo audit` (H-09), 2026-08-19, exit 1:
+
+  | ID | Title |
+  |---|---|
+  | RUSTSEC-2026-0049 | CRLs not considered authoritative by Distribution Point, faulty matching |
+  | RUSTSEC-2026-0098 | Name constraints for URI names incorrectly accepted |
+  | RUSTSEC-2026-0099 | Name constraints accepted for certificates asserting a wildcard name |
+  | RUSTSEC-2026-0104 | Reachable panic in certificate revocation list parsing |
+
+  All four are `rustls-webpki 0.102.8`. Plus two unmaintained warnings:
+  `instant 0.1.13` (RUSTSEC-2024-0384) and `rustls-pemfile 2.2.0` (RUSTSEC-2025-0134).
+- **Scope — this is narrower than it first looks.** `cargo tree -i` shows the vulnerable
+  0.102.8 is pulled by **`async-nats 0.38` alone**. The HTTPS path and Pulsar use
+  `rustls-webpki 0.103.14`, which is unaffected. So the exposure is the **NATS and JetStream
+  TLS path**, which nothing has ever exercised (see docs/providers.md — NATS TLS is DECLARED,
+  never tested).
+- **`cargo update` cannot fix it.** 0.102 → 0.103 is semver-incompatible;
+  `cargo update -p rustls-webpki@0.102.8` locks 0 packages. The fix is upgrading
+  **`async-nats` 0.38 → 0.50**, which is available.
+- **Not attempted, deliberately.** That is a twelve-minor-version jump with API changes,
+  across `NatsTransport` and `NatsJetStreamTransport` — two of the three transports that have
+  *actually passed against a live broker*, and the only broker evidence this project has. It
+  cannot be verified here: no broker, no Docker. Breaking the project's best evidence on an
+  unverifiable dependency bump is a worse trade than carrying a documented advisory on a code
+  path nobody has ever run.
+- **Reproduction:** `cargo audit`; `cargo tree --all-features -i rustls-webpki@0.102.8`.
+- **Seen at commit:** `b3e8834`.
 
 ### B-008 — the HTTP response handle is still a raw pointer
 

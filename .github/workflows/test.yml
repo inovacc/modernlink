@@ -278,3 +278,27 @@ jobs:
           }
           grep -q 'native-smoke=PASS' smoke.txt || {
             echo "::error::the aarch64 native did not load"; exit 1; }
+
+  dependency-audit:
+    name: Dependency advisories (H-09)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      # H-09 / BACKLOG P2. Nothing has ever inspected this dependency graph, which pulls
+      # rdkafka (vendoring and building librdkafka from C), pulsar, lapin, async-nats,
+      # hyper and rustls. SC-07 shrank the DEFAULT surface by making the providers
+      # optional; it did not look at what is in there.
+      #
+      # --locked so the audit reads the committed Cargo.lock rather than resolving a newer
+      # cargo-audit and, with it, a different advisory set on every run.
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      # DELIBERATELY NON-BLOCKING for now. This was run locally before being wired up and
+      # it exits 1: four advisories against rustls-webpki 0.102.8, pulled by async-nats 0.38,
+      # filed as docs/BUGS.md B-009. Making it a gate today would block every PR on a finding
+      # whose fix is an async-nats major upgrade nobody has been able to verify. Flip
+      # continue-on-error off the moment B-009 is closed - a permanently-ignored red job is
+      # worse than no job at all.
+      - name: Audit dependencies
+        continue-on-error: true
+        run: cargo audit --deny warnings
