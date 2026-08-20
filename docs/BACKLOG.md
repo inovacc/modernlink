@@ -1,5 +1,5 @@
 # ModernLink Messaging Compatibility Backlog
-<!-- rev:017 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:018 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 ## Objective
 
@@ -277,6 +277,29 @@ remains open, and why this is still P1 and still the largest gap:
   ordering, concurrency and redelivery remain source-level claims for **every** provider.
 
 See ISSUES I-010.
+
+### P2 — `crates/http` coverage is structurally capped, not merely low (H-12)
+
+`crates/http` sits at **17.29% lines** and cannot meaningfully be raised by writing more
+unit tests. Its pure functions — `redirect_target`, `host_header` — are already covered by 12
+tests. Everything else is `execute_once_async` and `collect_response`, which need a live
+HTTPS server.
+
+**The blocker is a missing test seam in the TLS boundary.** `tls::client_config` builds its
+root store from `webpki_roots::TLS_SERVER_ROOTS` and exposes no way to add another root
+(`crates/tls/src/lib.rs`). An in-process test server would present a self-signed certificate,
+which is correctly rejected, so the HTTPS path cannot be exercised against localhost at all.
+
+That is not an argument for loosening trust. Any seam here is security-sensitive — a feature
+flag that adds test roots is a feature flag that can be enabled in production by mistake —
+so it needs a deliberate design rather than a convenience hook: a `cfg(test)`-only injection
+inside `crates/tls`, or a dedicated integration crate that constructs its own
+`ClientConfig` without going through the shipped boundary.
+
+Until then, quoting the `crates/http` percentage as a code-quality signal is misleading: it
+measures the absence of a test harness, not the absence of tests. **Do not set a coverage
+gate on this crate before the seam exists** — it would either fail permanently or be set so
+low it asserts nothing.
 
 ### ~~P2 — coverage cannot be measured (SC-04)~~ — **MEASURED**; raising and gating it stay open
 
