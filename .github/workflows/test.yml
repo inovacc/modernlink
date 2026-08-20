@@ -250,7 +250,7 @@ jobs:
     needs: java6-jar
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: modernlink-jar
       # VER-05. linux-aarch64 is the last of the three shipped natives never loaded on any
