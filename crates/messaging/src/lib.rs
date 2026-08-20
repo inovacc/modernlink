@@ -65,6 +65,303 @@ pub enum Provider {
     RabbitMq,
 }
 
+/// How long a broker connect may take before it is refused (H-02, BACKLOG P1).
+///
+/// Ten seconds, matching the receive deadline the broker-backed tests already use, so the
+/// two bounds in this crate agree rather than each being picked separately.
+// Which of these two is live depends on which providers are compiled in: a nats-only build
+// never does a control-plane call, and a kafka-only build never uses the connect default
+// (its one bounded operation is topic creation). Enumerating that in `cfg` is brittle - it
+// was got wrong three times in a row, once per permutation - so both are gated together on
+// "any provider" and the dead-code lint is silenced with the reason stated. The alternative
+// is a cfg expression nobody can verify by reading.
+#[cfg(any(
+    feature = "nats",
+    feature = "kafka",
+    feature = "pulsar",
+    feature = "rabbitmq"
+))]
+#[allow(dead_code)]
+const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
+
+// Control-plane operations get the longer default. Declaring a queue or creating a topic on
+// a loaded cluster is legitimately slower than a TCP handshake, and a single bound tight
+// enough to catch a hung connect would reject healthy deployments.
+#[cfg(any(
+    feature = "nats",
+    feature = "kafka",
+    feature = "pulsar",
+    feature = "rabbitmq"
+))]
+#[allow(dead_code)]
+const DEFAULT_ADMIN_TIMEOUT_SECS: u64 = 30;
+
+/// Read a deadline, allowing the deployment to override the built-in default.
+///
+/// No number chosen here can be right for every broker and network, so `fallback_secs` is a
+/// starting point rather than a policy. `MODERNLINK_BROKER_TIMEOUT_SECS` overrides it.
+///
+/// An unparseable or zero value falls back to the default rather than being honoured: `0`
+/// would mean "time out immediately", which is a footgun that would look like a broker
+/// outage. A bad value is a configuration mistake, and silently disabling the bound - or
+/// making every connect fail - are both worse than ignoring it.
+#[cfg(any(
+    feature = "nats",
+    feature = "kafka",
+    feature = "pulsar",
+    feature = "rabbitmq"
+))]
+fn broker_timeout(fallback_secs: u64) -> std::time::Duration {
+    let configured = std::env::var("MODERNLINK_BROKER_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0);
+    std::time::Duration::from_secs(configured.unwrap_or(fallback_secs))
+}
+
+/// Run a broker operation on `runtime` with a hard deadline.
+///
+/// Every transport used to call `runtime.block_on(connect(...))` with no bound. A broker
+/// that completes the TCP handshake and then stalls — or a firewall that DROPs rather than
+/// REJECTs — hung the calling thread forever. That thread belongs to the vendor-locked
+/// Java 6 application, reached through a JNI call it cannot cancel, so "forever" means
+/// until the JVM is restarted.
+///
+/// Expiry is a `DomainError::Transport`, so the caller is told the operation was refused
+/// rather than being left to block. Failing closed on a deadline is the same contract the
+/// rest of this crate follows for a capability it cannot honour.
+///
+/// `what` names the operation in the message; it must never contain an endpoint, because
+/// endpoints carry credentials (see `docs/BUGS.md` B-006).
+#[cfg(any(
+    test,
+    feature = "nats",
+    feature = "kafka",
+    feature = "pulsar",
+    feature = "rabbitmq"
+))]
+fn block_on_with_timeout<T>(
+    runtime: &tokio::runtime::Runtime,
+    what: &str,
+    timeout: std::time::Duration,
+    future: impl std::future::Future<Output = T>,
+) -> Result<T, DomainError> {
+    runtime.block_on(async move {
+        match tokio::time::timeout(timeout, future).await {
+            Ok(value) => Ok(value),
+            Err(_) => Err(DomainError::Transport(format!(
+                "{} did not complete within {}s and was refused rather than left to block \
+                 the calling thread",
+                what,
+                timeout.as_secs()
+            ))),
+        }
+    })
+}
+
+/// Strip credentials out of any text before it can become an error message (B-006, H-03).
+///
+/// Broker endpoints carry credentials inline — the documented RabbitMQ form is
+/// `amqp://guest:guest@host:5672/%2f`. Provider crates put the endpoint they failed on into
+/// their error `Display`, that string crosses the JNI boundary as a
+/// `LegacyHttpException` message, and the host application logs it. AGENTS.md is flat:
+/// *"Never put credentials, payloads, or message bodies in JMX attributes or logs."*
+///
+/// This scrubs the **message**, not just the endpoint we passed in, because the text comes
+/// from `lapin`/`async-nats`/`rdkafka`/`pulsar` and we do not control what they embed. It
+/// rewrites the userinfo of every `scheme://user:pass@host` it finds to `***`.
+///
+/// Deliberately conservative about what counts as userinfo: only an `@` appearing before the
+/// next `/`, `?`, `#` or whitespace after `://`. An `@` inside a path or query is not
+/// credentials, and blanking it would corrupt an otherwise useful diagnostic.
+///
+/// **Known limit:** a credential with no scheme in front of it — a bare `user:pass@host` —
+/// is not redacted, because without a scheme there is nothing to distinguish it from
+/// ordinary prose containing a colon and an `@`. Redacting on that shape alone would eat
+/// email addresses and timestamps out of diagnostics. No provider crate is known to emit
+/// that form; if one turns up, the fix is to match it for the specific provider rather than
+/// to loosen this rule globally.
+///
+/// Verified by `scrubber_edge_cases` against: no-password userinfo, `amqps://`/`nats+tls://`,
+/// uppercase schemes, a URL ending the string, a percent-encoded `@` in the password,
+/// quoted and parenthesised URLs, and multi-byte UTF-8 adjacent to `://` and `@` (which
+/// would otherwise risk a panic on a non-char-boundary slice).
+// Gated like the transports themselves: every call site lives inside a provider, so in a
+// broker-free build these would be dead code. `test` is included because the redaction
+// tests must run in the default gate too - that is where a regression would otherwise hide.
+#[cfg(any(
+    test,
+    feature = "nats",
+    feature = "kafka",
+    feature = "pulsar",
+    feature = "rabbitmq"
+))]
+fn redact_credentials(message: &str) -> String {
+    let mut out = String::with_capacity(message.len());
+    let mut rest = message;
+    while let Some(scheme_end) = rest.find("://") {
+        let after = scheme_end + 3;
+        out.push_str(&rest[..after]);
+        let authority_end = rest[after..]
+            .find(|c: char| c == '/' || c == '?' || c == '#' || c.is_whitespace())
+            .map(|i| after + i)
+            .unwrap_or(rest.len());
+        let authority = &rest[after..authority_end];
+        match authority.rfind('@') {
+            Some(at) => {
+                out.push_str("***");
+                out.push_str(&authority[at..]);
+            }
+            None => out.push_str(authority),
+        }
+        rest = &rest[authority_end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Build a transport error with credentials removed.
+///
+/// Every `DomainError::Transport` built from a provider error goes through this. Doing it at
+/// construction rather than at the JNI boundary means a future caller of this crate cannot
+/// reintroduce the leak by formatting the error somewhere else.
+// Gated like the transports themselves: every call site lives inside a provider, so in a
+// broker-free build these would be dead code. `test` is included because the redaction
+// tests must run in the default gate too - that is where a regression would otherwise hide.
+#[cfg(any(
+    test,
+    feature = "nats",
+    feature = "kafka",
+    feature = "pulsar",
+    feature = "rabbitmq"
+))]
+fn transport_error(error: impl std::fmt::Display) -> DomainError {
+    DomainError::Transport(redact_credentials(&error.to_string()))
+}
+
+/// Put a borrowed-out value back in its slot even if the work in between unwinds (B-007).
+///
+/// `NatsTransport::receive` and `NatsJetStreamTransport::receive` take their subscription
+/// out of a `Mutex<Option<_>>`, await the next message, and put it back afterwards. If the
+/// await unwinds, the value is dropped on the stack and the slot stays `None` **for the life
+/// of the client** — every later `receive` then reports "unavailable" on a handle that still
+/// looks open. The `Mutex` is not poisoned by this, because the guard is released before the
+/// await, so Rust's own protection never fires.
+///
+/// Before H-01 that unwind was undefined behaviour crossing into the JVM, i.e. usually a
+/// crash. Containing the panic converted it into this silent permanent degradation, which is
+/// an improvement and a new failure mode. This closes it: restoration happens in `Drop`, so
+/// the normal path and the unwinding path take the same route.
+// Only the two NATS receive paths borrow out of a slot like this, so this is dead in every
+// other build. `test` is included so the B-007 regression tests run in the default gate --
+// that is where a regression would otherwise hide.
+#[cfg(any(test, feature = "nats"))]
+struct RestoreOnDrop<'a, T> {
+    slot: &'a Mutex<Option<T>>,
+    value: Option<T>,
+}
+
+// Only the two NATS receive paths borrow out of a slot like this, so this is dead in every
+// other build. `test` is included so the B-007 regression tests run in the default gate --
+// that is where a regression would otherwise hide.
+#[cfg(any(test, feature = "nats"))]
+impl<'a, T> RestoreOnDrop<'a, T> {
+    /// Take the value out, or report `missing` if the slot is empty or the lock is poisoned.
+    fn take_from(slot: &'a Mutex<Option<T>>, missing: &str) -> Result<Self, DomainError> {
+        let value = slot
+            .lock()
+            .map_err(|_| DomainError::Transport(missing.to_string()))?
+            .take()
+            .ok_or_else(|| DomainError::Transport(missing.to_string()))?;
+        Ok(Self {
+            slot,
+            value: Some(value),
+        })
+    }
+
+    /// Borrow the taken value.
+    ///
+    /// Returns `Option` rather than unwrapping an invariant: the value is `Some` for this
+    /// type's whole lifetime except inside `Drop`, so an `expect` here would be provably
+    /// unreachable — and an unreachable panic is still a panic path in a library that just
+    /// spent H-01 removing them.
+    fn value_mut(&mut self) -> Option<&mut T> {
+        self.value.as_mut()
+    }
+}
+
+// Only the two NATS receive paths borrow out of a slot like this, so this is dead in every
+// other build. `test` is included so the B-007 regression tests run in the default gate --
+// that is where a regression would otherwise hide.
+#[cfg(any(test, feature = "nats"))]
+impl<T> Drop for RestoreOnDrop<'_, T> {
+    fn drop(&mut self) {
+        if let Some(value) = self.value.take() {
+            // A poisoned lock means another thread panicked holding it. Nothing useful can
+            // be done here and Drop must not panic, so the value is dropped rather than
+            // restored — the slot was already unusable in that case.
+            if let Ok(mut slot) = self.slot.lock() {
+                *slot = Some(value);
+            }
+        }
+    }
+}
+
+/// Does this endpoint ask for an encrypted connection? (H-07)
+///
+/// Checked by scheme because that is the only TLS signal this API carries — there is no
+/// way for a caller to request TLS explicitly, which is itself the gap H-07 names.
+///
+/// Used to FAIL CLOSED where the transport cannot honour the request. Silently connecting
+/// in plaintext to an endpoint the caller marked as encrypted is the worst outcome
+/// available: the deployment believes its broker traffic and credentials are protected, and
+/// nothing anywhere says otherwise.
+// Only Kafka consults this today, because it is the only transport that cannot honour a
+// TLS request at all. `test` is included so the scheme-recognition tests run in the default
+// gate. When the other transports gain explicit TLS selection this widens with them.
+#[cfg(any(test, feature = "kafka"))]
+fn endpoint_requests_tls(endpoint: &str) -> bool {
+    let lower = endpoint.trim().to_ascii_lowercase();
+    [
+        "amqps://",
+        "nats+tls://",
+        "tls://",
+        "ssl://",
+        "sasl_ssl://",
+        "pulsar+ssl://",
+        "https://",
+    ]
+    .iter()
+    .any(|prefix| lower.starts_with(prefix))
+}
+
+/// What `MessageTransport::receive` does when no message is waiting (H-16, B-010).
+///
+/// The signature says `Result<Option<ReceivedMessage>, _>`, which promises "there may be no
+/// message". That promise holds for two of six providers. The other four block until one
+/// arrives, so their `Ok(None)` is unreachable and the call simply never returns.
+///
+/// This matters more than it looks. A legacy JMS application polling for work expects
+/// `receiveNoWait()` semantics — call, get null, do something else. On a blocking provider
+/// that call never comes back, through a JNI boundary the application cannot cancel. It is
+/// exactly the kind of capability gap MSG-04 exists to make visible before traffic moves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ReceiveSemantics {
+    /// Returns `Ok(None)` promptly when nothing is waiting.
+    NonBlocking,
+    /// Blocks until a message arrives. **There is no timeout and no way to cancel.**
+    BlocksIndefinitely,
+}
+
+impl ReceiveSemantics {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ReceiveSemantics::NonBlocking => "NON_BLOCKING",
+            ReceiveSemantics::BlocksIndefinitely => "BLOCKS_INDEFINITELY",
+        }
+    }
+}
+
 /// How well a guarantee is backed, for one provider.
 ///
 /// MSG-04 exists so a capability gap is **queryable before traffic moves**, and a gap is
@@ -124,6 +421,8 @@ pub struct ProviderGuarantees {
     pub dead_lettering: Support,
     /// Already-consumed messages can be re-read.
     pub replay: Support,
+    /// What `receive` does when nothing is waiting -- H-16.
+    pub receive_semantics: ReceiveSemantics,
 }
 
 impl ProviderGuarantees {
@@ -190,6 +489,7 @@ impl Provider {
                 redelivery: Unsupported,
                 dead_lettering: Unsupported,
                 replay: Unsupported,
+                receive_semantics: ReceiveSemantics::NonBlocking,
             },
             // Core NATS is fire-and-forget pub/sub. There is no broker-side state, so an
             // unacknowledged message is simply gone. `acknowledge` returns Acknowledged
@@ -204,6 +504,7 @@ impl Provider {
                 redelivery: Unsupported,
                 dead_lettering: Unsupported,
                 replay: Unsupported,
+                receive_semantics: ReceiveSemantics::BlocksIndefinitely,
             },
             // JetStream keeps a stream and a durable pull consumer with
             // AckPolicy::Explicit, so acknowledgement is genuinely server-side.
@@ -217,6 +518,7 @@ impl Provider {
                 redelivery: Declared,
                 dead_lettering: Unsupported,
                 replay: Declared,
+                receive_semantics: ReceiveSemantics::BlocksIndefinitely,
             },
             // Kafka commits offsets with CommitMode::Sync. Ordering holds per partition,
             // not per topic -- this transport does not choose partitions, so ordering is
@@ -231,6 +533,7 @@ impl Provider {
                 redelivery: Declared,
                 dead_lettering: Unsupported,
                 replay: Declared,
+                receive_semantics: ReceiveSemantics::BlocksIndefinitely,
             },
             Provider::Pulsar => ProviderGuarantees {
                 provider: self,
@@ -242,6 +545,7 @@ impl Provider {
                 redelivery: Declared,
                 dead_lettering: Unsupported,
                 replay: Declared,
+                receive_semantics: ReceiveSemantics::BlocksIndefinitely,
             },
             // The queue is declared durable, but the publisher sends
             // BasicProperties::default(), which is delivery_mode 1 (transient). A durable
@@ -259,6 +563,7 @@ impl Provider {
                 redelivery: Declared,
                 dead_lettering: Unsupported,
                 replay: Unsupported,
+                receive_semantics: ReceiveSemantics::NonBlocking,
             },
         }
     }
@@ -543,18 +848,22 @@ impl NatsTransport {
                 "NATS subject must not be empty".to_string(),
             ));
         }
-        let runtime = tokio::runtime::Runtime::new()
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
-        let (client, subscription) = runtime.block_on(async {
-            let client = async_nats::connect(url)
-                .await
-                .map_err(|error| DomainError::Transport(error.to_string()))?;
-            let subscription = client
-                .subscribe(subject.to_string())
-                .await
-                .map_err(|error| DomainError::Transport(error.to_string()))?;
-            Ok::<_, DomainError>((client, subscription))
-        })?;
+        let runtime = tokio::runtime::Runtime::new().map_err(transport_error)?;
+        // H-02: bounded. An unreachable-but-not-refusing broker used to hang this thread
+        // forever, and it is the legacy application's thread.
+        let (client, subscription) = block_on_with_timeout(
+            &runtime,
+            "NATS connect",
+            broker_timeout(DEFAULT_CONNECT_TIMEOUT_SECS),
+            async {
+                let client = async_nats::connect(url).await.map_err(transport_error)?;
+                let subscription = client
+                    .subscribe(subject.to_string())
+                    .await
+                    .map_err(transport_error)?;
+                Ok::<_, DomainError>((client, subscription))
+            },
+        )??;
         Ok(Self {
             client: Some(client),
             subject: subject.to_string(),
@@ -605,10 +914,8 @@ impl MessageTransport for NatsTransport {
             .ok_or_else(|| DomainError::Transport("NATS client is unavailable".to_string()))?;
         runtime
             .block_on(client.publish(self.subject.clone(), payload.into()))
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
-        runtime
-            .block_on(client.flush())
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
+            .map_err(transport_error)?;
+        runtime.block_on(client.flush()).map_err(transport_error)?;
         Ok(DeliveryReceipt {
             message_id,
             provider: Provider::Nats,
@@ -618,28 +925,25 @@ impl MessageTransport for NatsTransport {
     }
 
     fn receive(&self) -> Result<Option<ReceivedMessage>, DomainError> {
-        let mut subscription = self
-            .subscription
-            .lock()
-            .map_err(|_| DomainError::Transport("NATS subscription is unavailable".to_string()))?
-            .take()
-            .ok_or_else(|| {
-                DomainError::Transport("NATS subscription is unavailable".to_string())
-            })?;
+        // B-007: the subscription is restored by Drop, so an unwind between here and the
+        // end of the borrow cannot leave the slot empty for the life of the client.
+        let mut subscription =
+            RestoreOnDrop::take_from(&self.subscription, "NATS subscription is unavailable")?;
         let runtime = self
             .runtime
             .as_ref()
             .ok_or_else(|| DomainError::Transport("NATS runtime is unavailable".to_string()))?;
         let message = runtime.block_on(async {
             subscription
+                .value_mut()
+                .ok_or_else(|| {
+                    DomainError::Transport("NATS subscription is unavailable".to_string())
+                })?
                 .next()
                 .await
                 .ok_or_else(|| DomainError::Transport("NATS subscription ended".to_string()))
         });
-        self.subscription
-            .lock()
-            .map_err(|_| DomainError::Transport("NATS subscription is unavailable".to_string()))?
-            .replace(subscription);
+        drop(subscription);
         let message = message?;
         let message: MessageEnvelope = serde_json::from_slice(&message.payload)
             .map_err(|error| DomainError::Serialization(error.to_string()))?;
@@ -698,42 +1002,45 @@ impl NatsJetStreamTransport {
                 "NATS JetStream subject, stream, and consumer names are required".to_string(),
             ));
         }
-        let runtime = tokio::runtime::Runtime::new()
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
-        let (client, context, consumer_stream) = runtime.block_on(async {
-            let client = async_nats::connect(url)
-                .await
-                .map_err(|error| DomainError::Transport(error.to_string()))?;
-            let context = async_nats::jetstream::new(client.clone());
-            let stream = context
-                .get_or_create_stream(async_nats::jetstream::stream::Config {
-                    name: stream_name.to_string(),
-                    subjects: vec![subject.to_string()],
-                    max_messages: -1,
-                    max_age: Duration::from_secs(0),
-                    ..Default::default()
-                })
-                .await
-                .map_err(|error| DomainError::Transport(error.to_string()))?;
-            let consumer = stream
-                .get_or_create_consumer(
-                    consumer_name,
-                    async_nats::jetstream::consumer::pull::Config {
-                        durable_name: Some(consumer_name.to_string()),
-                        ack_policy: async_nats::jetstream::consumer::AckPolicy::Explicit,
+        let runtime = tokio::runtime::Runtime::new().map_err(transport_error)?;
+        // H-02: bounded, same reason as the core NATS connect.
+        let (client, context, consumer_stream) = block_on_with_timeout(
+            &runtime,
+            "NATS JetStream connect",
+            broker_timeout(DEFAULT_CONNECT_TIMEOUT_SECS),
+            async {
+                let client = async_nats::connect(url).await.map_err(transport_error)?;
+                let context = async_nats::jetstream::new(client.clone());
+                let stream = context
+                    .get_or_create_stream(async_nats::jetstream::stream::Config {
+                        name: stream_name.to_string(),
+                        subjects: vec![subject.to_string()],
+                        max_messages: -1,
+                        max_age: Duration::from_secs(0),
                         ..Default::default()
-                    },
-                )
-                .await
-                .map_err(|error| DomainError::Transport(error.to_string()))?;
-            let consumer_stream = consumer
-                .stream()
-                .max_messages_per_batch(1)
-                .messages()
-                .await
-                .map_err(|error| DomainError::Transport(error.to_string()))?;
-            Ok::<_, DomainError>((client, context, consumer_stream))
-        })?;
+                    })
+                    .await
+                    .map_err(transport_error)?;
+                let consumer = stream
+                    .get_or_create_consumer(
+                        consumer_name,
+                        async_nats::jetstream::consumer::pull::Config {
+                            durable_name: Some(consumer_name.to_string()),
+                            ack_policy: async_nats::jetstream::consumer::AckPolicy::Explicit,
+                            ..Default::default()
+                        },
+                    )
+                    .await
+                    .map_err(transport_error)?;
+                let consumer_stream = consumer
+                    .stream()
+                    .max_messages_per_batch(1)
+                    .messages()
+                    .await
+                    .map_err(transport_error)?;
+                Ok::<_, DomainError>((client, context, consumer_stream))
+            },
+        )??;
         Ok(Self {
             client: Some(client),
             context: Some(context),
@@ -783,10 +1090,8 @@ impl MessageTransport for NatsJetStreamTransport {
             let pending = context
                 .publish(self.subject.clone(), payload.into())
                 .await
-                .map_err(|error| DomainError::Transport(error.to_string()))?;
-            pending
-                .await
-                .map_err(|error| DomainError::Transport(error.to_string()))
+                .map_err(transport_error)?;
+            pending.await.map_err(transport_error)
         })?;
         Ok(DeliveryReceipt {
             message_id,
@@ -797,32 +1102,24 @@ impl MessageTransport for NatsJetStreamTransport {
     }
 
     fn receive(&self) -> Result<Option<ReceivedMessage>, DomainError> {
-        let mut stream = self
-            .stream
-            .lock()
-            .map_err(|_| {
-                DomainError::Transport("NATS JetStream stream is unavailable".to_string())
-            })?
-            .take()
-            .ok_or_else(|| {
-                DomainError::Transport("NATS JetStream stream is unavailable".to_string())
-            })?;
+        // B-007: same restore-on-unwind contract as the core NATS receive.
+        let mut stream =
+            RestoreOnDrop::take_from(&self.stream, "NATS JetStream stream is unavailable")?;
         let runtime = self.runtime.as_ref().ok_or_else(|| {
             DomainError::Transport("NATS JetStream runtime is unavailable".to_string())
         })?;
         let result = runtime.block_on(async {
             stream
+                .value_mut()
+                .ok_or_else(|| {
+                    DomainError::Transport("NATS JetStream stream is unavailable".to_string())
+                })?
                 .next()
                 .await
                 .ok_or_else(|| DomainError::Transport("NATS JetStream consumer ended".to_string()))?
-                .map_err(|error| DomainError::Transport(error.to_string()))
+                .map_err(transport_error)
         });
-        self.stream
-            .lock()
-            .map_err(|_| {
-                DomainError::Transport("NATS JetStream stream is unavailable".to_string())
-            })?
-            .replace(stream);
+        drop(stream);
         let message = result?;
         let (message, acker) = message.split();
         let message: MessageEnvelope = serde_json::from_slice(&message.payload)
@@ -867,9 +1164,7 @@ impl MessageTransport for NatsJetStreamTransport {
         let runtime = self.runtime.as_ref().ok_or_else(|| {
             DomainError::Transport("NATS JetStream runtime is unavailable".to_string())
         })?;
-        runtime
-            .block_on(acker.ack())
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        runtime.block_on(acker.ack()).map_err(transport_error)?;
         Ok(DeliveryReceipt {
             state: DeliveryState::Acknowledged,
             ..receipt.clone()
@@ -937,23 +1232,31 @@ impl PulsarTransport {
             .name("modernlink-pulsar-connect".to_string())
             .stack_size(8 * 1024 * 1024)
             .spawn(move || {
-                let runtime = tokio::runtime::Runtime::new()
-                    .map_err(|error| DomainError::Transport(error.to_string()))?;
-                let client = runtime
-                    .block_on(Pulsar::builder(service_url, TokioExecutor).build())
-                    .map_err(|error| DomainError::Transport(error.to_string()))?;
-                let consumer = runtime
-                    .block_on(
-                        client
-                            .consumer()
-                            .with_topic(topic)
-                            .with_subscription(subscription)
-                            .build::<Vec<u8>>(),
-                    )
-                    .map_err(|error| DomainError::Transport(error.to_string()))?;
+                let runtime = tokio::runtime::Runtime::new().map_err(transport_error)?;
+                // H-02: bounded. This runs on a dedicated worker thread, so an unbounded
+                // hang here leaks a thread per attempt as well as never returning - the
+                // join below would block the caller forever.
+                let client = block_on_with_timeout(
+                    &runtime,
+                    "Pulsar connect",
+                    broker_timeout(DEFAULT_CONNECT_TIMEOUT_SECS),
+                    Pulsar::builder(service_url, TokioExecutor).build(),
+                )?
+                .map_err(transport_error)?;
+                let consumer = block_on_with_timeout(
+                    &runtime,
+                    "Pulsar consumer build",
+                    broker_timeout(DEFAULT_ADMIN_TIMEOUT_SECS),
+                    client
+                        .consumer()
+                        .with_topic(topic)
+                        .with_subscription(subscription)
+                        .build::<Vec<u8>>(),
+                )?
+                .map_err(transport_error)?;
                 Ok((client, consumer, runtime))
             })
-            .map_err(|error| DomainError::Transport(error.to_string()))?
+            .map_err(transport_error)?
             .join()
             .map_err(|_| {
                 DomainError::Transport("Pulsar connection thread panicked".to_string())
@@ -977,7 +1280,7 @@ impl PulsarTransport {
             .name("modernlink-pulsar-operation".to_string())
             .stack_size(8 * 1024 * 1024)
             .spawn(move || operation(runtime))
-            .map_err(|error| DomainError::Transport(error.to_string()))?
+            .map_err(transport_error)?
             .join()
             .map_err(|_| DomainError::Transport("Pulsar operation thread panicked".to_string()))?
     }
@@ -1007,9 +1310,8 @@ impl MessageTransport for PulsarTransport {
                         },
                     )
                     .await
-                    .map_err(|error| DomainError::Transport(error.to_string()))?;
-                send.await
-                    .map_err(|error| DomainError::Transport(error.to_string()))
+                    .map_err(transport_error)?;
+                send.await.map_err(transport_error)
             })
         })?;
         Ok(DeliveryReceipt {
@@ -1031,13 +1333,7 @@ impl MessageTransport for PulsarTransport {
             let mut consumer = consumer.lock().map_err(|_| {
                 DomainError::Transport("Pulsar consumer is unavailable".to_string())
             })?;
-            runtime.block_on(async {
-                consumer
-                    .next()
-                    .await
-                    .transpose()
-                    .map_err(|error| DomainError::Transport(error.to_string()))
-            })
+            runtime.block_on(async { consumer.next().await.transpose().map_err(transport_error) })
         })?;
         let Some(delivery) = delivery else {
             return Ok(None);
@@ -1085,12 +1381,7 @@ impl MessageTransport for PulsarTransport {
             let mut consumer = consumer.lock().map_err(|_| {
                 DomainError::Transport("Pulsar consumer is unavailable".to_string())
             })?;
-            runtime.block_on(async {
-                consumer
-                    .ack(&delivery)
-                    .await
-                    .map_err(|error| DomainError::Transport(error.to_string()))
-            })
+            runtime.block_on(async { consumer.ack(&delivery).await.map_err(transport_error) })
         })?;
         Ok(DeliveryReceipt {
             state: DeliveryState::Acknowledged,
@@ -1107,25 +1398,39 @@ impl RabbitMqTransport {
                 "RabbitMQ URI and queue are required".to_string(),
             ));
         }
-        let runtime = tokio::runtime::Runtime::new()
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        let runtime = tokio::runtime::Runtime::new().map_err(transport_error)?;
         let _runtime_guard = runtime.enter();
-        let connection = runtime
-            .block_on(Connection::connect(uri, ConnectionProperties::default()))
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
-        let channel = runtime
-            .block_on(connection.create_channel())
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
-        runtime
-            .block_on(channel.queue_declare(
+        // H-02: each leg is bounded separately. A broker can complete the TCP handshake
+        // and then stall on the AMQP handshake, so bounding only the first would leave the
+        // hang intact one step later.
+        let connection = block_on_with_timeout(
+            &runtime,
+            "RabbitMQ connect",
+            broker_timeout(DEFAULT_CONNECT_TIMEOUT_SECS),
+            Connection::connect(uri, ConnectionProperties::default()),
+        )?
+        .map_err(transport_error)?;
+        let channel = block_on_with_timeout(
+            &runtime,
+            "RabbitMQ channel open",
+            broker_timeout(DEFAULT_CONNECT_TIMEOUT_SECS),
+            connection.create_channel(),
+        )?
+        .map_err(transport_error)?;
+        block_on_with_timeout(
+            &runtime,
+            "RabbitMQ queue declare",
+            broker_timeout(DEFAULT_ADMIN_TIMEOUT_SECS),
+            channel.queue_declare(
                 queue,
                 QueueDeclareOptions {
                     durable: true,
                     ..QueueDeclareOptions::default()
                 },
                 FieldTable::default(),
-            ))
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
+            ),
+        )?
+        .map_err(transport_error)?;
         Ok(Self {
             connection: Some(connection),
             channel: Some(channel),
@@ -1182,7 +1487,7 @@ impl MessageTransport for RabbitMqTransport {
                     .await?;
                 confirm.await
             })
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
+            .map_err(transport_error)?;
         if !confirmation.is_ack()
             && !matches!(
                 confirmation,
@@ -1212,7 +1517,7 @@ impl MessageTransport for RabbitMqTransport {
             .ok_or_else(|| DomainError::Transport("RabbitMQ channel is unavailable".to_string()))?;
         let result = runtime
             .block_on(channel.basic_get(&self.queue, BasicGetOptions::default()))
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
+            .map_err(transport_error)?;
         let Some(delivery) = result else {
             return Ok(None);
         };
@@ -1260,7 +1565,7 @@ impl MessageTransport for RabbitMqTransport {
             .ok_or_else(|| DomainError::Transport("RabbitMQ runtime is unavailable".to_string()))?;
         runtime
             .block_on(acker.ack(BasicAckOptions::default()))
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
+            .map_err(transport_error)?;
         Ok(DeliveryReceipt {
             state: DeliveryState::Acknowledged,
             ..receipt.clone()
@@ -1276,17 +1581,37 @@ impl KafkaTransport {
                 "Kafka brokers, topic, and group ID are required".to_string(),
             ));
         }
-        let runtime = tokio::runtime::Runtime::new()
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        let runtime = tokio::runtime::Runtime::new().map_err(transport_error)?;
         let _runtime_guard = runtime.enter();
+        // H-07: this build has no Kafka TLS. rdkafka is compiled with `cmake-build` and
+        // `libz` only - no `ssl` feature - so librdkafka is built without OpenSSL, and this
+        // transport sets no `security.protocol`. A TLS-looking endpoint therefore cannot be
+        // honoured, and connecting in plaintext instead would leave the deployment believing
+        // its traffic and credentials are encrypted. Refuse instead.
+        if endpoint_requests_tls(brokers) {
+            return Err(DomainError::Unsupported(
+                concat!(
+                    "Kafka TLS is not available in this build: rdkafka is compiled without ",
+                    "the `ssl` feature and this transport exposes no `security.protocol` ",
+                    "setting. The connection was refused rather than made in plaintext."
+                )
+                .to_string(),
+            ));
+        }
         let admin = ClientConfig::new()
             .set("bootstrap.servers", brokers)
             .create::<AdminClient<DefaultClientContext>>()
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
+            .map_err(transport_error)?;
         let new_topic = NewTopic::new(topic, 1, TopicReplication::Fixed(1));
-        let topic_results = runtime
-            .block_on(admin.create_topics(&[new_topic], &AdminOptions::new()))
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        // H-02: bounded. Topic creation talks to the cluster controller, which can accept
+        // the connection and then stall exactly like a broker connect.
+        let topic_results = block_on_with_timeout(
+            &runtime,
+            "Kafka topic creation",
+            broker_timeout(DEFAULT_ADMIN_TIMEOUT_SECS),
+            admin.create_topics(&[new_topic], &AdminOptions::new()),
+        )?
+        .map_err(transport_error)?;
         for result in topic_results {
             if let Err((_, code)) = result {
                 if code != RDKafkaErrorCode::TopicAlreadyExists {
@@ -1301,17 +1626,15 @@ impl KafkaTransport {
             .set("bootstrap.servers", brokers)
             .set("message.timeout.ms", "10000")
             .create::<FutureProducer>()
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
+            .map_err(transport_error)?;
         let consumer = ClientConfig::new()
             .set("bootstrap.servers", brokers)
             .set("group.id", group_id)
             .set("enable.auto.commit", "false")
             .set("auto.offset.reset", "earliest")
             .create::<StreamConsumer>()
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
-        consumer
-            .subscribe(&[topic])
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
+            .map_err(transport_error)?;
+        consumer.subscribe(&[topic]).map_err(transport_error)?;
         Ok(Self {
             producer: Some(producer),
             consumer: Some(consumer),
@@ -1364,7 +1687,7 @@ impl MessageTransport for KafkaTransport {
                     std::time::Duration::from_secs(10),
                 ),
             )
-            .map_err(|(error, _)| DomainError::Transport(error.to_string()))
+            .map_err(|(error, _)| transport_error(error))
             .map(|_| DeliveryReceipt {
                 message_id,
                 provider: Provider::Kafka,
@@ -1382,9 +1705,7 @@ impl MessageTransport for KafkaTransport {
             .consumer
             .as_ref()
             .ok_or_else(|| DomainError::Transport("Kafka consumer is unavailable".to_string()))?;
-        let message = runtime
-            .block_on(consumer.recv())
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
+        let message = runtime.block_on(consumer.recv()).map_err(transport_error)?;
         let payload = message.payload().ok_or_else(|| {
             DomainError::Serialization("Kafka message has no payload".to_string())
         })?;
@@ -1397,7 +1718,7 @@ impl MessageTransport for KafkaTransport {
                 message.partition(),
                 Offset::Offset(message.offset() + 1),
             )
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
+            .map_err(transport_error)?;
         let receipt = DeliveryReceipt {
             message_id: envelope.message_id.clone(),
             provider: Provider::Kafka,
@@ -1436,7 +1757,7 @@ impl MessageTransport for KafkaTransport {
             .as_ref()
             .ok_or_else(|| DomainError::Transport("Kafka consumer is unavailable".to_string()))?
             .commit(&offsets, CommitMode::Sync)
-            .map_err(|error| DomainError::Transport(error.to_string()))?;
+            .map_err(transport_error)?;
         Ok(DeliveryReceipt {
             state: DeliveryState::Acknowledged,
             ..receipt.clone()
@@ -1683,8 +2004,8 @@ impl RouteConfig {
 mod tests {
     use super::{
         AcknowledgementMode, DeliveryMode, DeliveryState, DomainError, InMemoryTransport,
-        MessageEnvelope, MessageTransport, Mode, Payload, Provider, RouteConfig, RouteRule,
-        Support,
+        MessageEnvelope, MessageTransport, Mode, Payload, Provider, ReceiveSemantics, RouteConfig,
+        RouteRule, Support,
     };
 
     fn message() -> MessageEnvelope {
@@ -1956,6 +2277,491 @@ mod tests {
             Provider::RabbitMq.guarantees().persistence,
             Support::Unsupported,
             "see docs/BUGS.md B-003: the publisher never sets delivery_mode 2"
+        );
+    }
+
+    // ---- H-02 / BACKLOG P1: broker operations must be bounded ----
+
+    fn test_runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Runtime::new().expect("a tokio runtime is required for these tests")
+    }
+
+    /// The whole point: an operation that never completes must return, not hang.
+    ///
+    /// `pending()` is used rather than a real unreachable endpoint so the test is
+    /// deterministic and needs no network — a black-holed address would make this test
+    /// depend on the firewall of whatever machine runs it.
+    #[test]
+    fn an_operation_that_never_completes_is_refused_at_the_deadline() {
+        let runtime = test_runtime();
+        let started = std::time::Instant::now();
+        let result: Result<(), DomainError> = super::block_on_with_timeout(
+            &runtime,
+            "test operation",
+            std::time::Duration::from_millis(150),
+            std::future::pending::<()>(),
+        );
+        let error = result.expect_err("a future that never completes must be refused");
+        assert!(
+            matches!(error, DomainError::Transport(_)),
+            "expiry is a transport failure: {:?}",
+            error
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("refused rather than left to block"),
+            "the message must say it was refused, not that it failed: {}",
+            error
+        );
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "it must return at the deadline, not hang"
+        );
+    }
+
+    #[test]
+    fn an_operation_that_completes_passes_its_value_through() {
+        let runtime = test_runtime();
+        let result = super::block_on_with_timeout(
+            &runtime,
+            "test operation",
+            std::time::Duration::from_secs(30),
+            async { 7u32 },
+        );
+        assert_eq!(result.expect("a completed future must pass through"), 7);
+    }
+
+    /// B-006: the timeout message must not become a new place for an endpoint - and its
+    /// credentials - to leak into a Java exception the host application logs.
+    #[test]
+    fn the_timeout_message_carries_no_endpoint() {
+        let runtime = test_runtime();
+        let result: Result<(), DomainError> = super::block_on_with_timeout(
+            &runtime,
+            "RabbitMQ connect",
+            std::time::Duration::from_millis(50),
+            std::future::pending::<()>(),
+        );
+        let message = result.expect_err("must time out").to_string();
+        assert!(
+            !message.contains("://"),
+            "no URL scheme may appear: {}",
+            message
+        );
+        assert!(
+            !message.contains('@'),
+            "no userinfo may appear: {}",
+            message
+        );
+    }
+
+    /// H-02 structural guard: no `connect` may await a broker without a deadline.
+    ///
+    /// Counting call sites is crude, and it is the only check that fails when a sixth
+    /// transport is added with a bare `runtime.block_on(...)` in its connect — which is
+    /// exactly how this defect would come back. Scans the source rather than the behaviour
+    /// because the behaviour needs a broker that stalls, which no test can rely on.
+    #[test]
+    fn no_connect_awaits_a_broker_without_a_deadline() {
+        let source = include_str!("lib.rs");
+        let lines: Vec<&str> = source.lines().collect();
+        let mut offenders: Vec<String> = Vec::new();
+        let mut connects = 0;
+        let mut index = 0;
+        while index < lines.len() {
+            if lines[index].trim_start().starts_with("pub fn connect") {
+                connects += 1;
+                let mut end = index;
+                while end < lines.len() && lines[end] != "    }" {
+                    end += 1;
+                }
+                for line in &lines[index..end] {
+                    if line.contains("block_on") && !line.contains("block_on_with_timeout") {
+                        offenders.push((*line).trim().to_string());
+                    }
+                }
+                index = end;
+            }
+            index += 1;
+        }
+        assert!(
+            connects >= 5,
+            "expected at least 5 connect fns, found {connects}"
+        );
+        assert!(
+            offenders.is_empty(),
+            "every broker connect must be bounded by block_on_with_timeout; unbounded: {:?}. \
+             An unbounded connect hangs the legacy application's thread through a JNI call it \
+             cannot cancel - see docs/BACKLOG.md H-02.",
+            offenders
+        );
+    }
+
+    /// The 10s/30s defaults are a starting point, not a policy - Codex flagged that a
+    /// hard-coded bound can reject a slow-but-healthy deployment. These pin the override.
+    ///
+    /// Serialised into one test because they mutate process-wide environment state.
+    #[cfg(any(
+        feature = "nats",
+        feature = "kafka",
+        feature = "pulsar",
+        feature = "rabbitmq"
+    ))]
+    #[test]
+    fn the_broker_deadline_is_overridable_and_rejects_nonsense() {
+        let key = "MODERNLINK_BROKER_TIMEOUT_SECS";
+        let restore = std::env::var(key).ok();
+
+        std::env::remove_var(key);
+        assert_eq!(
+            super::broker_timeout(10).as_secs(),
+            10,
+            "default applies when unset"
+        );
+
+        std::env::set_var(key, "45");
+        assert_eq!(super::broker_timeout(10).as_secs(), 45, "override applies");
+
+        std::env::set_var(key, "  45  ");
+        assert_eq!(
+            super::broker_timeout(10).as_secs(),
+            45,
+            "surrounding space is tolerated"
+        );
+
+        // Zero would mean "time out immediately", which looks exactly like a broker outage.
+        std::env::set_var(key, "0");
+        assert_eq!(
+            super::broker_timeout(10).as_secs(),
+            10,
+            "zero must not be honoured"
+        );
+
+        std::env::set_var(key, "not-a-number");
+        assert_eq!(
+            super::broker_timeout(10).as_secs(),
+            10,
+            "garbage falls back"
+        );
+
+        std::env::set_var(key, "-5");
+        assert_eq!(
+            super::broker_timeout(10).as_secs(),
+            10,
+            "negative falls back"
+        );
+
+        match restore {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
+    }
+
+    // ---- H-03 / B-006: credentials must never reach an error message ----
+
+    #[test]
+    fn userinfo_is_stripped_from_a_broker_url() {
+        let message = super::redact_credentials(
+            "connection refused to amqp://guest:hunter2@rabbit.internal:5672/%2f",
+        );
+        assert!(!message.contains("hunter2"), "password survived: {message}");
+        assert!(!message.contains("guest:"), "username survived: {message}");
+        assert!(
+            message.contains("***@rabbit.internal:5672"),
+            "host must survive: {message}"
+        );
+        assert!(message.contains("/%2f"), "path must survive: {message}");
+    }
+
+    #[test]
+    fn a_url_without_credentials_is_left_alone() {
+        let original = "could not reach nats://127.0.0.1:4222";
+        assert_eq!(super::redact_credentials(original), original);
+    }
+
+    /// An error can name more than one endpoint - a failover list, or a redirect.
+    #[test]
+    fn every_url_in_the_message_is_scrubbed() {
+        let message =
+            super::redact_credentials("tried amqp://a:b@one:5672 then amqp://c:d@two:5672");
+        assert!(!message.contains("a:b@"), "{message}");
+        assert!(!message.contains("c:d@"), "{message}");
+        assert!(message.contains("***@one:5672"), "{message}");
+        assert!(message.contains("***@two:5672"), "{message}");
+    }
+
+    /// An `@` in a path or query is not a credential. Blanking it would corrupt a useful
+    /// diagnostic, which is its own kind of harm.
+    #[test]
+    fn an_at_sign_outside_the_authority_is_not_treated_as_a_credential() {
+        let original = "pulsar://host:6650/tenant/ns/topic@version";
+        assert_eq!(super::redact_credentials(original), original);
+        let query = "http://host/path?user=a@b.com";
+        assert_eq!(super::redact_credentials(query), query);
+    }
+
+    #[test]
+    fn text_with_no_url_is_unchanged() {
+        let original = "NATS subscription is unavailable";
+        assert_eq!(super::redact_credentials(original), original);
+    }
+
+    /// The end-to-end contract: whatever a provider crate says, what leaves this crate as a
+    /// DomainError carries no password.
+    #[test]
+    fn transport_error_redacts_whatever_the_provider_said() {
+        let error =
+            super::transport_error("io error connecting to amqp://admin:s3cr3t@broker:5672/vhost");
+        let text = error.to_string();
+        assert!(
+            !text.contains("s3cr3t"),
+            "password reached DomainError: {text}"
+        );
+        assert!(matches!(error, DomainError::Transport(_)));
+    }
+
+    /// Structural guard: no site may build a transport error from a raw provider string
+    /// again. This is the check that fails when a sixth transport is added the old way.
+    #[test]
+    fn no_transport_error_is_built_from_an_unredacted_provider_string() {
+        let source = include_str!("lib.rs");
+        // Built in two pieces so this needle does not match its own source line - the
+        // first run of this test failed on exactly that self-reference.
+        let needle = concat!("DomainError::Transport(error.", "to_string())");
+        let bare = source.matches(needle).count();
+        assert_eq!(
+            bare, 0,
+            "{bare} site(s) still build DomainError::Transport from a raw provider error. \
+             Provider errors embed the endpoint, and endpoints carry credentials - use \
+             transport_error(). See docs/BUGS.md B-006."
+        );
+    }
+
+    /// Edge cases for the scrubber, written from the questions put to the independent
+    /// reviewer. Self-verified (same-model) - weaker than an outside check, and better than
+    /// asserting the cases were considered.
+    #[test]
+    fn scrubber_edge_cases() {
+        let r = super::redact_credentials;
+
+        // Userinfo with no password still identifies an account.
+        assert_eq!(r("amqp://user@host:5672"), "amqp://***@host:5672");
+
+        // TLS schemes must be treated identically - this is the case that matters most,
+        // because it is the one a security-conscious deployment actually uses.
+        assert!(!r("amqps://u:p@host/v").contains("u:p"));
+        assert!(!r("nats+tls://u:p@host").contains("u:p"));
+
+        // Scheme case is not normalised by every provider crate.
+        assert!(!r("AMQP://u:p@host").contains("u:p"));
+
+        // A URL ending the string with no trailing delimiter is the common shape in an
+        // error message, and an off-by-one here would leave the password intact.
+        assert_eq!(
+            r("failed: amqp://u:p@host:5672"),
+            "failed: amqp://***@host:5672"
+        );
+
+        // A percent-encoded password contains its own '@'; rfind must take the LAST one.
+        assert!(!r("amqp://user:p%40ss@host").contains("p%40ss"));
+
+        // Punctuation around the URL must not defeat it.
+        assert!(!r("connect to \"amqp://u:p@host\" failed").contains("u:p"));
+        assert!(!r("(amqp://u:p@host)").contains("u:p"));
+
+        // Multi-byte UTF-8 adjacent to the delimiters must not panic on a slice boundary.
+        // A panic here is contained by jni_guard but still breaks the call.
+        let _ = r("naïve://üser:pä@høst/päth");
+        let _ = r("日本://語:密@ホスト/パス");
+        let _ = r("amqp://u:p@host/路径@版本");
+        let _ = r("://");
+        let _ = r("://@");
+        let _ = r("");
+    }
+
+    // ---- H-15 / B-007: a contained panic must not permanently break a transport ----
+
+    /// The defect, reproduced directly: take a value out, panic before putting it back, and
+    /// the slot must still hold it. Against the old take/await/replace code this fails -
+    /// the slot stays None forever and every later receive reports "unavailable" on a
+    /// client that still looks open.
+    #[test]
+    fn a_panic_between_take_and_replace_still_restores_the_value() {
+        let slot: std::sync::Mutex<Option<String>> =
+            std::sync::Mutex::new(Some("subscription".to_string()));
+
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut guard =
+                super::RestoreOnDrop::take_from(&slot, "missing").expect("the slot is populated");
+            assert_eq!(guard.value_mut().map(|v| v.as_str()), Some("subscription"));
+            panic!("the broker await blew up");
+        }));
+
+        assert!(outcome.is_err(), "the panic must actually have happened");
+        let restored = slot.lock().expect("slot lock").clone();
+        assert_eq!(
+            restored,
+            Some("subscription".to_string()),
+            "the value must be back in the slot after an unwind, or the client is broken \
+             for good - see docs/BUGS.md B-007"
+        );
+    }
+
+    #[test]
+    fn the_happy_path_restores_through_the_same_route() {
+        let slot: std::sync::Mutex<Option<u32>> = std::sync::Mutex::new(Some(7));
+        {
+            let mut guard = super::RestoreOnDrop::take_from(&slot, "missing").expect("populated");
+            assert_eq!(guard.value_mut().copied(), Some(7));
+            assert!(
+                slot.lock().expect("slot lock").is_none(),
+                "while borrowed the slot is empty - that is the window B-007 is about"
+            );
+        }
+        assert_eq!(*slot.lock().expect("slot lock"), Some(7));
+    }
+
+    #[test]
+    fn an_empty_slot_is_reported_not_panicked() {
+        let slot: std::sync::Mutex<Option<u32>> = std::sync::Mutex::new(None);
+        let error = super::RestoreOnDrop::take_from(&slot, "stream is unavailable")
+            .err()
+            .expect("an empty slot must be an error");
+        assert!(
+            error.to_string().contains("stream is unavailable"),
+            "{error}"
+        );
+    }
+
+    /// Structural guard: no receive path may go back to take/await/manual-replace. This is
+    /// what fails if a sixth transport copies the old shape.
+    #[test]
+    fn no_receive_path_replaces_a_borrowed_value_by_hand() {
+        let source = include_str!("lib.rs");
+        let needle = concat!(".replace(sub", "scription);");
+        assert_eq!(
+            source.matches(needle).count(),
+            0,
+            "a receive path restores its subscription by hand instead of via RestoreOnDrop; \
+             an unwind before that line leaves the client broken for good - B-007."
+        );
+    }
+
+    // ---- H-07: a TLS request that cannot be honoured must be refused, not downgraded ----
+
+    #[test]
+    fn tls_schemes_are_recognised_across_providers() {
+        for endpoint in [
+            "amqps://host:5671",
+            "AMQPS://host:5671",
+            "  amqps://host:5671  ",
+            "nats+tls://host:4222",
+            "tls://host:4222",
+            "ssl://host:9093",
+            "sasl_ssl://host:9093",
+            "pulsar+ssl://host:6651",
+            "https://host",
+        ] {
+            assert!(
+                super::endpoint_requests_tls(endpoint),
+                "must be recognised as a TLS request: {endpoint}"
+            );
+        }
+    }
+
+    #[test]
+    fn plaintext_schemes_are_not_mistaken_for_tls() {
+        for endpoint in [
+            "amqp://host:5672",
+            "nats://host:4222",
+            "pulsar://host:6650",
+            "host:9092",
+            "http://host",
+            "",
+        ] {
+            assert!(
+                !super::endpoint_requests_tls(endpoint),
+                "must NOT be read as a TLS request: {endpoint}"
+            );
+        }
+    }
+
+    /// The defect this closes: a deployment that writes an encrypted endpoint and gets a
+    /// plaintext connection believes its broker traffic and credentials are protected.
+    /// Silence is the whole danger, so the refusal must be explicit and must say why.
+    #[cfg(feature = "kafka")]
+    #[test]
+    fn kafka_refuses_a_tls_endpoint_rather_than_connecting_in_plaintext() {
+        let error = super::KafkaTransport::connect("ssl://broker:9093", "orders", "group")
+            .err()
+            .expect("a TLS endpoint must be refused, not silently downgraded");
+        assert!(
+            matches!(error, DomainError::Unsupported(_)),
+            "a capability gap is Unsupported, not a Transport failure: {error:?}"
+        );
+        let text = error.to_string();
+        assert!(
+            text.contains("ssl"),
+            "must name the missing feature: {text}"
+        );
+        assert!(
+            text.contains("refused rather than made in plaintext"),
+            "must state that no plaintext fallback happened: {text}"
+        );
+    }
+
+    // ---- H-16 / B-010: receive() blocking semantics must be queryable ----
+
+    /// The finding, pinned. The signature promises `Option`, i.e. "there may be no message".
+    /// That promise holds for two of six providers; for the other four `Ok(None)` is
+    /// unreachable and the call never returns. A caller must be able to find that out
+    /// without discovering it as a hang in production.
+    #[test]
+    fn receive_semantics_are_declared_for_every_provider() {
+        use ReceiveSemantics::{BlocksIndefinitely, NonBlocking};
+        let expected = [
+            (Provider::LegacyJms, NonBlocking),
+            (Provider::RabbitMq, NonBlocking),
+            (Provider::Nats, BlocksIndefinitely),
+            (Provider::NatsJetStream, BlocksIndefinitely),
+            (Provider::Kafka, BlocksIndefinitely),
+            (Provider::Pulsar, BlocksIndefinitely),
+        ];
+        for (provider, semantics) in expected {
+            assert_eq!(
+                provider.guarantees().receive_semantics,
+                semantics,
+                "{provider:?} declares the wrong receive semantics - see docs/BUGS.md B-010"
+            );
+        }
+    }
+
+    /// LEGACY_JMS is the transparent-mode fixture the Java 6 tests drive, and its
+    /// non-blocking behaviour is observable here rather than merely declared.
+    #[test]
+    fn the_in_process_transport_really_does_return_none_when_empty() {
+        let transport = InMemoryTransport::new(Provider::LegacyJms);
+        assert!(
+            transport
+                .receive()
+                .expect("receive must not fail")
+                .is_none(),
+            "LEGACY_JMS must return Ok(None) on an empty queue, as its guarantee declares"
+        );
+        assert_eq!(
+            Provider::LegacyJms.guarantees().receive_semantics,
+            ReceiveSemantics::NonBlocking,
+            "the declaration must match the behaviour just observed"
+        );
+    }
+
+    #[test]
+    fn blocking_and_non_blocking_render_distinctly_for_the_java_boundary() {
+        assert_eq!(ReceiveSemantics::NonBlocking.as_str(), "NON_BLOCKING");
+        assert_eq!(
+            ReceiveSemantics::BlocksIndefinitely.as_str(),
+            "BLOCKS_INDEFINITELY"
         );
     }
 }

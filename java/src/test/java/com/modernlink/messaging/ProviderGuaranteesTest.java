@@ -24,6 +24,7 @@ public final class ProviderGuaranteesTest {
         jetStreamOffersRealServerSideAcknowledgement();
         transactionsAreRefusedEverywhere();
         declaredIsNotProven();
+        receiveSemanticsAreQueryable();
         summaryLeaksNoConnectionDetail();
         System.out.println("provider-guarantees=PASS");
     }
@@ -91,6 +92,32 @@ public final class ProviderGuaranteesTest {
         require(ModernGuaranteeSupport.VERIFIED.isProven(), "VERIFIED is proven");
         require(!ModernGuaranteeSupport.DECLARED.isProven(), "DECLARED is a claim, not proof");
         require(!ModernGuaranteeSupport.UNSUPPORTED.isProven(), "UNSUPPORTED is not proof");
+    }
+
+    /**
+     * H-16 / B-010. Four of six providers block indefinitely in receive(), through a JNI
+     * call the application cannot cancel. A caller writing a polling loop must be able to
+     * find that out here rather than discover it as a hang.
+     */
+    private static void receiveSemanticsAreQueryable() throws Exception {
+        ModernProviderGuarantees legacy =
+            ModernMessagingClient.guaranteesFor(ModernMessagingProvider.LEGACY_JMS);
+        require(legacy.getReceiveSemantics() == ModernReceiveSemantics.NON_BLOCKING,
+            "LEGACY_JMS returns promptly when empty");
+        require(legacy.getReceiveSemantics().isSafeForPolling(), "so polling it is safe");
+
+        ModernProviderGuarantees nats =
+            ModernMessagingClient.guaranteesFor(ModernMessagingProvider.NATS);
+        require(nats.getReceiveSemantics() == ModernReceiveSemantics.BLOCKS_INDEFINITELY,
+            "core NATS blocks until a message arrives");
+        require(!nats.getReceiveSemantics().isSafeForPolling(),
+            "so a polling loop against NATS would hang, and must be reported as unsafe");
+
+        ModernMessagingProvider[] providers = ModernMessagingProvider.values();
+        for (int index = 0; index < providers.length; index++) {
+            require(ModernMessagingClient.guaranteesFor(providers[index]).getReceiveSemantics() != null,
+                "every provider must declare its receive semantics: " + providers[index]);
+        }
     }
 
     /**

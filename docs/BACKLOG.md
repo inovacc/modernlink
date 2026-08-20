@@ -1,5 +1,5 @@
 # ModernLink Messaging Compatibility Backlog
-<!-- rev:015 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:019 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 ## Objective
 
@@ -278,18 +278,41 @@ remains open, and why this is still P1 and still the largest gap:
 
 See ISSUES I-010.
 
+### P2 — `crates/http` coverage is structurally capped, not merely low (H-12)
+
+`crates/http` sits at **28.52% lines** and cannot meaningfully be raised by writing more
+unit tests. Its pure functions — `redirect_target`, `host_header` — are already covered by 12
+tests. Everything else is `execute_once_async` and `collect_response`, which need a live
+HTTPS server.
+
+**The blocker is a missing test seam in the TLS boundary.** `tls::client_config` builds its
+root store from `webpki_roots::TLS_SERVER_ROOTS` and exposes no way to add another root
+(`crates/tls/src/lib.rs`). An in-process test server would present a self-signed certificate,
+which is correctly rejected, so the HTTPS path cannot be exercised against localhost at all.
+
+That is not an argument for loosening trust. Any seam here is security-sensitive — a feature
+flag that adds test roots is a feature flag that can be enabled in production by mistake —
+so it needs a deliberate design rather than a convenience hook: a `cfg(test)`-only injection
+inside `crates/tls`, or a dedicated integration crate that constructs its own
+`ClientConfig` without going through the shipped boundary.
+
+Until then, quoting the `crates/http` percentage as a code-quality signal is misleading: it
+measures the absence of a test harness, not the absence of tests. **Do not set a coverage
+gate on this crate before the seam exists** — it would either fail permanently or be set so
+low it asserts nothing.
+
 ### ~~P2 — coverage cannot be measured (SC-04)~~ — **MEASURED**; raising and gating it stay open
 
 **SC-07 unblocked it, as predicted.** With the provider clients optional, llvm-cov compiles the
 graph and reports, on 2026-08-19 (Windows, rustc 1.96.0):
 
-- `cargo llvm-cov --workspace --all-features --summary-only` → **21.40% regions / 23.94% lines**
+- `cargo llvm-cov --workspace --all-features --summary-only` → **34.86% regions / 36.34% lines**
 - `cargo llvm-cov --workspace --summary-only` (broker-free) reads **higher**, and is the
   misleading one — see ROADMAP. It was 27.37% / 30.58% before the MSG-04/MSG-05 tests and has
   not been re-measured since; no current figure is quoted here rather than a stale one.
 
 **Quote the `--all-features` figure.** The broker-free run flatters `crates/messaging` by
-compiling the five transports out; with them in it is **29.70%**. That gap is VER-01/VER-02
+compiling the five transports out; with them in it is **46.53%**. That gap is VER-01/VER-02
 expressed as a number: the domain, routing and guarantee logic are well covered, the transports
 are close to untested.
 
@@ -361,6 +384,28 @@ been tried**, so it is a pin, not a measured floor.
 Original text: _CI resolves `dtolnay/rust-toolchain@stable` while the packaging image pins
 `rust:1.96-bookworm`, so the two can drift apart. No crate declares `rust-version`._
 
+### P1 — broker connections are not TLS-terminated, and Kafka cannot be at all (H-07)
+
+No provider connection terminates through `crates/tls`; only the HTTPS path does. There is no
+way for a caller to request TLS explicitly — the endpoint scheme is the only signal the API
+carries — so a deployment cannot state its intent and have it enforced.
+
+`rustls` is present in the graph for NATS/JetStream (`async-nats`), RabbitMQ
+(`rustls-connector`) and Pulsar (`tokio-rustls`), so those three would negotiate TLS from
+`tls://`, `amqps://` and `pulsar+ssl://` respectively — **declared, never tested against a
+broker**. **Kafka cannot**: `rdkafka` is compiled with `cmake-build` and `libz` only, with no
+`ssl` feature, so librdkafka has no OpenSSL and the transport sets no `security.protocol`.
+
+Partially closed: a TLS-looking Kafka endpoint is now **refused** rather than connected in
+plaintext, because a deployment that believes its credentials are encrypted and is wrong is
+worse off than one that gets an error. What remains:
+
+- enable `rdkafka`'s `ssl` feature (adds an OpenSSL build to the `kafka` feature),
+- expose TLS configuration through the Java API instead of inferring it from a scheme,
+- terminate through `crates/tls` so brokers inherit the TLS 1.2 floor the HTTPS path has,
+- and actually verify a negotiated protocol against a TLS broker, the way the HTTPS path
+  records `tls-protocol=TLSv1_3`.
+
 ### P1 — broker connects have no timeout and block a JVM thread indefinitely
 
 `crates/messaging/src/lib.rs` carries only three time bounds in the whole file — a JetStream
@@ -372,14 +417,30 @@ thread forever — and that thread belongs to the vendor-locked Java 6 applicati
 cannot cancel a JNI call. Bound each connect and fail closed on expiry. Found by
 `/project:harden` (H-02).
 
+### P2 — `crates/http` still shadows the external `http` crate (SC-05/SC-06 missed it)
+
+`cargo check -p http` is ambiguous and must be spelled `-p http@0.1.0`, exactly the footgun
+SC-05 and SC-06 removed for `jni` and `core`. Found while touching `crates/tls`. `tls` and
+`messaging` are unambiguous; `http` is the last one. Same fix as the others: give the package
+a distinguishing name and keep the folder path.
+
 ### P2 — `PulsarTransport` is the only transport without an explicit `Drop`
 
 `impl Drop` exists for `NatsTransport`, `NatsJetStreamTransport`, `RabbitMqTransport` and
 `KafkaTransport`, and not for `PulsarTransport` — which owns
-`runtime: Arc<tokio::runtime::Runtime>` and spawns named worker threads. Four transports
-needed explicit shutdown; the fifth relies on refcount order. Dropping a tokio `Runtime`
-inside an async context panics, which until B-004 lands crosses the FFI boundary.
-`/project:harden` H-06.
+`runtime: Arc<tokio::runtime::Runtime>` and spawns named worker threads.
+
+**Investigated 2026-08-19 and downgraded.** The stated hazard — dropping a tokio `Runtime`
+from inside an async context, which panics — is **not reachable through the JNI path**:
+`PulsarTransport` is dropped when the client leaves the handle registry, which happens on the
+JVM thread that called `nativeClose`, never on a runtime worker. The residual value is a
+graceful consumer close, and unacknowledged messages are redelivered anyway, so nothing is
+lost by its absence.
+
+The clean fix is to make the fields `Option<_>` so `Drop` can `take()` them the way the other
+four do. That is a struct-wide change to a transport with **no executed test** — the Pulsar
+broker-backed test has never run — so it would be an unverifiable restructure of the least
+proven code in the crate. Deferred deliberately rather than forced. `/project:harden` H-06.
 
 ### P2 — no dependency vulnerability audit has ever been run
 

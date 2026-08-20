@@ -1,5 +1,5 @@
 # Bugs
-<!-- rev:011 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:019 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Behaviour that is **wrong and should be fixed**. Deliberate constraints belong in
 [ISSUES.md](ISSUES.md); planned work belongs in [BACKLOG.md](BACKLOG.md).
@@ -9,9 +9,13 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 | B-001 | high | **resolved** `dd080b2` | CI `Rust workspace` job could not build `rdkafka-sys`; the Rust suite never ran in CI |
 | B-002 | high | **resolved** `ad4bd2f` | The routing policy engine was unreachable from Java — every `RouteConfig` was built with zero rules |
 | B-003 | high | **open** | `MessageEnvelope.delivery_mode` defaults to `Persistent` and is read by no transport; RabbitMQ publishes transient messages to a durable queue |
-| B-004 | critical | **open** | No `catch_unwind` on any of the 28 `Java_*` entry points; a Rust panic unwinds into JVM frames (UB) |
-| B-005 | high | **open** | The native messaging handle is a raw pointer dereferenced with only a null check |
-| B-006 | high | **open** | Broker URLs carry credentials into error strings that cross into Java exception messages |
+| B-004 | critical | **resolved** `f7b6081` | No `catch_unwind` on any of the 28 `Java_*` entry points; a Rust panic unwinds into JVM frames (UB) |
+| B-005 | high | **resolved** `700ce4d` | The native messaging handle is a raw pointer dereferenced with only a null check |
+| B-006 | high | **resolved** `cb8bf8e` | Broker URLs carry credentials into error strings that cross into Java exception messages |
+| B-007 | medium | **resolved** `95c84fe` | A contained panic can leave a transport permanently degraded while the client still looks open |
+| B-008 | medium | **resolved** `3f97281` | `NativeResponse` still uses a leaked `Box` address as its handle, dereferenced with only a null check |
+| B-009 | high | **open** | `async-nats 0.38` pulls `rustls-webpki 0.102.8` with 4 advisories, incl. two certificate-validation bypasses and a reachable panic |
+| B-010 | high | **open** | `receive()` returns `Ok(None)` on two providers and blocks forever on four, from the same API |
 
 ## Open
 
@@ -38,6 +42,17 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 - **Seen at commit:** `a32e1dd`.
 - **A regression test must fail against the current code:** add an entry point whose body
   panics and assert the sentinel is returned rather than the process dying.
+- **RESOLVED in `f7b6081`** (hardening item H-01). All 28 entry points run their body inside
+  `jni_guard(sentinel, move || …)`; a caught panic is recorded through the existing
+  `LAST_ERROR` channel and the caller receives the type's sentinel — `0` for `jlong`/`jint`,
+  `null_mut()` for every object return — so the Java side raises `LegacyHttpException`
+  exactly as it does for any ordinary failure. Six tests, written before the fix: the
+  structural one counts exported entry points against guard call sites and failed at 0-of-28,
+  which is what justified the change. **Falsified:** removing the guard from `nativeV4` fails
+  it with `27 vs 28`; reverting passes.
+- **What it does and does not buy.** It converts undefined behaviour into a reported error.
+  It does **not** make a panic acceptable, and it did not initially make the affected client
+  usable again — that gap was found by review and filed as **B-007**, since closed.
 
 ### B-005 — the native messaging handle is dereferenced without validation
 
@@ -50,7 +65,24 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 - **Expected:** a handle that is not live is refused, not dereferenced.
 - **Reproduction:** call any native method with an arbitrary non-zero `long`.
 - **Seen at commit:** `a32e1dd`.
-- **Candidate fix:** a registry mapping opaque ids to boxed clients, which also makes a
+- **RESOLVED.** Handles are now ids into a registry (`CLIENTS` in `crates/jni/src/lib.rs`),
+  not addresses, so an unknown id is a lookup miss and an ordinary error rather than a
+  dereference. Ids are never reused, so a stale handle cannot silently address a *different*
+  client — which would be worse than a miss, because the caller would get plausible results
+  from the wrong connection. Lookup clones an `Arc` and releases the lock immediately: an
+  in-flight call therefore survives a concurrent `close()` instead of having memory pulled
+  out from under it, and no global mutex is held across a blocking broker receive. Six
+  regression tests; falsified by recycling ids. A structural test fails if a handle is ever
+  cast back to a pointer.
+- **Not covered:** `NativeResponse` (the HTTP side, `crates/jni/src/lib.rs`) still uses the
+  same leaked-`Box`-as-handle pattern. Same defect class, narrower blast radius, and out of
+  scope for B-005 which named the messaging handle. Tracked as **B-008**.
+- **The leak it exposed is now bounded, not closed.** A client that is never closed used to
+  stay in the registry for the life of the JVM. `ModernMessagingClient.finalize()` now calls
+  `close()` as a backstop (H-08). That is a bound, not a guarantee: finalizers run at the
+  GC's discretion and may never run before exit, and Java 6 has no try-with-resources, so
+  callers must still close explicitly.
+- **Original candidate fix:** a registry mapping opaque ids to boxed clients, which also makes a
   leaked client (B-005's sibling, an unclosed handle) enumerable. A magic/generation word is
   the cheaper alternative.
 
@@ -74,6 +106,148 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 - **Seen at commit:** `a32e1dd`.
 - **Regression test:** assert a URI containing `user:password@` never appears in the
   `Display` of the resulting error.
+- **RESOLVED in `cb8bf8e`** (hardening item H-03). `redact_credentials` rewrites the userinfo
+  of every `scheme://user:pass@host` it finds to `***`, and all **40** sites that built a
+  transport error from a raw provider string now go through `transport_error`. It scrubs the
+  *message*, not just the endpoint passed in, because the text comes from
+  `lapin`/`async-nats`/`rdkafka`/`pulsar` and this crate does not control what they embed.
+  13 tests, including a structural guard — **falsified** by reintroducing one unredacted
+  site, which fails with the count and a pointer back here.
+- **The "not yet confirmed" question above is now moot** for the fix, though still unanswered
+  for `lapin` itself: the redaction is applied regardless of whether a given provider crate
+  embeds the URI, so the path is closed by construction rather than by trusting a dependency.
+- **Verified separately:** no `DomainError` in `crates/messaging` and no `format!` in
+  `crates/jni` interpolates a url, uri, endpoint or broker list, so there is no second path
+  by which a credential reaches an error string.
+- **Known limit, recorded in the code:** a scheme-less `user:pass@host` is not redacted —
+  without a scheme nothing distinguishes it from prose containing a colon and an `@`, and
+  matching that shape would eat email addresses out of diagnostics.
+
+### B-010 — `receive()` has two different meanings depending on the provider
+
+- **Severity:** high — a hang in a legacy application, through a JNI call it cannot cancel,
+  reached by writing the loop the API's own signature invites.
+- **Observed:** `MessageTransport::receive` returns `Result<Option<ReceivedMessage>>`, which
+  says "there may be no message". Two providers honour that. Four do not:
+
+  | Provider | when nothing is waiting |
+  |---|---|
+  | LEGACY_JMS | `Ok(None)` — `pop_front()` on an empty queue |
+  | RABBITMQ | `Ok(None)` — `basic_get` is a poll and has an explicit `else { return Ok(None) }` |
+  | NATS | blocks on `subscription.next()` |
+  | NATS_JETSTREAM | blocks on `stream.next()` |
+  | KAFKA | blocks on `consumer.recv()` |
+  | PULSAR | blocks on `consumer.next()` |
+
+  For the four, `Ok(None)` is unreachable — the call never returns rather than reporting
+  nothing. No timeout, no cancellation.
+- **Why it matters:** a JMS application polling for work expects `receiveNoWait()` — call,
+  get null, do something else. Against a blocking provider that loop hangs on its first empty
+  poll, and the legacy application cannot interrupt a JNI call. Switching provider, which
+  this layer exists to make easy, silently changes the meaning of the poll.
+- **Found by:** the `/project:harden` recheck after H-02 bounded the *connect* paths. H-02
+  deliberately scoped to connects; this is the same hazard on the hot path.
+- **Expected:** one meaning for one signature. Either every provider polls and reports
+  nothing, or the blocking ones take a timeout and the type says so.
+- **Not fixed, deliberately.** Both directions change delivery semantics on the default path
+  for four providers, and none of them can be verified here — Kafka and Pulsar have never
+  been executed at all. This is the same class of decision as B-003 and belongs to the
+  maintainer.
+- **Mitigated meanwhile:** the semantics are now *declared and queryable* before traffic
+  moves — `Provider::guarantees().receive_semantics`, and from Java 6
+  `getReceiveSemantics().isSafeForPolling()`. Documented in `docs/providers.md`.
+- **Seen at commit:** `b1a23fe`.
+
+### B-009 — the NATS TLS path uses a rustls-webpki with four open advisories
+
+- **Severity:** high — two of the four are certificate-validation bypasses, in a project
+  whose stated security posture is that *"TLS terminates and verifies in Rust"*. A third is a
+  reachable panic, in a library where B-004 has just finished making panics survivable rather
+  than undefined.
+- **Observed:** first ever run of `cargo audit` (H-09), 2026-08-19, exit 1:
+
+  | ID | Title |
+  |---|---|
+  | RUSTSEC-2026-0049 | CRLs not considered authoritative by Distribution Point, faulty matching |
+  | RUSTSEC-2026-0098 | Name constraints for URI names incorrectly accepted |
+  | RUSTSEC-2026-0099 | Name constraints accepted for certificates asserting a wildcard name |
+  | RUSTSEC-2026-0104 | Reachable panic in certificate revocation list parsing |
+
+  All four are `rustls-webpki 0.102.8`. Plus two unmaintained warnings:
+  `instant 0.1.13` (RUSTSEC-2024-0384) and `rustls-pemfile 2.2.0` (RUSTSEC-2025-0134).
+- **Scope — this is narrower than it first looks.** `cargo tree -i` shows the vulnerable
+  0.102.8 is pulled by **`async-nats 0.38` alone**. The HTTPS path and Pulsar use
+  `rustls-webpki 0.103.14`, which is unaffected. So the exposure is the **NATS and JetStream
+  TLS path**, which nothing has ever exercised (see docs/providers.md — NATS TLS is DECLARED,
+  never tested).
+- **`cargo update` cannot fix it.** 0.102 → 0.103 is semver-incompatible;
+  `cargo update -p rustls-webpki@0.102.8` locks 0 packages. The fix is upgrading
+  **`async-nats` 0.38 → 0.50**, which is available.
+- **Not attempted, deliberately.** That is a twelve-minor-version jump with API changes,
+  across `NatsTransport` and `NatsJetStreamTransport` — two of the three transports that have
+  *actually passed against a live broker*, and the only broker evidence this project has. It
+  cannot be verified here: no broker, no Docker. Breaking the project's best evidence on an
+  unverifiable dependency bump is a worse trade than carrying a documented advisory on a code
+  path nobody has ever run.
+- **Reproduction:** `cargo audit`; `cargo tree --all-features -i rustls-webpki@0.102.8`.
+- **Seen at commit:** `b3e8834`.
+
+### B-008 — the HTTP response handle is still a raw pointer
+
+- **Severity:** medium — same defect class as B-005, narrower blast radius. The response
+  handle is short-lived and used by one caller, where the messaging client is long-lived and
+  shared.
+- **Observed:** `crates/jni/src/lib.rs` still does `Box::into_raw(Box::new(NativeResponse(...)))`
+  and `drop(Box::from_raw(handle as *mut NativeResponse))`, with the accessor dereferencing
+  the `jlong` after a null check only. A stale or fabricated handle is a use-after-free.
+- **Expected:** the same registry treatment B-005 got.
+- **Seen at commit:** the B-005 fix.
+- **Why not fixed with B-005:** B-005 named the messaging handle, and widening a security fix
+  mid-item is how scope discipline is lost. Filed rather than done.
+- **RESOLVED (H-17), found again by the `/project:harden` recheck.** `NativeResponse` now uses
+  the same registry as `NativeMessagingClient`, sharing one id counter so a response handle
+  and a client handle can never collide — mixing them misses in both maps rather than finding
+  the wrong object in one and returning a plausible answer from an unrelated request.
+- **`crates/jni` now contains zero `unsafe` blocks**, down from 16. A structural test asserts
+  that and fails the moment one returns, which is the only route back to this defect.
+  Falsified by restoring a raw-pointer deref in `response_for`.
+
+### B-007 — a contained panic leaves the client alive and permanently broken
+
+- **Severity:** medium — strictly better than the undefined behaviour it replaces, and still
+  wrong. Found by Codex while adversarially reviewing the B-004 fix, and verified directly.
+- **Observed:** `NatsTransport::receive` (`crates/messaging/src/lib.rs:620-642`) `.take()`s
+  the subscription out of its `Mutex`, awaits `subscription.next()` inside
+  `runtime.block_on`, and only then `.replace()`s it. If anything unwinds between the take
+  and the replace, the subscription is dropped and the `Mutex` is left holding `None`
+  **for the life of the client**. Every later `receive` then fails with "NATS subscription
+  is unavailable" on a handle that still reports itself open. The `Mutex` is *not* poisoned,
+  because the guard is released before the await — so Rust's own protection does not fire.
+- **Why it appears now:** before B-004's fix that panic was undefined behaviour crossing into
+  the JVM, i.e. usually a crash. Containing it converts a crash into a silent permanent
+  degradation. That is an improvement and a new failure mode, and both should be said out
+  loud.
+- **Expected:** either the operation is panic-safe (restore on unwind rather than after the
+  happy path), or the client fails closed on reuse after a contained panic instead of
+  reporting a misleading "unavailable".
+- **Reproduction:** read `crates/messaging/src/lib.rs:620-642`; the take at `:621-628`, the
+  await at `:633-638`, the replace at `:639-642`.
+- **Seen at commit:** the B-004 fix on `harden/h-01-catch-unwind`.
+- **RESOLVED** by `RestoreOnDrop` (`crates/messaging/src/lib.rs`), fix (a) below. Both the
+  core NATS and the JetStream receive paths now restore through `Drop`, so the happy path and
+  the unwinding path take the same route. **The JetStream path had the same defect** — B-007
+  suspected it and it was confirmed while fixing. Falsified: making `Drop` skip the restore
+  makes `a_panic_between_take_and_replace_still_restores_the_value` fail. A structural test
+  fails if any receive path goes back to restoring by hand.
+- Kafka, Pulsar and RabbitMQ were checked: their pending-acknowledgement maps are mutated
+  under a lock without an await in between, so they do not have this window.
+- **Candidate fixes:** (a) hold the restore in a guard whose `Drop` puts the subscription
+  back, so an unwind cannot skip it — contained and local; (b) mark the client poisoned in
+  `jni_guard` and refuse later calls, which needs the handle registry from **B-005** to do
+  properly. (a) is the cheaper fix and does not wait on B-005.
+- **The same shape may exist in the other transports** — JetStream, RabbitMQ, Kafka and
+  Pulsar all follow a take/operate/replace pattern around pending acknowledgements. Not
+  audited yet; do that with the fix.
 
 ### B-003 — `MessageEnvelope.delivery_mode` is set by every message and read by no transport
 

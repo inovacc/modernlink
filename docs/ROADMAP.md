@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:015 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:017 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Status at HEAD `d2479bd` on `main` (pushed; in sync with `origin/main`). Phases follow the M1/M2
 structure in [BACKLOG.md](BACKLOG.md); tasks are broken out in
@@ -148,11 +148,11 @@ until then this file is written against the production bar because that is the s
       smoke test)
 - [x] Crate-name collisions resolved — **SC-05**, **SC-06**; packages are `jni-bridge` and
       `modernlink-core`, folders unchanged, native artifact still `modernlink`
-- [x] Working coverage measurement — 23.94% lines / 21.40% regions, see below. **Not gated**
+- [x] Working coverage measurement — 36.34% lines / 34.86% regions, see below. **Not gated**
 
 ## Test coverage
 
-**23.94% line coverage / 21.40% region coverage** across the workspace, measured 2026-08-19 with
+**36.34% line coverage / 34.86% region coverage** across the workspace, measured 2026-08-19 with
 `cargo llvm-cov --workspace --all-features --summary-only` on Windows, rustc 1.96.0.
 
 This is the first coverage figure the project has ever had. It became measurable because **SC-07**
@@ -161,13 +161,22 @@ under coverage instrumentation, and llvm-cov could not compile the dependency gr
 
 | Crate | Regions | Lines |
 |---|---|---|
-| `crates/tls` | 90.48% | 87.10% |
+| `crates/tls` | 83.67% | 77.78% |
 | `crates/core` | 65.07% | 63.37% |
-| `crates/messaging` | 29.70% | 33.29% |
-| `crates/http` | 16.01% | 16.95% |
-| `crates/jni` | 14.71% | 14.24% |
+| `crates/messaging` | 46.53% | 48.37% |
+| `crates/http` | 29.90% | 28.52% |
+| `crates/jni` | 28.99% | 27.90% |
 | `hacks/messaging-demo` (7 binaries + `main.rs`) | 0.00% | 0.00% |
-| **TOTAL** | **21.40%** | **23.94%** |
+| **TOTAL** | **34.86%** | **36.34%** |
+
+The hardening run moved this from 21.40% / 23.94%: `crates/jni` roughly doubled (panic
+containment, the handle registries, the payload codec), `crates/messaging` rose from 29.70%
+(timeouts, redaction, restore-on-unwind, receive semantics), and `crates/http` from 16.01%
+(redirect edge cases).
+
+**`crates/tls` went DOWN**, 90.48% → 83.67%. Nothing was deleted: H-10 replaced an `.expect`
+with a `Result`, and the new error branch has no test exercising it. A coverage figure falling
+because code got *more* careful is worth stating rather than smoothing over.
 
 The previous measurement on the same day read 15.20% / 17.07%. The MSG-04 and MSG-05 tests
 moved `crates/jni` from 1.28% and `crates/messaging` from 23.91%; nothing was deleted to
@@ -191,7 +200,13 @@ whole 0.08pp difference. The figure above is the captured baseline
    are close to untested — which is **VER-01/VER-02** restated as a measurement.
 
 The Java facade has **no coverage tooling at all**; there is no Maven or Gradle build, so no
-JaCoCo. Coverage is measured but **not gated** in CI — no threshold is enforced on any push.
+JaCoCo — see [ISSUES.md](ISSUES.md) I-003, which now records what that does to these numbers.
+Short version: the workspace figure describes the **Rust half only**, `crates/jni` is
+understated because the Java tests that drive it are invisible to llvm-cov, and the 15 Java
+classes are themselves entirely unmeasured.
+
+Coverage is measured but **not gated** in CI — no threshold is enforced on any push, and
+`crates/http` should not get one until it has a test seam (see [BACKLOG.md](BACKLOG.md)).
 
 Other verification facts:
 - `cargo test --workspace` now runs and passes in CI on ubuntu-latest (run 31781200582), plus

@@ -1,5 +1,5 @@
 # Features
-<!-- rev:002 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:003 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 What exists in the tree at HEAD `d0c3122`, and what is proposed. "Implemented" means the code
 is present and compiles — it does **not** mean the behavior has been validated against the
@@ -39,6 +39,13 @@ Java 6 host product or a real broker. See [ISSUES.md](ISSUES.md) I-010.
 | Fail-closed refusal of an unhonourable delivery / ack mode | `ProviderGuarantees::require_*`, `DomainError::Unsupported` |
 | TEXT, BYTES and MAP payload categories across the JNI boundary | `ModernPayload`, `messaging_build_payload` |
 | Provider transports behind cargo features; a provider compiled out is refused, not rerouted | `crates/messaging` `[features]`, `build_transport` |
+| Panics contained at all 28 JNI entry points; a panic becomes a reported error, not UB in the JVM | `jni_guard`, `crates/jni` |
+| Broker connects bounded by a deadline, overridable with `MODERNLINK_BROKER_TIMEOUT_SECS` | `block_on_with_timeout`, `crates/messaging` |
+| Credentials scrubbed from every transport error before it can reach a Java exception or log | `redact_credentials`, `transport_error` |
+| Native handles are registry ids, not raw pointers — a stale handle misses instead of dereferencing | `CLIENTS` / `RESPONSES`, `crates/jni` |
+| A contained panic cannot leave a NATS transport permanently broken | `RestoreOnDrop`, `crates/messaging` |
+| `receive()` blocking semantics declared per provider and queryable from Java 6 | `ReceiveSemantics`, `ModernReceiveSemantics` |
+| Kafka refuses a TLS endpoint rather than connecting in plaintext | `endpoint_requests_tls`, `crates/messaging` |
 
 ### Utilities and packaging
 

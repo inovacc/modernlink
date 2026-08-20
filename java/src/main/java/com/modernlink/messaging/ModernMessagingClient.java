@@ -129,6 +129,34 @@ public final class ModernMessagingClient {
         return ModernProviderGuarantees.decode(frame);
     }
 
+
+    /**
+     * Last-resort reclamation for a client the caller never closed (H-08).
+     *
+     * Java 6 has no try-with-resources, so the ergonomic guard modern code would use is not
+     * available here - which makes a forgotten close MORE likely in this codebase, not less.
+     * Without this, the native client stays in the registry for the life of the JVM, holding
+     * a transport, a tokio runtime and its threads.
+     *
+     * This is a backstop, NOT the mechanism. Finalizers run at the GC's discretion, may never
+     * run at all before exit, and are removed in later Java versions. Callers must still call
+     * {@link #close()}; this only bounds the damage when they do not.
+     *
+     * Every throwable is swallowed: an exception escaping finalize() aborts finalization for
+     * this object and can stall the finalizer thread for every other object in the JVM. A
+     * leaked transport is a much smaller problem than a wedged finalizer queue.
+     */
+    @Override
+    protected void finalize() throws Throwable {
+        try {
+            close();
+        } catch (Throwable suppressed) {
+            // Deliberately ignored - see above.
+        } finally {
+            super.finalize();
+        }
+    }
+
     private void requireOpen() throws LegacyHttpException {
         if (handle == 0) throw new LegacyHttpException("messaging client is closed");
     }

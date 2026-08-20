@@ -1,5 +1,5 @@
 # Milestones
-<!-- rev:015 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:016 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Version milestones for ModernLink. **No git tags exist yet** — nothing has been released, so
 every version below is a target, not a shipped artifact. Phases are detailed in
@@ -43,11 +43,11 @@ just implemented.
       **linux-x86_64** (CI, `native-smoke-load=ok` on JVM 1.6.0_38) both load. A CI job now
       targets **linux-aarch64** on an arm64 runner, but **it has never executed**, so that
       native remains unloaded on any JVM until it does.
-- [x] A working coverage measurement — **21.40% regions / 23.94% lines**
+- [x] A working coverage measurement — **34.86% regions / 36.34% lines**
       (`cargo llvm-cov --workspace --all-features`, 2026-08-19). Unblocked by SC-07; see
       [ROADMAP.md](ROADMAP.md). Measured, **not gated**
 
-**Coverage target:** establish a baseline at all — **met**: 23.94% lines. That is a starting
+**Coverage target:** establish a baseline at all — **met**: 36.34% lines. That is a starting
 line, not a passing grade, and nothing enforces it yet.
 
 ## v0.2.0 — Messaging with evidence `[BLOCKED on v0.1.0]`
@@ -72,7 +72,7 @@ already written, so the entire value of this release is proof.
 - [ ] Unsupported mappings fail at configuration time — **MSG-03**
 
 **Coverage target:** ≥ 60% on `crates/messaging`, the crate carrying six transports in one file.
-Currently **29.70%** regions / 33.29% lines.
+Currently **46.53%** regions / 48.37% lines.
 
 ## v0.3.0 — JMS compatibility surface `[BLOCKED on JMS-01]`
 

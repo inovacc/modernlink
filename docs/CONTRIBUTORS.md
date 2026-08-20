@@ -1,5 +1,5 @@
 # Contributors and Contributing Guide
-<!-- rev:003 (RFC 3339) 2026-08-20T00:00:00Z -->
+<!-- rev:004 (RFC 3339) 2026-08-20T00:00:00Z -->
 
 ## Maintainers
 
@@ -30,16 +30,19 @@ cd modernlink
 cargo test --workspace
 ```
 
-`crates/messaging` builds native code through `rdkafka` (cmake) and `pulsar` (protobuf), and
-`crates/messaging/Cargo.toml` declares **no `[features]`** — so every provider is unconditional
-and *any* `cargo test/clippy/llvm-cov --workspace` must build a native Kafka client. On a bare
-host, install `cmake`, `libcurl`, and `protobuf-compiler` first, or the workspace will not build
-— see ISSUES I-005.
+**The default build needs no native toolchain.** `crates/messaging` gates every provider
+behind a cargo feature and defaults to none (SC-07), so a plain `cargo test --workspace`
+compiles no broker client — no cmake, no librdkafka, no protoc. That is the command to run
+while developing.
 
-**CI does not build it either right now.** The `Rust workspace` job has no install step and has
-failed on five consecutive pushes for exactly this reason — see [BUGS.md](BUGS.md) B-001. Do not
-treat CI as evidence that `cargo test --workspace` passes; run it locally and report what you
-actually saw.
+Building with providers is what needs the toolchain: `--features kafka` builds librdkafka from
+C via cmake, and `--features pulsar` needs protoc. Install `cmake`, `libcurl` and
+`protobuf-compiler` before using `--all-features` or building the distributable.
+
+**Read a green CI run precisely.** The broker-backed tests are `#[ignore]`d, so no CI run has
+ever reached a real broker, and two of the five have never executed anywhere. What has and has
+not actually run is tracked in [BUGS.md](BUGS.md) under "Verification reach" — read it before
+describing this project as tested.
 
 ## Checking the Java facade without Docker
 
@@ -64,11 +67,12 @@ five `unreported exception` errors this catches in seconds.
 
 | Purpose | Command |
 |---|---|
-| Test the Rust workspace | `cargo test --workspace` |
+| Test the Rust workspace (no broker client compiled) | `cargo test --workspace` |
+| Test with every provider transport | `cargo test --workspace --all-features` |
 | Check the JNI crate | `cargo check -p jni-bridge` |
 | Format | `cargo fmt --all -- --check` |
 | Lint | `cargo clippy --workspace --all-targets -- -D warnings` |
-| Coverage | `cargo llvm-cov --workspace --summary-only` |
+| Coverage | `cargo llvm-cov --workspace --all-features --summary-only` |
 | Build the Java 6 JAR | `docker build -f docker/java6/Dockerfile -t modernlink-java6 .` |
 | Run a packaged Java test | `docker run --rm modernlink-java6 sh -c "java -cp /workspace/modernlink.jar com.modernlink.LegacyHttpsTest"` |
 

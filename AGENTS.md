@@ -1,5 +1,5 @@
 # AGENTS.md — ModernLink
-<!-- rev:012 (RFC 3339) 2026-08-20T00:00:00Z -->
+<!-- rev:013 (RFC 3339) 2026-08-20T00:00:00Z -->
 
 Canonical cross-tool agent instructions for the ModernLink repo (read by Claude Code,
 Codex, Cursor, Gemini, etc. — Claude Code imports this from `CLAUDE.md`). Must-know
@@ -18,14 +18,10 @@ Java 6 app -> Java 6 JAR facade -> JNI boundary -> Rust native lib -> TLS / HTTP
 
 The Rust workspace uses **unprefixed crate names** while `ModernLink` stays the product name:
 
-| Crate | Owns |
-|---|---|
-| `crates/core` | shared request/response, TLS metadata, error types |
-| `crates/http` | HTTPS execution (hyper) |
-| `crates/tls` | TLS policy boundary (rustls) |
-| `crates/messaging` | provider transports: NATS, JetStream, Kafka, Pulsar, RabbitMQ, in-process `LEGACY_JMS` |
-| `crates/jni` | JNI entry points; builds the `modernlink` native library |
-| `hacks/messaging-demo` | executable cross-application contract fixtures |
+Six crates — `core` (shared types), `http` (HTTPS), `tls` (policy boundary), `messaging`
+(the five provider transports plus in-process `LEGACY_JMS`), `jni` (the entry points, builds
+the `modernlink` native library), and `hacks/messaging-demo` (contract fixtures). Full source
+layout with per-crate detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 The distributable is one JAR with per-platform native resources embedded
 (`native/linux-x86_64`, `native/linux-aarch64`, `native/windows-x86_64`).
@@ -133,6 +129,16 @@ present. The default build needs none of them (SC-07).
   native request starts.
 - Native extraction hashes embedded bytes (SHA-256) and renames into a content-addressed path;
   temp files are cleaned up when extraction or loading fails.
+- **Panics are contained at the JNI boundary**, not permitted. All 28 `Java_*` entry points run
+  inside `jni_guard`; a panic becomes a reported error instead of undefined behaviour in the
+  host JVM. `crates/jni` contains **zero `unsafe` blocks** and a test enforces that.
+- **Credentials are scrubbed from transport errors** before they can reach a Java exception the
+  host logs — broker URLs carry them inline. Build errors with `transport_error`, never from a
+  raw provider string; a test enforces that too.
+- **Broker connections are NOT TLS-terminated** through `crates/tls` — only the HTTPS path is.
+  Kafka cannot do TLS at all in this build and refuses a TLS endpoint rather than connecting in
+  plaintext. See [docs/providers.md](docs/providers.md) before assuming a broker link is
+  encrypted.
 - Never commit credentials or broker endpoints.
 
 ## PR / commit conventions
