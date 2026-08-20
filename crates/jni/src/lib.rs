@@ -984,11 +984,51 @@ pub extern "system" fn Java_com_modernlink_messaging_ModernMessagingClient_nativ
     })
 }
 
-unsafe fn response<'a>(handle: jlong) -> Option<&'a NativeResponse> {
-    if handle == 0 {
-        None
-    } else {
-        Some(&*(handle as *const NativeResponse))
+/// Live HTTP responses, keyed by an opaque handle (B-008, H-17).
+///
+/// Same defect and same fix as the messaging registry: the handle was the address of a
+/// leaked `Box`, dereferenced after a null check and nothing else, so a stale or fabricated
+/// `jlong` was a use-after-free inside the host JVM.
+///
+/// Narrower blast radius than the messaging client — a response is short-lived and used by
+/// one caller — which is why it was filed as B-008 rather than folded into B-005. It is the
+/// same unsafety.
+///
+/// `Arc` for the same reason as `CLIENTS`: a release racing an in-flight read frees after
+/// that read finishes rather than under it.
+static RESPONSES: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<u64, std::sync::Arc<NativeResponse>>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+/// Shares the counter with the messaging registry so an id is unique across both. Mixing a
+/// response handle and a client handle then misses in both maps instead of finding the wrong
+/// object in one.
+fn register_response(response: NativeResponse) -> jlong {
+    let handle = NEXT_HANDLE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    match RESPONSES.lock() {
+        Ok(mut responses) => {
+            responses.insert(handle, std::sync::Arc::new(response));
+            handle as jlong
+        }
+        Err(_) => set_error("HTTP response registry is unavailable".to_string()),
+    }
+}
+
+fn response_for(handle: jlong) -> Option<std::sync::Arc<NativeResponse>> {
+    if handle <= 0 {
+        return None;
+    }
+    RESPONSES.lock().ok()?.get(&(handle as u64)).cloned()
+}
+
+/// Idempotent: releasing twice, or releasing an unknown handle, is a no-op rather than a
+/// double free.
+fn unregister_response(handle: jlong) {
+    if handle <= 0 {
+        return;
+    }
+    if let Ok(mut responses) = RESPONSES.lock() {
+        responses.remove(&(handle as u64));
     }
 }
 
@@ -1081,7 +1121,7 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeExecute(
             Ok(value) => value,
             Err(error) => return set_error(error.to_string()),
         };
-        Box::into_raw(Box::new(NativeResponse(result))) as jlong
+        register_response(NativeResponse(result))
     })
 }
 
@@ -1265,8 +1305,8 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeStatus(
     _class: JClass,
     handle: jlong,
 ) -> jint {
-    jni_guard(0, move || unsafe {
-        response(handle)
+    jni_guard(0, move || {
+        response_for(handle)
             .map(|value| value.0.status as jint)
             .unwrap_or(0)
     })
@@ -1279,7 +1319,8 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeStatusMessage(
     handle: jlong,
 ) -> jni::sys::jstring {
     jni_guard(std::ptr::null_mut(), move || {
-        match unsafe { response(handle).map(|value| value.0.status_message.clone()) }
+        match response_for(handle)
+            .map(|value| value.0.status_message.clone())
             .and_then(|value| env.new_string(value).ok())
         {
             Some(value) => value.into_raw(),
@@ -1295,10 +1336,12 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeHeaders(
     handle: jlong,
 ) -> jobjectArray {
     jni_guard(std::ptr::null_mut(), move || {
-        let headers = match unsafe { response(handle) } {
-            Some(value) => &value.0.headers,
-            None => return std::ptr::null_mut(),
+        // Bind the Arc first: `&value.0.headers` on a temporary would borrow past its
+        // lifetime, and cloning the whole header map to avoid that would be wasteful.
+        let Some(response) = response_for(handle) else {
+            return std::ptr::null_mut();
         };
+        let headers = &response.0.headers;
         let string_class = match env.find_class("java/lang/String") {
             Ok(value) => value,
             Err(_) => return std::ptr::null_mut(),
@@ -1341,10 +1384,13 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeBody(
     handle: jlong,
 ) -> jbyteArray {
     jni_guard(std::ptr::null_mut(), move || {
-        let body = match unsafe { response(handle) } {
-            Some(value) => &value.0.body,
-            None => return std::ptr::null_mut(),
+        // The Arc is bound before borrowing from it: borrowing a temporary would not
+        // outlive the statement, and cloning the whole body to dodge that would copy the
+        // entire response payload.
+        let Some(response) = response_for(handle) else {
+            return std::ptr::null_mut();
         };
+        let body = &response.0.body;
         match env.byte_array_from_slice(body) {
             Ok(value) => value.into_raw(),
             Err(_) => std::ptr::null_mut(),
@@ -1359,13 +1405,13 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeTlsCertificate
     handle: jlong,
 ) -> jobjectArray {
     jni_guard(std::ptr::null_mut(), move || {
-        let certificates = match unsafe { response(handle) } {
-            Some(value) => match &value.0.tls {
-                Some(info) => &info.peer_certificates_der,
-                None => return std::ptr::null_mut(),
-            },
-            None => return std::ptr::null_mut(),
+        let Some(response) = response_for(handle) else {
+            return std::ptr::null_mut();
         };
+        let Some(info) = response.0.tls.as_ref() else {
+            return std::ptr::null_mut();
+        };
+        let certificates = &info.peer_certificates_der;
         let byte_array_class = match env.find_class("[B") {
             Ok(value) => value,
             Err(_) => return std::ptr::null_mut(),
@@ -1395,9 +1441,9 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeTlsCertificate
 }
 
 fn tls_string(handle: jlong, protocol: bool) -> Option<String> {
-    unsafe {
-        response(handle)
-            .and_then(|value| value.0.tls.as_ref())
+    {
+        response_for(handle)
+            .and_then(|value| value.0.tls.as_ref().cloned())
             .and_then(|info| {
                 if protocol {
                     info.protocol.clone()
@@ -1415,7 +1461,8 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeFinalUrl(
     handle: jlong,
 ) -> jni::sys::jstring {
     jni_guard(std::ptr::null_mut(), move || {
-        match unsafe { response(handle).map(|value| value.0.final_url.clone()) }
+        match response_for(handle)
+            .map(|value| value.0.final_url.clone())
             .and_then(|value| env.new_string(value).ok())
         {
             Some(value) => value.into_raw(),
@@ -1459,11 +1506,7 @@ pub extern "system" fn Java_com_modernlink_LegacyHttpClient_nativeRelease(
     handle: jlong,
 ) {
     jni_guard((), move || {
-        if handle != 0 {
-            unsafe {
-                drop(Box::from_raw(handle as *mut NativeResponse));
-            }
-        }
+        unregister_response(handle);
     })
 }
 
@@ -1815,21 +1858,84 @@ mod handle_registry_tests {
         );
     }
 
+    fn a_response() -> NativeResponse {
+        NativeResponse(modernlink_core::Response {
+            final_url: "https://example.com/".to_string(),
+            status: 200,
+            status_message: "OK".to_string(),
+            headers: std::collections::BTreeMap::new(),
+            body: Vec::new(),
+            tls: None,
+        })
+    }
+
+    #[test]
+    fn a_fabricated_response_handle_is_refused_rather_than_dereferenced() {
+        assert!(response_for(0).is_none());
+        assert!(response_for(-1).is_none());
+        assert!(response_for(0x7fff_dead_beef).is_none());
+    }
+
+    /// Response and client handles share one counter, so mixing them up misses in both maps
+    /// instead of finding the wrong object in one - which would hand back a plausible answer
+    /// from an unrelated request.
+    #[test]
+    fn response_and_client_handles_never_collide() {
+        let client = register_client(a_client());
+        let response = register_response(a_response());
+        assert_ne!(
+            client, response,
+            "the two registries must not issue the same id"
+        );
+        assert!(
+            response_for(client).is_none(),
+            "a client handle must miss in the response map"
+        );
+        assert!(
+            client_for(response).is_none(),
+            "a response handle must miss in the client map"
+        );
+        unregister_client(client);
+        unregister_response(response);
+    }
+
+    #[test]
+    fn releasing_a_response_twice_is_a_no_op() {
+        let handle = register_response(a_response());
+        assert!(response_for(handle).is_some());
+        unregister_response(handle);
+        unregister_response(handle);
+        assert!(response_for(handle).is_none());
+    }
+
     /// Structural guard: the handle must never go back to being a raw pointer.
     #[test]
     fn no_handle_is_cast_to_a_messaging_client_pointer() {
         let source = include_str!("lib.rs");
-        let needle = concat!("handle as *", "const NativeMessagingClient");
-        let mut_needle = concat!("handle as *", "mut NativeMessagingClient");
+        for (kind, bug) in [
+            ("NativeMessagingClient", "B-005"),
+            ("NativeResponse", "B-008"),
+        ] {
+            for form in ["const", "mut"] {
+                let needle = format!("handle as *{form} {kind}");
+                assert_eq!(
+                    source.matches(needle.as_str()).count(),
+                    0,
+                    "a handle is cast to a raw {kind} pointer - {bug}"
+                );
+            }
+        }
+        // Both handle types go through a registry now, so the crate needs no `unsafe` block
+        // at all. This fails the moment one comes back, which is the only way the
+        // use-after-free returns.
+        // Needles built in pieces so they do not match their own source lines - the same
+        // self-reference that broke the first version of this check.
+        let block = concat!("unsa", "fe {");
+        let function = concat!("unsa", "fe fn ");
+        let unsafe_blocks = source.matches(block).count() + source.matches(function).count();
         assert_eq!(
-            source.matches(needle).count(),
-            0,
-            "handle cast to a const pointer - B-005"
-        );
-        assert_eq!(
-            source.matches(mut_needle).count(),
-            0,
-            "handle cast to a mut pointer - B-005"
+            unsafe_blocks, 0,
+            "crates/jni should contain no unsafe blocks; found {unsafe_blocks} - B-005/B-008"
         );
     }
 }

@@ -1,5 +1,5 @@
 # Bugs
-<!-- rev:017 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:018 (RFC 3339) 2026-08-19T00:00:00Z -->
 
 Behaviour that is **wrong and should be fixed**. Deliberate constraints belong in
 [ISSUES.md](ISSUES.md); planned work belongs in [BACKLOG.md](BACKLOG.md).
@@ -13,7 +13,7 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 | B-005 | high | **resolved** | The native messaging handle is a raw pointer dereferenced with only a null check |
 | B-006 | high | **open** | Broker URLs carry credentials into error strings that cross into Java exception messages |
 | B-007 | medium | **resolved** | A contained panic can leave a transport permanently degraded while the client still looks open |
-| B-008 | medium | **open** | `NativeResponse` still uses a leaked `Box` address as its handle, dereferenced with only a null check |
+| B-008 | medium | **resolved** | `NativeResponse` still uses a leaked `Box` address as its handle, dereferenced with only a null check |
 | B-009 | high | **open** | `async-nats 0.38` pulls `rustls-webpki 0.102.8` with 4 advisories, incl. two certificate-validation bypasses and a reachable panic |
 | B-010 | high | **open** | `receive()` returns `Ok(None)` on two providers and blocks forever on four, from the same API |
 
@@ -177,6 +177,13 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 - **Seen at commit:** the B-005 fix.
 - **Why not fixed with B-005:** B-005 named the messaging handle, and widening a security fix
   mid-item is how scope discipline is lost. Filed rather than done.
+- **RESOLVED (H-17), found again by the `/project:harden` recheck.** `NativeResponse` now uses
+  the same registry as `NativeMessagingClient`, sharing one id counter so a response handle
+  and a client handle can never collide — mixing them misses in both maps rather than finding
+  the wrong object in one and returning a plausible answer from an unrelated request.
+- **`crates/jni` now contains zero `unsafe` blocks**, down from 16. A structural test asserts
+  that and fails the moment one returns, which is the only route back to this defect.
+  Falsified by restoring a raw-pointer deref in `response_for`.
 
 ### B-007 — a contained panic leaves the client alive and permanently broken
 
