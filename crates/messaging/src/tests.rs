@@ -1347,7 +1347,10 @@ fn live_coverage_nats_resource_loss_fails_closed() {
         .unwrap_or_else(|_| "nats://127.0.0.1:4222".to_string());
     let mut transport = super::NatsTransport::connect(&url, &live_name("modernlink_cov_nats"))
         .expect("coverage NATS connection");
-    transport.runtime.take();
+    let runtime = transport
+        .runtime
+        .take()
+        .expect("coverage NATS runtime should be present");
 
     assert!(transport
         .publish(message())
@@ -1359,6 +1362,7 @@ fn live_coverage_nats_resource_loss_fails_closed() {
         .unwrap_err()
         .to_string()
         .contains("runtime"));
+    transport.runtime = Some(runtime);
 }
 
 #[cfg(feature = "nats")]
