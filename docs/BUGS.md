@@ -1,5 +1,5 @@
 # Bugs
-<!-- rev:020 (RFC 3339) 2026-08-20T00:00:00Z -->
+<!-- rev:023 (RFC 3339) 2026-08-21T20:41:35Z -->
 
 Behaviour that is **wrong and should be fixed**. Deliberate constraints belong in
 [ISSUES.md](ISSUES.md); planned work belongs in [BACKLOG.md](BACKLOG.md).
@@ -16,6 +16,7 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 | B-008 | medium | **resolved** `3f97281` | `NativeResponse` still uses a leaked `Box` address as its handle, dereferenced with only a null check |
 | B-009 | high | **open** | `async-nats 0.38` pulls `rustls-webpki 0.102.8` with 4 advisories, incl. two certificate-validation bypasses and a reachable panic |
 | B-010 | high | **open** | `receive()` returns `Ok(None)` on two providers and blocks forever on four, from the same API |
+| B-011 | medium | **candidate patch at `686adaa`** | RabbitMQ demo output included the raw, potentially credential-bearing connection URI |
 
 ## Open
 
@@ -150,13 +151,27 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 - **Expected:** one meaning for one signature. Either every provider polls and reports
   nothing, or the blocking ones take a timeout and the type says so.
 - **Not fixed, deliberately.** Both directions change delivery semantics on the default path
-  for four providers, and none of them can be verified here — Kafka and Pulsar have never
-  been executed at all. This is the same class of decision as B-003 and belongs to the
-  maintainer.
+  for four providers. The recorded broker jobs cover non-empty happy paths, not empty-queue
+  timeout/cancellation behavior. This is the same class of decision as B-003 and belongs to
+  the maintainer.
 - **Mitigated meanwhile:** the semantics are now *declared and queryable* before traffic
   moves — `Provider::guarantees().receive_semantics`, and from Java 6
   `getReceiveSemantics().isSafeForPolling()`. Documented in `docs/providers.md`.
 - **Seen at commit:** `b1a23fe`.
+
+### B-011 — RabbitMQ demo output exposed the configured connection URI
+
+- **Severity:** medium — the fixture is not production code, but its default URI includes a
+  username and password and operators commonly paste demo output into logs or tickets.
+- **Observed in the pre-change source:** `rabbitmq-app.rs` formatted `uri={}` and passed the raw
+  `RABBITMQ_URI` value to `println!` after a successful round trip.
+- **Expected:** operational summaries may include provider, queue, message ID, trace ID, and
+  receipt states, but never connection strings or credentials.
+- **Candidate patch:** `686adaa` contains the URI-field removal and the `logging_safety`
+  regression. The command exited 1 against the pre-change source and 0 after the edit; run
+  32523731422 recorded the Rust workspace job with a `success` conclusion. Those are machine
+  results; maintainer acceptance and a live RabbitMQ invocation of the changed fixture remain
+  pending.
 
 ### B-009 — the NATS TLS path uses a rustls-webpki with four open advisories
 
@@ -184,11 +199,8 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
   `cargo update -p rustls-webpki@0.102.8` locks 0 packages. The fix is upgrading
   **`async-nats` 0.38 → 0.50**, which is available.
 - **Not attempted, deliberately.** That is a twelve-minor-version jump with API changes,
-  across `NatsTransport` and `NatsJetStreamTransport` — two of the three transports that have
-  *actually passed against a live broker*, and the only broker evidence this project has. It
-  cannot be verified here: no broker, no Docker. Breaking the project's best evidence on an
-  unverifiable dependency bump is a worse trade than carrying a documented advisory on a code
-  path nobody has ever run.
+  across `NatsTransport` and `NatsJetStreamTransport`. Any upgrade needs the dedicated broker
+  jobs plus TLS-specific coverage; the existing send/receive/ack run does not exercise NATS TLS.
 - **Reproduction:** `cargo audit`; `cargo tree --all-features -i rustls-webpki@0.102.8`.
 - **Seen at commit:** `b3e8834`.
 
@@ -256,10 +268,10 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
   contract, not an implementation detail. A capability gap must be reported explicitly —
   never silently degraded."* A caller is told its message is persistent; nothing makes it so.
 - **Observed:** `MessageEnvelope::new` sets `delivery_mode: DeliveryMode::Persistent`
-  (`crates/messaging/src/lib.rs:189`), so **every** message defaults to persistent. A grep
-  for `delivery_mode` across the crate returns three hits: the field declaration, that
-  default, and one unit-test assertion. **No transport reads it.** Kafka, Pulsar, NATS,
-  JetStream, RabbitMQ and the in-process transport all publish without consulting it.
+  (`crates/messaging/src/lib.rs:694`), so **every** message defaults to persistent.
+  `ProviderGuarantees::require_delivery_mode` declares the refusal rule, but no publish path
+  calls it. Kafka, Pulsar, NATS, JetStream, RabbitMQ and the in-process transport all publish
+  without consulting the envelope field.
 - **The RabbitMQ case is the sharpest.** The queue is declared `durable: true`
   (`crates/messaging/src/lib.rs`, `QueueDeclareOptions { durable: true, .. }`), but the
   publisher passes `BasicProperties::default()`, which is AMQP `delivery_mode` 1 —
@@ -269,7 +281,9 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 - **Expected:** either the transport honours the requested delivery mode, or requesting a
   mode it cannot honour is refused. Both are acceptable; silently accepting and ignoring is
   not.
-- **Reproduction:** `rg -n 'delivery_mode' crates/` → 3 matches, none in a publish path.
+- **Reproduction:** `rg -n 'delivery_mode|require_delivery_mode' crates/messaging/src` and
+  inspect every publish implementation; the helper appears only in declarations and tests,
+  never in a publish path.
   For RabbitMQ specifically, publish with the default envelope, restart the broker, and the
   message is gone despite `DeliveryMode::Persistent`.
 - **Seen at commit:** `ba1f7eb`.
@@ -340,7 +354,8 @@ The original report follows.
   consecutive runs — 31758767603, 31757479422, 31757440099, 31755795828, 31754951217.
 - **Seen at commit:** `af02427` (and the four before it).
 - **Not reproducible locally:** on Windows with `cmake` and `protoc` present, the same command
-  exits 0 (20 tests passed, 15m55s). This is an environment gap on the runner, not a code defect.
+  exits 0 after reporting 20 test cases in 15m55s. This is an environment gap on the runner,
+  not a code defect.
 - **Two candidate fixes, neither verified. Prefer the second:**
   1. *Symptom fix* — `.github/workflows/test.yml:10-19` installs no system packages, while
      `docker/java6/Dockerfile:8` already installs `cmake libcurl4-openssl-dev
@@ -393,45 +408,16 @@ The original report follows, unedited, because a resolved bug's history is the u
 
 ## Verification reach
 
-What the suites actually cover, so absence of bugs is not mistaken for evidence of correctness:
+The canonical execution ledger is [VERIFICATION.md](VERIFICATION.md). In brief:
 
-- `cargo test --workspace`, `cargo check -p jni-bridge`, `cargo fmt --all -- --check` and
-  `cargo clippy … -D warnings` **all passed in CI** on ubuntu, run
-  [31781200582](https://github.com/inovacc/modernlink/actions/runs/31781200582), 2026-08-14 —
-  and the Rust job reached its test step rather than dying in a build step. Also observed exit 0
-  locally on Windows (Codex-run).
-- **The Java 6 runtime is now exercised.** In the same run, all **13** test classes ran from the
-  packaged JAR on a real Java 6 JVM — `native-smoke-jvm=1.6.0_38`, `Linux/amd64` — including
-  `native-smoke-load=ok` (so the **linux-x86_64** native loads under Java 6),
-  `tls-protocol=TLSv1_3` for live HTTPS, `legacy-jms-messaging=PASS` and `routing-policy=PASS`.
-  That also demonstrates the new test classes are genuinely Java 6-compatible: they compiled
-  under `javac -source 1.6 -target 1.6`.
-- **Now exercised, on run
-  [32386474212](https://github.com/inovacc/modernlink/actions/runs/32386474212):**
-  `linux-aarch64` loaded on a JVM for the first time, and the Kafka and Pulsar broker-backed
-  tests executed and passed for the first time. All five providers now have a broker-backed
-  test that runs in CI on every push. What remains unexercised is stated below.
-- **Broker-backed messaging has now been exercised, for three providers — but only by hand.**
-  All three tests are `#[ignore]`d (`crates/messaging/tests/broker_backed.rs:117,132,149`), so
-  **no CI run has ever executed one**; the evidence below is an operator's manual run against
-  local containers, which is VER-01. On 2026-08-14
-  `cargo test -p messaging --test broker_backed -- --ignored` exited 0 with
-  `nats_core_send_receive_ack`, `nats_jetstream_send_receive_ack` and `rabbitmq_send_receive_ack`
-  all passing against live NATS/JetStream/RabbitMQ. That retires the blanket "no broker-backed
-  behavior has ever been exercised" claim — **but only for send/receive/ack on those three.**
-  Kafka and Pulsar still have no broker-backed test, and durability, reconnect, ordering,
-  concurrency, failure and redelivery remain unexercised everywhere. See ISSUES I-010.
-- The Java facade is compiled and run only inside `docker/java6/Dockerfile`. All **15** test
-  classes are enumerated in the workflow. 13 of them executed and passed on run 31781200582;
-  `ProviderGuaranteesTest` and `PayloadCategoriesTest` were added afterwards and **have never
-  been compiled by `javac -source 1.6` or executed**.
-- `cargo fmt --all -- --check` → **exit 0**, both on the runner (run 31782837766) and locally
-  (2026-08-19, verified independently by Codex). The earlier three diffs in
-  `crates/messaging/tests/broker_backed.rs` were fixed before that file was committed in
-  `a2419b5`, so the gate now sees the file and passes on it.
-- **No run against the real vendor host product** has been recorded. Java 6 the *runtime* is now
-  exercised; the locked *product* the layer exists to serve is not, and neither is its JMS
-  implementation (I-009, I-011).
+- ordinary Rust workspace test commands execute no broker-backed tests;
+- run 32386474212 at `3b64484` recorded the configured one-round-trip broker jobs for all five
+  providers and the linux-aarch64/JVM 21 load job;
+- run 32523731422 at `686adaa` recorded `success` conclusions for all seven jobs, including
+  Java 6, both broker groups, linux-aarch64, and the Rust/Java 90% coverage thresholds;
+- no recorded run includes the vendor host product or its JMS implementation;
+- no provider has recorded durability, reconnect, ordering-under-load, concurrency, failure,
+  rollback/redelivery, or dead-letter evidence.
 
 A bug found in the unexercised areas belongs here the moment it is observed.
 

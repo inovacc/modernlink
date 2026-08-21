@@ -56,20 +56,4 @@ pub fn client_config(config: TlsConfig) -> Result<Arc<ClientConfig>, Error> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn secure_default_requires_tls_12() {
-        assert_eq!(
-            TlsConfig::secure_default().minimum_version(),
-            TlsVersion::Tls12
-        );
-    }
-
-    #[test]
-    fn secure_default_client_config_can_be_constructed() {
-        client_config(TlsConfig::secure_default())
-            .expect("the built-in version list must always be accepted");
-    }
-}
+mod tests;

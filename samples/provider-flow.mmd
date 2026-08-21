@@ -1,0 +1,12 @@
+flowchart LR
+    JMS[JMS-shaped Java 6 code] --> F[ModernConnectionFactory]
+    JAX[JAX-WS endpoint] --> JAXB[JAXB XML/text boundary]
+    JAXB --> F
+    F --> C[ModernConnection]
+    C --> JNI[JNI facade]
+    JNI --> ROUTE[Rust routing + capability declarations]
+    ROUTE --> K[Kafka]
+    ROUTE --> R[RabbitMQ]
+    ROUTE --> N[NATS / JetStream]
+    ROUTE --> P[Pulsar]
+    C --> M[JMX metrics MBean]

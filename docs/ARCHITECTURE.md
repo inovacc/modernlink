@@ -1,8 +1,8 @@
 # Architecture
-<!-- rev:003 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:004 (RFC 3339) 2026-08-21T00:00:00Z -->
 
-Diagrams reflect the code at HEAD `af02427`. Where a path is designed but not proven at
-runtime, the diagram says so rather than implying it works.
+Diagrams reflect the current component boundaries. Execution reach is tracked separately in
+[VERIFICATION.md](VERIFICATION.md); a drawn path is not runtime evidence.
 
 ## System overview
 

@@ -1,5 +1,5 @@
 # Per-provider guarantees
-<!-- rev:004 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:005 (RFC 3339) 2026-08-21T00:00:00Z -->
 
 **DOC-03**, and the documentation half of **MSG-04**. What each provider adapter in
 `crates/messaging` actually offers, so a capability gap is visible *before* traffic moves
@@ -14,19 +14,19 @@ function must agree**; the function is authoritative, because it is the one the 
 
 | Level | Means |
 |---|---|
-| **VERIFIED** | Implemented **and** exercised by a test that has actually run. |
+| **VERIFIED** | The source table marks this behavior as backed by a recorded test run. |
 | **DECLARED** | Implemented. **No test has ever exercised it.** A claim, not evidence. |
-| **UNSUPPORTED** | Not offered. Requesting it is **refused**, never quietly downgraded. |
+| **UNSUPPORTED** | Not offered. The helper refuses it when invoked; B-003 tracks the delivery-mode publish path that does not invoke it yet. |
 
-Three levels rather than a boolean because "the transport implements it" and "a test
-proved it" are different statements, and this project has been bitten by conflating them.
+Three levels rather than a boolean because "the transport implements it" and "a machine test
+executed it" are different statements, and this project has been bitten by conflating them.
 `Support::is_proven()` is true only for VERIFIED, deliberately.
 
-**Most entries below are DECLARED.** The only behaviour ever executed against a real
-broker is a single happy-path send → receive → acknowledge round trip, on 2026-08-14, for
-NATS core, JetStream and RabbitMQ. Durability, reconnect, ordering under load, concurrency,
-failure and redelivery are unexercised for **every** provider — see
-[BUGS.md](BUGS.md) "Verification reach" and [ISSUES.md](ISSUES.md) I-010.
+**Most entries below are DECLARED.** Run 32386474212 at `3b64484` recorded a single configured
+send → receive → acknowledge path for all five brokers. The source table remains authoritative
+and has not promoted Kafka/Pulsar fields above DECLARED. Durability, reconnect, ordering under
+load, concurrency, failure and redelivery are unexercised for every provider — see
+[VERIFICATION.md](VERIFICATION.md) and [ISSUES.md](ISSUES.md) I-010.
 
 ## The table
 
@@ -48,7 +48,7 @@ failure and redelivery are unexercised for **every** provider — see
 `InMemoryTransport` is a `VecDeque` behind a `Mutex`. Nothing survives the process, which
 is the point: it is the transparent-mode compatibility fixture, **not** a bridge to the
 vendor's JMS implementation. Ordering and CLIENT acknowledgement are VERIFIED because unit
-tests and `LegacyJmsMessagingTest` exercise them directly.
+tests and `LegacyJmsMessagingTest` invoke them directly.
 
 ### NATS (core) — fire-and-forget, and the table says so
 
@@ -63,16 +63,17 @@ degrades an at-least-once contract to at-most-once.
 ### NATS_JETSTREAM — the strongest adapter today
 
 A stream plus a durable pull consumer with `AckPolicy::Explicit`, so acknowledgement is
-genuinely server-side and was exercised by `nats_jetstream_send_receive_ack`. Persistence,
+genuinely server-side and is invoked by `nats_jetstream_send_receive_ack`. Persistence,
 redelivery and replay are DECLARED: JetStream provides them and the transport configures
 them, but no test has restarted a broker or forced a redelivery.
 
-### KAFKA and PULSAR — implemented, entirely unexecuted
+### KAFKA and PULSAR — one recorded happy path; guarantees remain DECLARED
 
 Kafka commits offsets with `CommitMode::Sync`; Pulsar acknowledges through its consumer.
-Both have broker-backed tests as of this revision
-(`crates/messaging/tests/broker_backed_{kafka,pulsar}.rs`) and **neither has ever run**, so
-nothing here is above DECLARED.
+Both have broker-backed tests (`crates/messaging/tests/broker_backed_{kafka,pulsar}.rs`). Run
+32386474212 recorded their configured send/receive/ack jobs at `3b64484`; no restart, failure,
+ordering-under-load, or redelivery path ran. `Provider::guarantees()` still marks their fields
+DECLARED, and this table mirrors that source.
 
 One caveat specific to Kafka: **ordering holds per partition, not per topic.** This
 transport does not choose partitions, so ordering is only as strong as the default
@@ -89,7 +90,8 @@ The table records the behaviour rather than the intent. Recording DECLARED here 
 queue *looks* durable is precisely how a guarantee table starts lying. Tracked as
 [BUGS.md](BUGS.md) **B-003**.
 
-Server-side and CLIENT acknowledgement are VERIFIED: `rabbitmq_send_receive_ack` exercises
+Server-side and CLIENT acknowledgement are VERIFIED in the source table:
+`rabbitmq_send_receive_ack` invokes
 the `BasicAck` path against a live broker.
 
 ## `receive()` blocks on four of six providers

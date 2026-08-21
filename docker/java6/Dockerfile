@@ -13,9 +13,9 @@ RUN apt-get update \
     && rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-pc-windows-gnu
 ENV CFLAGS="-idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include -UWITH_OAUTHBEARER_OIDC" \
     CXXFLAGS="-UWITH_OAUTHBEARER_OIDC"
-RUN cargo zigbuild -p jni-bridge --release --target x86_64-unknown-linux-gnu.2.13 \
-    && cargo zigbuild -p jni-bridge --release --target aarch64-unknown-linux-gnu.2.17 \
-    && cargo zigbuild -p jni-bridge --release --target x86_64-pc-windows-gnu
+RUN cargo zigbuild -p jni-bridge --release --features all-providers --target x86_64-unknown-linux-gnu.2.13 \
+    && cargo zigbuild -p jni-bridge --release --features all-providers --target aarch64-unknown-linux-gnu.2.17 \
+    && cargo zigbuild -p jni-bridge --release --features all-providers --target x86_64-pc-windows-gnu
 
 FROM java:6b38-jdk
 
@@ -23,6 +23,7 @@ WORKDIR /workspace
 
 COPY java/src /workspace/java/src
 COPY hacks/java6-messaging/src /workspace/hacks/java6-messaging/src
+COPY samples /workspace/samples
 COPY --from=native-builder /native/target/x86_64-unknown-linux-gnu/release/libmodernlink.so /workspace/java/src/main/resources/native/linux-x86_64/libmodernlink.so
 COPY --from=native-builder /native/target/aarch64-unknown-linux-gnu/release/libmodernlink.so /workspace/java/src/main/resources/native/linux-aarch64/libmodernlink.so
 COPY --from=native-builder /native/target/x86_64-pc-windows-gnu/release/modernlink.dll /workspace/java/src/main/resources/native/windows-x86_64/modernlink.dll
@@ -30,6 +31,8 @@ COPY --from=native-builder /native/target/x86_64-pc-windows-gnu/release/modernli
 RUN mkdir -p /workspace/build/classes /workspace/build/classes/native/linux-x86_64 /workspace/build/classes/native/linux-aarch64 /workspace/build/classes/native/windows-x86_64 \
     && find /workspace/java/src/main/java -name '*.java' -print0 \
        | xargs -0 javac -source 1.6 -target 1.6 -d /workspace/build/classes \
+    && mkdir -p /workspace/build/main-classes \
+    && cp -R /workspace/build/classes/com /workspace/build/main-classes/ \
     && find /workspace/java/src/test/java -name '*.java' -print0 \
        | xargs -0 javac -source 1.6 -target 1.6 \
           -classpath /workspace/build/classes \
@@ -51,5 +54,13 @@ RUN mkdir -p /workspace/build/fixtures \
        | xargs -0 javac -source 1.6 -target 1.6 \
           -classpath /workspace/modernlink.jar \
           -d /workspace/build/fixtures
+
+# Compile the public Java samples with the same Java 6 compiler. Their class-name-matched
+# filenames make each snippet directly usable with javac after copying it out of samples/.
+RUN mkdir -p /workspace/build/samples \
+    && find /workspace/samples -name '*.java' -print0 \
+       | xargs -0 javac -source 1.6 -target 1.6 \
+          -classpath /workspace/modernlink.jar \
+          -d /workspace/build/samples
 
 CMD ["java", "-version"]

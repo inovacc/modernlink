@@ -6,7 +6,6 @@ import javax.management.ObjectName;
 import javax.management.StandardMBean;
 
 import com.modernlink.ModernUuid;
-import com.modernlink.ModernBase64;
 
 /**
  * Java 6 demo publisher: JMS-shaped message creation plus a real local JMX
@@ -36,7 +35,8 @@ public final class LegacyJmsJmxDemo {
         ModernDeliveryReceipt receipt = new ModernDeliveryReceipt(message.getMessageId(),
             ModernMessagingProvider.valueOf(provider), ModernDeliveryState.PUBLISHED,
             message.getTracing().getTraceId());
-        System.out.println(mode + "|" + provider + "|" + ModernBase64.encode(message.encode().getBytes("UTF-8")) + "|" + receipt.encode());
+        System.out.println("mode=" + mode + " provider=" + provider + " message-id="
+            + receipt.getMessageId() + " state=" + receipt.getState());
     }
 
     public static final class DemoMetrics implements ModernMessagingMetricsMBean {

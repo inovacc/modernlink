@@ -1,5 +1,5 @@
 # Known Issues and Limitations
-<!-- rev:007 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:013 (RFC 3339) 2026-08-21T20:41:35Z -->
 
 Constraints accepted on purpose or imposed by the platform. Defects that should be fixed live
 in [BUGS.md](BUGS.md); future work lives in [BACKLOG.md](BACKLOG.md).
@@ -44,23 +44,12 @@ way to build or test the Java side without Docker, and no IDE project model.
 **Status:** deliberate for now — it guarantees the Java 6 compiler is the one that judges the
 facade. It also means Java changes are invisible to `cargo test`.
 
-**The measurement consequence (H-13), stated so the numbers are not misread.** No Maven or
-Gradle means no JaCoCo, so **there is no coverage measurement for `java/src` at all** — not a
-low number, no number. Two things follow, and both are easy to get wrong:
-
-1. **`crates/jni` reads 14.24% and is the most-exercised surface in the project.** Its 28
-   `Java_*` entry points are driven by the 15 Java test classes running against the packaged
-   JAR, which `cargo llvm-cov` cannot observe. The figure counts only what Rust tests reach.
-   Treating it as "the JNI boundary is barely tested" is exactly backwards.
-2. **The 15 Java classes are themselves unmeasured.** Nothing reports which facade branches
-   they miss, so "15 test classes pass" says they pass, not that they cover anything in
-   particular.
-
-Closing this needs a Java build system, which is what this issue is about. Until then the
-workspace coverage figure describes the Rust half only, and any statement about
-facade coverage is an opinion. **Two of the 15 classes have never been compiled or run at
-all** — `ProviderGuaranteesTest` and `PayloadCategoriesTest` were added after the last CI
-run.
+**Measurement consequence (H-13).** Maven/Gradle remains absent, but coverage no longer depends
+on either tool. Run 32523731422 used JaCoCo on JDK 8 against Java 6-targeted classes and recorded
+802/889 production lines (90.21%). The Rust harness instruments `libmodernlink` and loads it from
+Java, so Java-driven JNI paths contribute to llvm-cov; the same run recorded 1,496/1,650 lines
+(90.67%) in the enforced four behavior crates and 2,814/3,075 full production lines (91.51%).
+These machine percentages do not establish vendor-host compatibility.
 
 ### I-004 — the `java:6b38-jdk` base image is deprecated
 
@@ -71,17 +60,13 @@ and may no longer be served by every registry, which makes the JAR build environ
 
 ### I-005 — the workspace may not build on a bare host
 
-`crates/messaging` pulls `rdkafka` with `cmake-build` and `pulsar`, which need `cmake`,
-`libcurl`, and `protobuf-compiler`. The Dockerfile installs them
-(`docker/java6/Dockerfile:7-11`); a developer machine without them will fail to build the
-workspace. A recorded run failed on missing `protoc` with exit 101.
+Provider features pull `rdkafka` with `cmake-build` and `pulsar`, which need `cmake`, `libcurl`,
+and `protobuf-compiler`. The default workspace build compiles no broker client. The Dockerfile
+and all-provider workflow jobs install the native dependencies; B-001 records the earlier CI
+failure and its committed remediation. The current feature branch still has no workflow run.
 
-**This limitation is currently also breaking CI**, which is a defect rather than an accepted
-constraint — the `Rust workspace` job has no such install step and dies on a missing
-`curl/curl.h`. Tracked as [B-001](BUGS.md). An earlier revision of this file claimed the
-workspace builds "even though CI is green"; that was wrong, and the claim is withdrawn.
-
-**Workaround:** build through the Dockerfile, or install cmake + libcurl + protoc locally.
+**Workaround for local all-provider builds:** build through the Dockerfile, or install cmake +
+libcurl + protoc locally.
 
 ## Java 6 language boundary
 
@@ -120,20 +105,16 @@ fixtures. JNDI, transactions, selectors, rollback/redelivery, and dead-letter be
 Kafka, Pulsar, NATS, JetStream, and RabbitMQ transports exist in `crates/messaging` and are
 selectable through the JNI provider surface.
 
-**What is now proven:** a single send → receive → acknowledge round trip against **live NATS
-core, NATS JetStream and RabbitMQ**, asserting that message id, destination, payload, trace
-context and delivery state survive the broker
-(`crates/messaging/tests/broker_backed.rs`; all three passed 2026-08-14). This is the first
-broker-backed evidence the project has ever had.
+**Recorded machine reach:** run 32386474212 at `3b64484` reported `success` conclusions for the
+dedicated NATS/JetStream/RabbitMQ and Kafka/Pulsar jobs, each configured around a single
+send → receive → acknowledge path.
 
 **What is still a source-level claim:**
-- **Kafka and Pulsar have no broker-backed test at all.**
 - Durability, reconnect, concurrency, ordering, failure and redelivery semantics are
-  unexercised for **every** provider, including the three above. One happy-path round trip is
+  unexercised for **every** provider. One happy-path round trip is
   not delivery semantics.
 - The tests are `#[ignore]`d so a normal `cargo test` does not run them, and they require
-  brokers on `127.0.0.1:4222` / `:5672`. They are deliberately not self-skipping: with no
-  broker they fail loudly rather than reporting a hollow pass.
+  explicit broker setup. Dedicated workflow jobs invoke them; ordinary Rust jobs do not.
 
 The fixtures under `hacks/` remain deterministic contract probes, not integration tests.
 
@@ -165,9 +146,9 @@ is stale local output, not build evidence.
 
 **Status:** **resolved in `76a17f0`.** `docker/java6/Dockerfile` compiles the fixtures into a
 separate `build/fixtures` tree (kept out of the distributable JAR) and
-`.github/workflows/test.yml` runs `LegacyJmsJmxDemo` in transparent `LEGACY_JMS` mode. Both
-changes are committed and both ran green on run
-[31782837766](https://github.com/inovacc/modernlink/actions/runs/31782837766). Closes **VER-07**.
+`.github/workflows/test.yml` invokes `LegacyJmsJmxDemo` in transparent `LEGACY_JMS` mode. Run
+[31782837766](https://github.com/inovacc/modernlink/actions/runs/31782837766) recorded that
+configured fixture step. Closes **VER-07** for build-path reach only.
 
 ### I-014 — the project's ambition tier is contradictory across documents
 
@@ -182,24 +163,6 @@ stricter (production) reading.
 
 ## Verification status
 
-The Java 6 *runtime* is now exercised; the **vendor host product** is not, and neither is its
-JMS implementation (I-009, I-011). That distinction is the whole of this section — do not
-collapse the two.
-
-**Documented reach of the test suites**, so this is not mistaken for coverage:
-- `cargo test --workspace` runs **23** tests by default and **37** with `--all-features`. None
-  of them reaches a broker: the transport coverage is `InMemoryTransport` only, and the rest
-  exercise the domain, the routing policy, the provider guarantee table and the payload
-  categories. **5** `#[ignore]`d tests do reach live brokers when run explicitly, and only three
-  of those five have ever been executed — see I-010 for exactly how far that goes.
-- **15** Java test classes now exist and four of them cover messaging
-  (`LegacyJmsMessagingTest`, `RoutingPolicyTest`, `ProviderGuaranteesTest`,
-  `PayloadCategoriesTest`), closing **VER-08**. All four use the in-process `LEGACY_JMS`
-  transport or static data, so they exercise the facade and the JNI boundary, not a broker.
-  **The two newest have never been compiled or run**: that needs the Java 6 image.
-- The Rust CI gate executes and passes: run
-  [31782837766](https://github.com/inovacc/modernlink/actions/runs/31782837766) at `d2479bd` ran
-  `test`, `check`, `fmt` and `clippy` green ([BUGS.md](BUGS.md) B-001 resolved). It proves those
-  four commands exit 0 on ubuntu — it does not reach a broker, because the three broker-backed
-  tests are `#[ignore]`d.
-- **No run against the vendor host product** has ever been recorded.
+The exact revision-scoped execution ledger is [VERIFICATION.md](VERIFICATION.md). The central
+limitation remains unchanged: the Java 6 runtime has recorded probes, but the vendor host
+product and its JMS implementation have never been part of a recorded run (I-009, I-011).

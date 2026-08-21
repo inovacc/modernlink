@@ -1,9 +1,10 @@
 # Features
-<!-- rev:003 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:004 (RFC 3339) 2026-08-21T00:00:00Z -->
 
-What exists in the tree at HEAD `d0c3122`, and what is proposed. "Implemented" means the code
-is present and compiles — it does **not** mean the behavior has been validated against the
-Java 6 host product or a real broker. See [ISSUES.md](ISSUES.md) I-010.
+What exists in the current tree, and what is proposed. "Implemented" means the code is present;
+it does **not** mean the behavior satisfies the intended runtime contract. See
+[VERIFICATION.md](VERIFICATION.md) for recorded command and runtime reach; the vendor Java 6
+host product remains outside every recorded run. See [ISSUES.md](ISSUES.md) I-010.
 
 ## Implemented
 

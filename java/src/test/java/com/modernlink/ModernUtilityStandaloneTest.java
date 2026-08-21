@@ -20,6 +20,6 @@ public final class ModernUtilityStandaloneTest {
             throw new AssertionError("JSON decode did not normalize input");
         }
         System.out.println("standalone-uuidv7=" + uuid);
-        System.out.println("standalone-json=" + object);
+        System.out.println("standalone-json=ok");
     }
 }

@@ -50,8 +50,9 @@ Build the embedded JNI path as the primary distribution option.
 
 **Negative**
 - A panic or memory error in Rust can take down the host JVM. This is the central accepted risk.
-- The JNI surface is wide and hand-written — 25 `Java_*` functions across HTTP, messaging, and
-  utilities — and every one is an unsafe boundary that must be kept in sync with its Java caller.
+- The JNI surface is wide and hand-written — 28 `Java_*` functions across HTTP, messaging, and
+  utilities — and every one is an FFI boundary that must stay guarded and in sync with its Java
+  caller.
 - Packaging must cover every supported OS/architecture pair; a missing native resource is a
   runtime failure, not a build failure.
 - Java-side correctness is invisible to `cargo test`; only the Docker build compiles the facade.

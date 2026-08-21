@@ -1,16 +1,16 @@
 # Roadmap
-<!-- rev:018 (RFC 3339) 2026-08-20T00:00:00Z -->
+<!-- rev:024 (RFC 3339) 2026-08-21T20:41:35Z -->
 
-Status at HEAD `d2479bd` on `main` (pushed; in sync with `origin/main`). Phases follow the M1/M2
-structure in [BACKLOG.md](BACKLOG.md); tasks are broken out in
-[IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md).
+Reconciled 2026-08-21 against the current tree. Phases follow the M1/M2 structure in
+[BACKLOG.md](BACKLOG.md); tasks are broken out in [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md).
+Execution claims are centralized in [VERIFICATION.md](VERIFICATION.md) so this roadmap does not
+turn a machine result into a completion verdict.
 
 **Read the qualifier first:** `[x]` here means *the code exists and compiles*. It does **not**
 mean the behavior was validated against the Java 6 host product or the vendor's own JMS
-implementation — that has never been recorded, see [ISSUES.md](ISSUES.md) I-009/I-011. The Java 6
-*runtime* and two of three platforms **are** now exercised, and three of five brokers have one
-recorded round trip; the reach of each is stated inline. `[~]` means partially delivered, with
-the gap named.
+implementation — that has never been recorded, see [ISSUES.md](ISSUES.md) I-009/I-011. Recorded
+Java, native, and broker runs are scoped in [VERIFICATION.md](VERIFICATION.md). `[~]` means
+partially delivered, with the gap named.
 
 ## Definition of Done
 
@@ -45,9 +45,10 @@ until then this file is written against the production bar because that is the s
 - [x] Native-load smoke test per platform resource — **VER-05**. windows-x86_64 (local, JVM 21)
       and linux-x86_64 (CI, JVM 1.6.0_38) both load. A `linux-aarch64 native load` job now runs
       `NativeLoadSmokeTest` on an `ubuntu-24.04-arm` runner against the JAR built by the amd64
-      job, and asserts the platform line really reports `aarch64`. **It ran and passed** on CI
-      run [32386474212](https://github.com/inovacc/modernlink/actions/runs/32386474212), so
-      linux-aarch64 has now been loaded on a JVM. All three shipped natives are proven
+      job, and asserts the platform line really reports `aarch64`. Run
+      [32386474212](https://github.com/inovacc/modernlink/actions/runs/32386474212) recorded the
+      configured load/assert steps at `3b64484`; this is native-load evidence, not vendor-host
+      compatibility.
 - [ ] Java 6 base image that is not deprecated — **VER-06**
 
 ## Phase 1 — HTTPS and TLS · `[COMPLETE — unvalidated]`
@@ -60,9 +61,10 @@ until then this file is written against the production bar because that is the s
 - [x] Peer certificate and cipher-suite access
 - [x] Capability bitmask for feature discovery
 - [x] Custom `HostnameVerifier`/`SSLSocketFactory` rejected rather than ignored
-- [ ] Recorded real Java 6 run against a live endpoint — **VER-04**
+- [x] Recorded packaged Java 6 run against a live HTTPS endpoint — **VER-04**. The command and
+      revision are in [VERIFICATION.md](VERIFICATION.md); it is not a vendor-host result.
 
-## Phase 2 — Messaging transports · `[IMPLEMENTED — NO RUNTIME EVIDENCE]`
+## Phase 2 — Messaging transports · `[IMPLEMENTED — LIMITED HAPPY-PATH EVIDENCE]`
 
 - [x] Uniform transport boundary fronting all providers
 - [x] NATS, NATS JetStream (durable pull + server-side ack), Kafka, Pulsar, RabbitMQ transports
@@ -79,22 +81,15 @@ until then this file is written against the production bar because that is the s
       test fail, reverting made it pass.
 - [x] Read-only JMX metrics MBean, Java 6-compatible
 - [x] Contract fixtures under `hacks/` for publisher/consumer across providers
-- [x] **Broker fixtures in CI** — **VER-01**. A `Broker-backed messaging` job in
-      `.github/workflows/test.yml` starts `nats:2.10 -js` and `rabbitmq:3.13`, waits on their
-      logs, and runs the three `#[ignore]`d tests explicitly, asserting all three actually ran.
-      **Kafka and Pulsar are not in it** — they have no broker-backed test (VER-02). **The job
-      ran and passed** on run
-      [32386474212](https://github.com/inovacc/modernlink/actions/runs/32386474212): NATS,
-      JetStream and RabbitMQ against real brokers, in CI, reproducible by anyone. **VER-01 is
-      done** — it is no longer one operator's manual run.
-- [x] **Broker-backed send/receive/ack test per provider** — **VER-02**. **Proven for all five.**
-      NATS core, JetStream and RabbitMQ passed against live brokers on 2026-08-14
-      (`tests/broker_backed.rs`, Codex-verified); Kafka and Pulsar
-      (`tests/broker_backed_{kafka,pulsar}.rs`) had never executed anywhere until run
-      [32386474212](https://github.com/inovacc/modernlink/actions/runs/32386474212), where they
-      passed first time. All five are `#[ignore]`d and driven by dedicated CI jobs that execute
-      on every push. **One happy-path round trip only** — durability, reconnect, ordering,
-      concurrency and failure semantics remain unexercised for **every** provider.
+- [x] **Broker fixtures in CI** — **VER-01**. Dedicated jobs start NATS/JetStream/RabbitMQ and
+      Kafka/Pulsar, then explicitly invoke the five `#[ignore]`d tests. Run
+      [32386474212](https://github.com/inovacc/modernlink/actions/runs/32386474212) at `3b64484`
+      recorded `success` conclusions for both broker jobs. The ordinary Rust jobs still execute
+      none of these tests.
+- [x] **Broker-backed send/receive/ack test per provider** — **VER-02**. Test targets exist for
+      all five providers, and run 32386474212 recorded one configured happy-path execution for
+      each. Durability, reconnect, ordering under load, concurrency, failure recovery,
+      rollback/redelivery, and dead-letter semantics remain unexercised for every provider.
 - [x] Per-adapter guarantee declarations — **MSG-04**, **DOC-03**. `Provider::guarantees()`
       returns a three-level table (VERIFIED / DECLARED / UNSUPPORTED) per provider, reachable
       from Java 6 via `ModernMessagingClient.guaranteesFor(...)` **without opening a
@@ -123,7 +118,8 @@ until then this file is written against the production bar because that is the s
 ## Phase 4 — M2 routing, transform, migration · `[NOT STARTED]`
 
 - [ ] Routing policy config: patterns, tenants, predicates, priority, fallback — **RT-01**
-- [ ] Dry-run proven distinct from apply — **RT-02**
+- [x] Dry-run surface is distinct from dispatch and returns denied decisions without publishing
+      — **RT-02**, `RouteConfig::dry_run`, `ModernMessagingClient.dryRun`
 - [ ] Versioned, auditable policy changes — **RT-03**
 - [ ] A failed target never silently acknowledges — **RT-04**
 - [ ] Transform envelope: serialization, versioning, idempotency, replay — **RT-05**
@@ -135,93 +131,46 @@ until then this file is written against the production bar because that is the s
 ## Engineering hygiene · `[PARTIAL]`
 
 - [x] Apache-2.0 LICENSE
-- [x] CI running `cargo test --workspace` + `cargo check -p jni-bridge` — **passing** as of run
-      [31781200582](https://github.com/inovacc/modernlink/actions/runs/31781200582) (2026-08-14),
-      after five consecutive red pushes. The job now reaches and runs the tests instead of dying
-      in the `rdkafka-sys` build. [BUGS.md](BUGS.md) B-001 resolved.
-- [x] CI building and exercising the packaged JAR (the `Java 6 JAR integration` job passes)
+- [x] CI declares `cargo test --workspace` + `cargo check -p jni-bridge`; recorded command exits
+      and revision scope are in [VERIFICATION.md](VERIFICATION.md). [BUGS.md](BUGS.md) B-001 is resolved.
+- [x] CI builds and invokes packaged-JAR probes
 - [x] Crate-level `//!` docs on all five crates
 - [x] `publish = false` on all six manifests — **SC-01**, `315fe87`
 - [x] Toolchain pin + declared MSRV — **SC-02**, **SC-03**; `rust-toolchain.toml` pins
       `1.96.0` and `[workspace.package] rust-version = "1.96"` reaches all six crates. The
-      CI and Docker halves **both ran green** on run 32386474212
-- [x] `fmt` and `clippy` enforced in CI — **SC-04**, `dd080b2`; both executed and passed on run
-      [31782837766](https://github.com/inovacc/modernlink/actions/runs/31782837766) at `d2479bd`
-- [x] All **15** Java test classes enumerated in CI — **VER-03**, `dd080b2` (was three of ten;
-      the count changed because VER-08 added two messaging tests and VER-05 added the native
-      smoke test)
+      run 32386474212 recorded the configured toolchain/packaging jobs at `3b64484`
+- [x] `fmt` and `clippy` are workflow steps — **SC-04**, `dd080b2`
+- [x] Java no-argument test execution uses automatic `*Test.class` discovery — **VER-03**.
+      There are 19 source files: 18 no-argument probes and one explicitly parameterized broker
+      probe.
 - [x] Crate-name collisions resolved — **SC-05**, **SC-06**; packages are `jni-bridge` and
       `modernlink-core`, folders unchanged, native artifact still `modernlink`
-- [x] Working coverage measurement — 36.34% lines / 34.86% regions, see below. **Not gated**
+- [x] Rust behavior-crate and Java production-class 90% line thresholds are wired in the dirty
+      workflow.
+- [x] Record terminal branch workflow conclusions for both thresholds. Run
+      [32523731422](https://github.com/inovacc/modernlink/actions/runs/32523731422) at `686adaa`
+      recorded `success` conclusions for both coverage jobs.
 
 ## Test coverage
 
-**36.34% line coverage / 34.86% region coverage** across the workspace, measured 2026-08-19 with
-`cargo llvm-cov --workspace --all-features --summary-only` on Windows, rustc 1.96.0.
+The current dirty tree records three deliberately distinct coverage scopes:
 
-This is the first coverage figure the project has ever had. It became measurable because **SC-07**
-made the provider clients optional: `combine`, `lapin`, `pulsar` and `async-nats` used to fail
-under coverage instrumentation, and llvm-cov could not compile the dependency graph at all.
+| Surface | Run 32523731422 report | Threshold wired in workflow |
+|---|---:|---:|
+| Full Rust production source, including JNI ABI glue and demo CLIs (informational) | 2,814/3,075 — **91.51%** | none |
+| Rust production behavior crates (`core`, `http`, `messaging`, `tls`) | 1,496/1,650 — **90.67%** | 90% |
+| Java production classes under JaCoCo/JDK 8, using Java 6-targeted classes and JNI→NATS | 802/889 — **90.21%** | 90% |
 
-| Crate | Regions | Lines |
-|---|---|---|
-| `crates/tls` | 83.67% | 77.78% |
-| `crates/core` | 65.07% | 63.37% |
-| `crates/messaging` | 46.53% | 48.37% |
-| `crates/http` | 29.90% | 28.52% |
-| `crates/jni` | 28.99% | 27.90% |
-| `hacks/messaging-demo` (7 binaries + `main.rs`) | 0.00% | 0.00% |
-| **TOTAL** | **34.86%** | **36.34%** |
+The Rust reports are not Rust-only unit-test figures. `scripts/run_rust_coverage.sh` instruments
+`libmodernlink`, loads it from Java, runs unit tests and demo binaries, and exercises
+NATS, JetStream, RabbitMQ, Kafka, and Pulsar sequentially, emits a full report, then applies
+`--fail-under-lines 90` to the behavior-crate scope. JNI entry points and provider dispatch stay
+visible in the full report. The Java job measures the facade independently with JaCoCo.
 
-The hardening run moved this from 21.40% / 23.94%: `crates/jni` roughly doubled (panic
-containment, the handle registries, the payload codec), `crates/messaging` rose from 29.70%
-(timeouts, redaction, restore-on-unwind, receive semantics), and `crates/http` from 16.01%
-(redirect edge cases).
-
-**`crates/tls` went DOWN**, 90.48% → 83.67%. Nothing was deleted: H-10 replaced an `.expect`
-with a `Result`, and the new error branch has no test exercising it. A coverage figure falling
-because code got *more* careful is worth stating rather than smoothing over.
-
-The previous measurement on the same day read 15.20% / 17.07%. The MSG-04 and MSG-05 tests
-moved `crates/jni` from 1.28% and `crates/messaging` from 23.91%; nothing was deleted to
-produce the change. A later reading of 24.02% / 21.44% was taken minutes before
-`hacks/messaging-demo/src/main.rs` grew from 3 uncovered lines to 13, which accounts for the
-whole 0.08pp difference. The figure above is the captured baseline
-(`docs/.project/testing/baselines/main/coverage.json`, commit `d20e75e`) and is authoritative.
-
-**Read these numbers with three caveats, or they will mislead:**
-
-1. **`--all-features` is the honest run.** The default (broker-free) build reports a higher
-   number, and `crates/messaging` alone reads far higher — but only because the five transports
-   are compiled out of that build entirely. The uncovered code is excluded rather than covered.
-   Always quote the `--all-features` figure.
-2. **`crates/jni` at 14.71% understates it.** That crate is exercised almost entirely by the 15
-   Java test classes running against the packaged JAR, which llvm-cov cannot see. The Rust-side
-   figure only rose because MSG-04/MSG-05 added Rust tests for the guarantee table and the
-   payload codec; the `Java_*` entry points themselves remain uncovered from this side.
-3. **The `messaging` figure is where the real gap is.** 29.70% with the transports included
-   means the domain, routing and guarantee logic are well covered and the five broker transports
-   are close to untested — which is **VER-01/VER-02** restated as a measurement.
-
-The Java facade has **no coverage tooling at all**; there is no Maven or Gradle build, so no
-JaCoCo — see [ISSUES.md](ISSUES.md) I-003, which now records what that does to these numbers.
-Short version: the workspace figure describes the **Rust half only**, `crates/jni` is
-understated because the Java tests that drive it are invisible to llvm-cov, and the 15 Java
-classes are themselves entirely unmeasured.
-
-Coverage is measured but **not gated** in CI — no threshold is enforced on any push, and
-`crates/http` should not get one until it has a test seam (see [BACKLOG.md](BACKLOG.md)).
-
-Other verification facts:
-- `cargo test --workspace` now runs and passes in CI on ubuntu-latest (run 31781200582), plus
-  `check`, `fmt` and `clippy`. Also exit 0 locally on Windows. Two platforms, still machine
-  results rather than a coverage figure.
-- All 13 Java test classes ran and passed in CI from the packaged JAR on a **Java 6** JVM
-  (`1.6.0_38`, `Linux/amd64`), including the native load, live HTTPS at TLSv1_3, the messaging
-  facade and the routing policy.
-- The Java facade has no coverage tooling at all — no Maven/Gradle means no JaCoCo.
-
-Raising the number, and gating it, remain open — tracked as P2 in [BACKLOG.md](BACKLOG.md).
+These are machine facts at `686adaa`, not a correctness verdict. Exact commands, runtime reach,
+and remaining gaps are maintained in [VERIFICATION.md](VERIFICATION.md); provider durability,
+reconnect, ordering under load, and vendor-host compatibility remain outside what either
+percentage establishes.
 
 ## Overall
 
@@ -229,11 +178,11 @@ Raising the number, and gating it, remain open — tracked as P2 in [BACKLOG.md]
 |---|---|
 | 0 — Native boundary and packaging | complete, unvalidated |
 | 1 — HTTPS and TLS | complete, unvalidated |
-| 2 — Messaging transports | implemented, no runtime evidence |
+| 2 — Messaging transports | implemented, limited happy-path runtime evidence |
 | 3 — M1 compatibility scope | not started |
 | 4 — M2 routing and migration | not started |
 
 Roughly **two of five phases** are code-complete; none is validated against the vendor product.
-The single highest-value next step is **VER-01 → VER-02**: broker fixtures in CI, which convert
-Phase 2 from a manual one-machine run into reproducible evidence. The cheapest remaining items
-are **SC-02** and **SC-03** — a toolchain pin and a declared MSRV.
+The single highest-value next step is a current-branch run of the newly wired Rust and Java line
+gates. After that machine result is recorded, B-003 delivery-mode enforcement and vendor-host
+JMS compatibility remain the highest-value contract work.

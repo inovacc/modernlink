@@ -1,11 +1,11 @@
 # Contributors and Contributing Guide
-<!-- rev:005 (RFC 3339) 2026-08-20T00:00:00Z -->
+<!-- rev:008 (RFC 3339) 2026-08-21T19:20:00Z -->
 
 ## Maintainers
 
-| Name | Contact | Commits |
+| Name | Contact | Role |
 |---|---|---|
-| Dyam Marcano | dyam.marcano@gmail.com | 59 (all) |
+| Dyam Marcano | dyam.marcano@gmail.com | Maintainer |
 
 Repository: <https://github.com/inovacc/modernlink> · License: Apache-2.0
 
@@ -39,10 +39,9 @@ Building with providers is what needs the toolchain: `--features kafka` builds l
 C via cmake, and `--features pulsar` needs protoc. Install `cmake`, `libcurl` and
 `protobuf-compiler` before using `--all-features` or building the distributable.
 
-**Read a green CI run precisely.** The broker-backed tests are `#[ignore]`d, so no CI run has
-now run against real brokers in dedicated CI jobs — all five providers, run 32386474212. What has and has
-not actually run is tracked in [BUGS.md](BUGS.md) under "Verification reach" — read it before
-describing this project as tested.
+**Read a CI result precisely.** The broker-backed tests are `#[ignore]`d, so ordinary Rust jobs
+execute none of them. Dedicated jobs invoke all five; run 32386474212 recorded those configured
+jobs at `3b64484`. Read [VERIFICATION.md](VERIFICATION.md) before describing runtime reach.
 
 ## Checking the Java facade without Docker
 
@@ -72,11 +71,12 @@ five `unreported exception` errors this catches in seconds.
 | Check the JNI crate | `cargo check -p jni-bridge` |
 | Format | `cargo fmt --all -- --check` |
 | Lint | `cargo clippy --workspace --all-targets -- -D warnings` |
-| Coverage | `cargo llvm-cov --workspace --all-features --summary-only` |
-| Build the Java 6 JAR | `docker build -f docker/java6/Dockerfile -t modernlink-java6 .` |
-| Run a packaged Java test | `docker run --rm modernlink-java6 sh -c "java -cp /workspace/modernlink.jar com.modernlink.LegacyHttpsTest"` |
+| Rust behavior-crate coverage gate plus full JNI/demo report (Linux + Docker) | `bash scripts/run_rust_coverage.sh` |
+| Build the Java 6 JAR | `docker build -f docker/java6/Dockerfile -t modernlink-java6-https .` |
+| Run a packaged Java test | `docker run --rm modernlink-java6-https sh -c "java -cp /workspace/modernlink.jar com.modernlink.LegacyHttpsTest"` |
 
-Use `-p jni-bridge`, never `-p jni` — the workspace crate shadows its own external dependency
+Use `-p jni-bridge` for the workspace JNI crate. The old package-name collision with the
+external `jni` crate is resolved, but `jni-bridge` remains the package's canonical name
 (ISSUES I-001).
 
 ## Code standards
@@ -94,8 +94,8 @@ Use `-p jni-bridge`, never `-p jni` — the workspace crate shadows its own exte
 - Naming: `Modern*` for new surface, `Legacy*` for the compatibility API the host already calls.
 
 **Tests**
-- Java tests are standalone `main`-style classes, not JUnit. Add new ones the same way and wire
-  them into `.github/workflows/test.yml` — a test the workflow does not invoke never runs.
+- Java tests are standalone `main`-style classes, not JUnit. The workflow discovers compiled
+  `*Test.class` files; preserve that discovery when adding tests so a fixed list cannot drift.
 
 ## Commits and pull requests
 
@@ -103,11 +103,13 @@ Use `-p jni-bridge`, never `-p jni` — the workspace crate shadows its own exte
 - No AI attribution in commit messages.
 - Before proposing a merge, run `cargo test --workspace` and `cargo check -p jni-bridge`.
 - **Report gate results as facts, not as a verdict.** A green run is a machine result; it is not
-  proof that the Java 6 integration works. Nothing in this repo has been validated against the
-  real Java 6 runtime or a real broker. Only the maintainer decides whether work is done.
+  proof that the Java 6 integration satisfies the intended contract. Recorded Java/broker runs
+  and their limits are in [VERIFICATION.md](VERIFICATION.md). Only the maintainer decides whether
+  work is done.
 
 ## Where to start
 
 Open work is tracked in [BACKLOG.md](BACKLOG.md) (M1/M2 items with acceptance criteria) and
-broken into tasks in [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md). The highest-value gap
-is broker-backed evidence for the messaging transports — see ISSUES I-010.
+broken into tasks in [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md). The highest-value gaps
+are the vendor JMS inventory/compatibility boundary and delivery-mode enforcement — see
+ISSUES I-010 and BUGS B-003.

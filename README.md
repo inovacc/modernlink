@@ -1,14 +1,21 @@
 # ModernLink
-<!-- rev:006 (RFC 3339) 2026-08-19T00:00:00Z -->
+<!-- rev:011 (RFC 3339) 2026-08-21T20:41:35Z -->
+
+[![Dependabot Updates](https://github.com/inovacc/modernlink/actions/workflows/dependabot/dependabot-updates/badge.svg)](https://github.com/inovacc/modernlink/actions/workflows/dependabot/dependabot-updates)
+[![CI](https://github.com/inovacc/modernlink/actions/workflows/test.yml/badge.svg)](https://github.com/inovacc/modernlink/actions/workflows/test.yml)
+
+⚠️ Still actively under development ⚠️
 
 *(formerly "Legacy Exit Gateway SDK" — the product name is ModernLink, matching `AGENTS.md`,
 the `modernlink` native library, and the `inovacc/modernlink` repository.)*
 
 ## Purpose
 
-This project studies a compatibility layer for a legacy product that must remain running on Java 6 while communicating with modern services and protocols.
+ModernLink is a compatibility layer for a legacy product that must remain running on Java 6
+while communicating with modern services and protocols.
 
-The proposed layer should add current capabilities—such as messaging, TLS, and network clients—without requiring a migration of the main product.
+It adds current messaging, TLS, and network clients without requiring a migration of the main
+product.
 
 ## Known constraints
 
@@ -42,6 +49,21 @@ The JAR should expose a small, stable API to Java 6 code. Modern implementation 
 
 The messaging compatibility backlog is documented in [`docs/BACKLOG.md`](docs/BACKLOG.md). It separates the JMS application contract from JMX management and defines transparent pass-through, transform, and redirect modes for legacy infrastructure and modern providers.
 
+## Samples: legacy APIs through modern providers
+
+The [`samples/`](samples/README.md) directory shows how a Java 6 host can keep its
+JMS-shaped application flow while ModernLink carries messages through the stable JNI
+boundary into Rust and an explicitly selected provider. It includes flow diagrams and
+small examples for JMS-style send/receive, JMX metrics, JAXB XML payloads, and a JAX-WS
+service endpoint. “JABX” is not a ModernLink API; the sample name uses the standard
+Java 6 API spelling, JAXB.
+
+The examples are integration blueprints, not evidence that a vendor host satisfies the
+contract. Provider selection remains explicit (`KAFKA`, `RABBITMQ`, `NATS`,
+`NATS_JETSTREAM`, or `PULSAR`). Unsupported acknowledgement modes are refused; delivery-mode
+enforcement is still open as [BUGS.md](docs/BUGS.md) B-003 and must not be inferred from a
+sample.
+
 Executable cross-application contract fixtures live under [`hacks/`](hacks/README.md). They include a JMS/JMX-shaped publisher, a provider-neutral consumer, and native broker probes for NATS, Kafka, Pulsar, and RabbitMQ, with first-class trace ID and span ID propagation. The `LEGACY_JMS` transparent fixture uses an in-process compatibility transport; it is not a vendor JMS broker bridge.
 
 ## Java 6 HTTPS adapter
@@ -57,7 +79,9 @@ traffic moves — `ModernMessagingClient.guaranteesFor(provider)` returns orderi
 persistence, acknowledgement, transaction, redelivery, dead-letter and replay support,
 each marked `VERIFIED` (a test has run), `DECLARED` (implemented, untested) or
 `UNSUPPORTED`. The reasoning per provider is in [`docs/providers.md`](docs/providers.md).
-Requesting something a provider cannot honour is **refused**, never silently downgraded.
+Acknowledgement-mode checks can refuse unsupported requests. **Delivery-mode enforcement is not
+wired into the publish path yet**: [BUGS.md](docs/BUGS.md) B-003 records the resulting persistent
+delivery downgrade risk, including RabbitMQ publishing transient messages to a durable queue.
 
 Message bodies may be text, raw bytes, or a string map. `OBJECT` and `STREAM` bodies are
 deliberately refused with their reason — see [`docs/FEATURES.md`](docs/FEATURES.md).
@@ -86,11 +110,20 @@ TLS policy defaults to a minimum of TLS 1.2. Java callers may select `LegacyHttp
 
 `ModernHttpsURLConnection` forwards its instance redirect flag and exposes `maxRedirects(int)`. Custom Java `HostnameVerifier` and `SSLSocketFactory` instances are explicitly rejected because the connection is terminated and verified by Rust; accepting those objects while ignoring them would create a misleading security contract.
 
-**What has and has not been validated at runtime**, as of 2026-08-14 — see [`docs/evidence/2026-08-14-native-runtime.md`](docs/evidence/2026-08-14-native-runtime.md):
+**What has and has not executed at runtime** is maintained in
+[`docs/VERIFICATION.md`](docs/VERIFICATION.md). Machine results below are observations at their
+recorded revisions, not a verdict that the integration satisfies the vendor contract:
 
-- **Executed on a real Java 6 JVM** (`1.6.0_38`, `linux-x86_64`, from the packaged JAR in CI run [31781200582](https://github.com/inovacc/modernlink/actions/runs/31781200582)): the native library loads through the real `NativeLoader` path (resource selection, SHA-256 extraction, `System.load`); a live HTTPS request negotiates TLSv1_3 with TLS terminated in Rust; the JMS-shaped messaging facade and the routing policy both pass. All 13 test classes ran.
+The CI workflow uses the Rust workspace job as its root gate. Coverage, Java 6, both broker
+groups, and dependency audit wait directly for Rust; linux-aarch64 waits for the Java JAR and
+therefore transitively for Rust. GitHub Actions skips those downstream jobs when their required
+predecessor does not complete successfully.
+
+- **Recorded on a real Java 6 JVM** (`1.6.0_38`, `linux-x86_64`, packaged JAR, CI run [31781200582](https://github.com/inovacc/modernlink/actions/runs/31781200582)): native loading, live TLSv1_3 HTTPS, the JMS-shaped facade, and routing probes executed.
 - **Executed on a modern JVM** (Windows, JVM 21): the same native path on **windows-x86_64**, `status=200` with a 4-certificate chain, and a send → receive → acknowledge round trip against **live NATS, NATS JetStream and RabbitMQ**.
-- **Not executed:** the **vendor host product** itself, and its JMS implementation — `LEGACY_JMS` is an in-process transport, not a vendor bridge. **linux-aarch64** has never been loaded on any JVM. **Kafka and Pulsar** have no broker-backed test. Durability, reconnect, ordering, concurrency, failure and redelivery semantics are unexercised for every provider.
+- CI run [32386474212](https://github.com/inovacc/modernlink/actions/runs/32386474212) at `3b64484` recorded the configured broker tests for all five providers and a linux-aarch64 native load on JVM 21.
+- CI run [32523731422](https://github.com/inovacc/modernlink/actions/runs/32523731422) at `686adaa` recorded `success` conclusions for all seven jobs. Its reports recorded Rust behavior-crate line coverage at **1,496/1,650 (90.67%)**, full Rust production-source coverage at **2,814/3,075 (91.51%)**, and Java production-class coverage at **802/889 (90.21%)**.
+- **Not executed:** the vendor host product and its JMS implementation. Durability across restart, reconnect, ordering under load, concurrency, failure recovery, rollback, redelivery, and dead-letter behavior remain unexercised for every provider.
 
 The integration approach itself is no longer open: embedded JNI was chosen over an external sidecar process, recorded in [`docs/adr/0001-jni-boundary-over-sidecar.md`](docs/adr/0001-jni-boundary-over-sidecar.md) (Status: Accepted). The section below is retained as the rationale behind that decision, not as an open question.
 
@@ -189,11 +222,15 @@ Xerial SQLite JDBC is the primary reference for this pattern: its documentation 
 
 ## Document status
 
-This document describes a research direction and a candidate architecture. The Java 6 runtime and two of the three target platforms are now exercised, but it is still **not** evidence that the integration works with the legacy product: the vendor's own application, its JMS implementation, and the real services it talks to have never been part of any run.
+This document describes a research direction and a candidate architecture. Recorded Java,
+native, and broker probes are listed in [`docs/VERIFICATION.md`](docs/VERIFICATION.md), but they
+are not evidence that the integration satisfies the legacy product: the vendor application and
+its JMS implementation have never been part of a recorded run.
 
 ## Current implementation layout
 
-The Rust workspace uses unprefixed internal crate names while retaining `ModernLink` as the public product name:
+The Rust workspace keeps provider-neutral package names where unambiguous; the shared core and
+JNI packages are `modernlink-core` and `jni-bridge`. `ModernLink` remains the public product name:
 
 ```text
 crates/core      - shared request, response, TLS metadata, and error types
@@ -221,8 +258,8 @@ The Java compatibility container is defined in `docker/java6/Dockerfile`. Docker
 With a running Docker daemon, build and run it from the repository root:
 
 ```text
-docker build -f docker/java6/Dockerfile -t modernlink-java6 .
-docker run --rm modernlink-java6
+docker build -f docker/java6/Dockerfile -t modernlink-java6-https .
+docker run --rm modernlink-java6-https
 ```
 
 The image compiles the Java facade and test sources with `-source 1.6 -target 1.6`, packages the platform-selected native libraries into `/workspace/modernlink.jar`, and reports the container's Java version. The same JAR can be used to exercise the Java-to-Rust HTTPS and messaging paths.

@@ -12,13 +12,21 @@
 //! cargo test -p messaging --test broker_backed_pulsar --features pulsar -- --ignored
 //! ```
 //!
-//! **This test has never been executed.** It is written against the same contract the
-//! three passing providers satisfy, but no run against a live Pulsar has been recorded
-//! (see `docs/BUGS.md`, "Verification reach").
+//! Recorded command reach is listed in `docs/VERIFICATION.md`; it does not establish
+//! reconnect, durability, redelivery, or vendor-host semantics.
 
 mod common;
 use common::{assert_send_receive_ack, endpoint, unique_destination};
-use messaging::{Provider, PulsarTransport};
+use messaging::{DeliveryReceipt, DeliveryState, MessageTransport, Provider, PulsarTransport};
+
+fn missing_receipt(provider: Provider) -> DeliveryReceipt {
+    DeliveryReceipt {
+        message_id: "missing-message".to_string(),
+        provider,
+        state: DeliveryState::Received,
+        trace_id: "missing-trace".to_string(),
+    }
+}
 
 #[test]
 #[ignore = "requires a live Pulsar broker; see the module docs"]
@@ -32,6 +40,16 @@ fn pulsar_send_receive_ack() {
     let subscription = unique_destination("modernlink_ver02_pulsar_sub");
     let transport = PulsarTransport::connect(&service_url, &destination, &subscription)
         .unwrap_or_else(|error| panic!("could not reach Pulsar at {service_url}: {error}"));
+    let wrong_provider = transport
+        .acknowledge(&missing_receipt(Provider::Kafka))
+        .expect_err("a receipt from another provider must fail closed");
+    assert!(wrong_provider.to_string().contains("does not match Pulsar"));
+    let missing = transport
+        .acknowledge(&missing_receipt(Provider::Pulsar))
+        .expect_err("an unknown Pulsar receipt must fail closed");
+    assert!(missing
+        .to_string()
+        .contains("no pending Pulsar acknowledgement"));
     assert_send_receive_ack(
         &transport,
         Provider::Pulsar,
