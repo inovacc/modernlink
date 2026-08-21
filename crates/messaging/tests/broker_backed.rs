@@ -20,7 +20,19 @@
 
 mod common;
 use common::{assert_send_receive_ack, endpoint, unique_destination};
-use messaging::{NatsJetStreamTransport, NatsTransport, Provider, RabbitMqTransport};
+use messaging::{
+    DeliveryReceipt, DeliveryState, MessageTransport, NatsJetStreamTransport, NatsTransport,
+    Provider, RabbitMqTransport,
+};
+
+fn missing_receipt(provider: Provider) -> DeliveryReceipt {
+    DeliveryReceipt {
+        message_id: "missing-message".to_string(),
+        provider,
+        state: DeliveryState::Received,
+        trace_id: "missing-trace".to_string(),
+    }
+}
 
 #[test]
 #[ignore = "requires a live NATS broker; see the module docs"]
@@ -46,6 +58,12 @@ fn nats_jetstream_send_receive_ack() {
     let consumer = format!("{}_CONSUMER", destination.to_uppercase());
     let transport = NatsJetStreamTransport::connect(&url, &destination, &stream, &consumer)
         .unwrap_or_else(|error| panic!("could not reach NATS JetStream at {url}: {error}"));
+    let error = transport
+        .acknowledge(&missing_receipt(Provider::NatsJetStream))
+        .expect_err("an unknown JetStream receipt must fail closed");
+    assert!(error
+        .to_string()
+        .contains("no pending JetStream acknowledgement"));
     assert_send_receive_ack(
         &transport,
         Provider::NatsJetStream,
@@ -64,6 +82,13 @@ fn rabbitmq_send_receive_ack() {
     let destination = unique_destination("modernlink.ver02.rabbit");
     let transport = RabbitMqTransport::connect(&uri, &destination)
         .unwrap_or_else(|error| panic!("could not reach RabbitMQ: {error}"));
+    assert!(
+        transport
+            .receive()
+            .expect("an empty RabbitMQ queue should be readable")
+            .is_none(),
+        "a unique queue should be empty before the test publishes"
+    );
     assert_send_receive_ack(
         &transport,
         Provider::RabbitMq,

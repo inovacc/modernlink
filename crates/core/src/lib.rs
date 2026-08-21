@@ -141,45 +141,4 @@ pub struct TlsInfo {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{base64_decode, base64_encode, json_decode, uuid_v4, uuid_v7, Request};
-
-    #[test]
-    fn request_rejects_empty_url() {
-        let error = Request::new("");
-        assert!(error.is_err());
-    }
-
-    #[test]
-    fn request_accepts_https_url_with_get_as_default() {
-        let request = Request::new("https://example.com").unwrap();
-        assert_eq!(request.method, "GET");
-        assert!(request.follow_redirects);
-        assert_eq!(request.max_redirects, 10);
-        assert_eq!(request.minimum_tls_version, super::TlsVersion::Tls12);
-    }
-
-    #[test]
-    fn uuid_v7_has_uuid_shape() {
-        let value = uuid_v7();
-        assert_eq!(value.len(), 36);
-        assert_eq!(&value[14..15], "7");
-    }
-
-    #[test]
-    fn uuid_v4_has_uuid_shape() {
-        let value = uuid_v4();
-        assert_eq!(value.len(), 36);
-        assert_eq!(&value[14..15], "4");
-    }
-
-    #[test]
-    fn base64_and_json_helpers_encode_data() {
-        assert_eq!(base64_encode(b"modernlink"), "bW9kZXJubGluaw==");
-        assert_eq!(base64_decode("bW9kZXJubGluaw==").unwrap(), b"modernlink");
-        assert_eq!(
-            json_decode("{ \"message\": \"hello\" }").unwrap(),
-            "{\"message\":\"hello\"}"
-        );
-    }
-}
+mod tests;

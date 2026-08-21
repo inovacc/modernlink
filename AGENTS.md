@@ -1,5 +1,5 @@
 # AGENTS.md — ModernLink
-<!-- rev:014 (RFC 3339) 2026-08-20T00:00:00Z -->
+<!-- rev:018 (RFC 3339) 2026-08-21T19:43:45Z -->
 
 Canonical cross-tool agent instructions for the ModernLink repo (read by Claude Code,
 Codex, Cursor, Gemini, etc. — Claude Code imports this from `CLAUDE.md`). Must-know
@@ -16,7 +16,9 @@ native library, which owns modern TLS, HTTPS, and messaging.
 Java 6 app -> Java 6 JAR facade -> JNI boundary -> Rust native lib -> TLS / HTTPS / NATS·Kafka·Pulsar·RabbitMQ
 ```
 
-The Rust workspace uses **unprefixed crate names** while `ModernLink` stays the product name:
+The Rust workspace keeps provider-neutral package names where they are unambiguous, while the
+shared core and JNI packages are explicitly namespaced as `modernlink-core` and `jni-bridge`.
+`ModernLink` remains the product name:
 
 Six crates — `core` (shared types), `http` (HTTPS), `tls` (policy boundary), `messaging`
 (the five provider transports plus in-process `LEGACY_JMS`), `jni` (the entry points, builds
@@ -36,7 +38,9 @@ The distributable is one JAR with per-platform native resources embedded
   chooses it explicitly. Broker clients live in Rust.
 - **Fail closed on unsupported guarantees.** Delivery semantics are part of the contract, not
   an implementation detail. A capability gap must be reported explicitly — never silently
-  degraded. Transparent mode must not quietly alter delivery guarantees.
+  degraded. Transparent mode must not quietly alter delivery guarantees. This is the required
+  contract, not a description of complete enforcement: [docs/BUGS.md](docs/BUGS.md) B-003 is
+  the known current deviation because publish paths do not yet enforce requested delivery mode.
 - **Never put credentials, payloads, or message bodies in JMX attributes or logs.**
 - **Use `-p jni-bridge`** for the JNI crate. It used to be named `jni`, which collided with the
   external `jni` crate it depends on and forced `-p jni@0.1.0` everywhere; SC-05 renamed the
@@ -61,9 +65,9 @@ they mirror `.github/workflows/test.yml`.
 | Check the JNI crate | `cargo check -p jni-bridge` |
 | Format | `cargo fmt --all -- --check` |
 | Lint | `cargo clippy --workspace --all-targets -- -D warnings` |
-| Coverage | `cargo llvm-cov --workspace --all-features --summary-only` |
-| Build the Java 6 JAR | `docker build -f docker/java6/Dockerfile -t modernlink-java6 .` |
-| Run a packaged Java test | `docker run --rm modernlink-java6 sh -c "java -cp /workspace/modernlink.jar com.modernlink.LegacyHttpsTest"` |
+| Coverage (90% production lines in `core`/`http`/`messaging`/`tls`; full report also includes JNI and demos) | `bash scripts/run_rust_coverage.sh` |
+| Build the Java 6 JAR | `docker build -f docker/java6/Dockerfile -t modernlink-java6-https .` |
+| Run a packaged Java test | `docker run --rm modernlink-java6-https sh -c "java -cp /workspace/modernlink.jar com.modernlink.LegacyHttpsTest"` |
 
 **Provider transports are feature-gated as of SC-07.** `crates/messaging` declares
 `default = []`, and `crates/jni` forwards the selection, so a plain `cargo test --workspace`
@@ -72,28 +76,16 @@ anything that must talk to a broker with `--features all-providers`; `docker/jav
 already does. **Asking for a provider that was not compiled in fails closed** with an error
 naming the missing cargo feature — it is never rerouted to another transport.
 
-**`cargo test --workspace`, `cargo check -p jni-bridge`, `cargo fmt --all -- --check` and
-`cargo clippy --workspace --all-targets -- -D warnings` are all CI-gated** for Rust as of
-`dd080b2` (`.github/workflows/test.yml`), and `--all-features` variants of test and clippy run
-alongside them as of SC-07. Coverage is still not gated. The Java side has **no
-Maven or Gradle build** — `javac` runs inside `docker/java6/Dockerfile`, which is the only
-supported way to compile and package the facade.
+The workflow declares seven jobs: Rust checks, Rust behavior-crate coverage, Java 6 JAR, two broker-backed
+groups, linux-aarch64, and dependency audit. The five broker tests are `#[ignore]`d and run only
+by the dedicated jobs; the dependency audit is non-blocking while B-009 is open. **Read
+[docs/VERIFICATION.md](docs/VERIFICATION.md)
+before citing any test, CI, Java, native, or broker result.** It separates recorded command facts
+from runtime behavior that remains unproven.
 
-**CI runs on every push to `main` and on every PR, and it now reaches real brokers.** Six jobs:
-the Rust workspace, the Java 6 JAR on JVM 1.6.0_38, NATS/JetStream/RabbitMQ against live
-brokers, Kafka and Pulsar against live brokers, the linux-aarch64 native load, and a dependency
-audit.
-
-**Two of those greens still need reading precisely.** `cargo test --workspace` skips the five
-`#[ignore]`d broker tests, so the *local* command asserts nothing about a broker — only the
-dedicated CI jobs do. And the **dependency-audit job is `continue-on-error`**, so it reports
-green while `cargo audit` exits 1 on four open advisories (B-009); that flag comes off when
-B-009 closes. What has and has not been run is tracked in the "Verification reach" section of
-[docs/BUGS.md](docs/BUGS.md) — read it before describing this project as tested.
-
-The native libraries are cross-compiled with `cargo-zigbuild` for three targets inside that same
-Dockerfile; the `kafka` and `pulsar` features need `cmake`, `libcurl` and `protobuf-compiler`
-present. The default build needs none of them (SC-07).
+The Java side has no Maven or Gradle build; the Dockerfile is the supported Java 6 compiler and
+packager. It cross-compiles three native targets; Kafka/Pulsar builds additionally need `cmake`,
+`libcurl`, and `protobuf-compiler`.
 
 ## Code style
 
@@ -107,21 +99,17 @@ present. The default build needs none of them (SC-07).
 ## Testing
 
 - Rust tests must pass before merge: `cargo test --workspace`.
-- Java tests are **standalone `main`-style classes** run from the packaged JAR, not JUnit —
-  see `java/src/test/java/com/modernlink/` (11 classes) and
-  `java/src/test/java/com/modernlink/messaging/` (4 classes), **15 in total**. As of `dd080b2`
-  the workflow enumerates and runs all of them; add new ones the same way and wire them into
-  `.github/workflows/test.yml`, because a class the workflow does not name never runs.
+- Java tests are standalone `main`-style classes, not JUnit. The workflow discovers and runs
+  every no-argument `*Test.class`; parameterized broker probes are excluded from that loop and
+  invoked explicitly with their provider endpoint.
 - **A local `javac` catches most Java errors — use it before pushing.** Docker is needed for
   the Java 6 *language level* and the runtime, not for type checking. `javac -source 8` over
   `java/src/main/java` then `java/src/test/java` catches unreported checked exceptions,
   missing methods and type errors in seconds. A `ModernPayload` change reached `main` without
   it and broke the CI JAR build with five `unreported exception` errors that this catches
   immediately. Recipe in [docs/CONTRIBUTORS.md](docs/CONTRIBUTORS.md).
-- The fixtures under `hacks/` are deterministic contract probes. They are **not** evidence of
-  broker-backed behavior. The only broker-backed evidence is
-  `crates/messaging/tests/broker_backed.rs`, it covers NATS, JetStream and RabbitMQ only, it is
-  `#[ignore]`d so no CI run executes it, and it exercises one happy-path round trip.
+- The fixtures under `hacks/` are deterministic contract probes, not broker evidence. Dedicated
+  broker tests and their exact recorded reach are listed in [docs/VERIFICATION.md](docs/VERIFICATION.md).
 
 ## Security
 
@@ -149,9 +137,9 @@ present. The default build needs none of them (SC-07).
 - Conventional commits (`feat:`, `fix:`, `docs:`, `build:`, `style:`, `merge:`).
 - No AI attribution in commit messages.
 - Run `cargo test --workspace` and `cargo check -p jni-bridge` before proposing a merge, and
-  report the results as **facts, not a verdict** — a green gate is a machine result, never
-  proof that the Java 6 integration works. Runtime validation against the legacy runtime and
-  real brokers has not been done; only the maintainer decides whether something is done.
+  report the results as **facts, not a verdict**. Prior Java/broker runs are revision-scoped in
+  [docs/VERIFICATION.md](docs/VERIFICATION.md); the vendor host remains unexercised. Only the
+  maintainer decides whether something is done.
 
 ## Reference docs
 
@@ -160,5 +148,6 @@ present. The default build needs none of them (SC-07).
 - [docs/jms-compatibility.md](docs/jms-compatibility.md) — the JMS contract boundary
 - [docs/jmx-management.md](docs/jmx-management.md) — JMX management model
 - [docs/routing-semantics.md](docs/routing-semantics.md) — routing / redirect semantics
+- [docs/VERIFICATION.md](docs/VERIFICATION.md) — exact command/runtime reach and unproven paths
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — component + sequence diagrams
 - [docs/ISSUES.md](docs/ISSUES.md) — known limitations, incl. the crate-name collisions

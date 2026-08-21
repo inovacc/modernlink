@@ -1,14 +1,14 @@
 # Milestones
-<!-- rev:017 (RFC 3339) 2026-08-20T00:00:00Z -->
+<!-- rev:021 (RFC 3339) 2026-08-21T19:20:00Z -->
 
 Version milestones for ModernLink. **No git tags exist yet** — nothing has been released, so
 every version below is a target, not a shipped artifact. Phases are detailed in
 [ROADMAP.md](ROADMAP.md); tasks in [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md).
 
-Throughout: "done" means the code exists **and** evidence exists. Phase 0-1 now have runtime
-evidence on a real Java 6 JVM; Phase 2 has one hand-run round trip for three of five providers
-and nothing reproducible in CI. v0.1.0 is close but not reached — a toolchain pin, a declared
-MSRV and any coverage number are still missing.
+Throughout: a checked box means the implementation and the named machine observation exist; it
+is not a maintainer verdict. Exact revision-scoped execution reach lives in
+[VERIFICATION.md](VERIFICATION.md). The vendor product and its JMS implementation remain outside
+every recorded run.
 
 ## v0.1.0 — Provable native boundary `[IN PROGRESS]`
 
@@ -20,19 +20,15 @@ just implemented.
 - [x] Single-JAR packaging with three platform natives
 - [x] HTTPS facade with TLS 1.2/1.3, redirects, certificates, capability bitmask
 - [x] Crate-level `//!` documentation
-- [x] CI: `cargo test --workspace`, `cargo check -p jni-bridge`, `fmt`, `clippy`, JAR build + all
-      13 Java tests — **all green** on run
-      [31781200582](https://github.com/inovacc/modernlink/actions/runs/31781200582) (2026-08-14),
-      which resolved [BUGS.md](BUGS.md) B-001.
+- [x] CI declares `cargo test --workspace`, `cargo check -p jni-bridge`, `fmt`, `clippy`, and a
+      packaged-JAR job; revision-scoped machine results are in [VERIFICATION.md](VERIFICATION.md).
 - [x] `publish = false` on all six manifests — **SC-01**, `315fe87`
 - [x] Toolchain pin and declared MSRV — **SC-02**, **SC-03**. `rust-toolchain.toml` +
-      `rust-version = "1.96"`; verified locally by `rustup show active-toolchain` and
-      `cargo metadata`, not yet by a CI run or a Docker build
-- [x] `fmt` + `clippy` enforced in CI — **SC-04**, `dd080b2`; both ran and passed on run
-      [31782837766](https://github.com/inovacc/modernlink/actions/runs/31782837766) at `d2479bd`
-- [x] All **15** Java test classes enumerated in CI — **VER-03**, `dd080b2`; the 13 that existed
-      at the time executed and
-      passed on run 31781200582.
+      `rust-version = "1.96"`; local commands have reported the configured values
+- [x] `fmt` + `clippy` are workflow steps — **SC-04**, `dd080b2`
+- [x] Java no-argument test execution uses automatic compiled-class discovery — **VER-03**.
+      The dirty tree has 19 test sources: 18 discovered no-argument probes and one explicitly
+      invoked broker probe.
 - [x] A recorded **Java 6** run against a live HTTPS endpoint — **VER-04**. Run 31781200582
       executed the suite on a real Java 6 JVM (`native-smoke-jvm=1.6.0_38`, `Linux/amd64`) from
       the packaged JAR, reaching `tls-protocol=TLSv1_3` against a live endpoint. The earlier local
@@ -41,29 +37,26 @@ just implemented.
       Java 6 half.
 - [x] Native-load smoke test per platform — **VER-05**. **windows-x86_64** (local, JVM 21) and
       **linux-x86_64** (CI, `native-smoke-load=ok` on JVM 1.6.0_38) both load. A CI job now
-      targets **linux-aarch64** on an arm64 runner and **it ran green** (run 32386474212).
-      All three shipped natives have now been loaded on a JVM.
-- [x] A working coverage measurement — **34.86% regions / 36.34% lines**
-      (`cargo llvm-cov --workspace --all-features`, 2026-08-19). Unblocked by SC-07; see
-      [ROADMAP.md](ROADMAP.md). Measured, **not gated**
+      targets **linux-aarch64** on an arm64 runner; run 32386474212 recorded the configured
+      load/assert steps at `3b64484`.
+- [ ] Separate Rust behavior-crate and Java production-class 90% line gates are wired. Java
+      recorded 90.33% locally; the Rust scoped result and current-revision workflow conclusions
+      are still pending.
 
-**Coverage target:** establish a baseline at all — **met**: 36.34% lines. That is a starting
-line, not a passing grade, and nothing enforces it yet.
+**Coverage target:** at least 90% production lines for Rust behavior crates and Java classes.
+The workflow enforces those scopes; the Rust threshold still needs a Linux branch result.
 
 ## v0.2.0 — Messaging with evidence `[BLOCKED on v0.1.0]`
 
 Converts Phase 2 from claim to fact. This is the milestone that matters most: the transports are
 already written, so the entire value of this release is proof.
 
-- [x] Broker fixtures in CI for NATS, Kafka, Pulsar, RabbitMQ — **VER-01**. A `Broker-backed
-      messaging` job now stands up NATS (JetStream) and RabbitMQ and runs the three `#[ignore]`d
-      tests; **Kafka and Pulsar are absent** because they have no test yet, and **the job has
-      ran green on run 32386474212 — all five providers now have a broker-backed test that
-      executes in CI
-- [x] Broker-backed send / receive / acknowledge test per provider — **VER-02**. NATS core,
-      JetStream and RabbitMQ pass (2026-08-14, verified by Codex). Kafka and Pulsar now have
-      tests too, but **neither has ever been executed** against a live broker. Only the happy
-      path is covered for any provider.
+- [x] Broker fixtures in CI for NATS, Kafka, Pulsar, RabbitMQ — **VER-01**. Dedicated jobs invoke
+      all five `#[ignore]`d tests; run 32386474212 recorded both broker-job conclusions at
+      `3b64484`.
+- [x] Broker-backed send / receive / acknowledge test per provider — **VER-02**. One configured
+      happy path per provider has a recorded machine run. Delivery semantics under restart,
+      reconnect, load, concurrency, and failure remain unexercised.
 - [x] Per-adapter guarantee declarations, queryable before traffic moves — **MSG-04**
 - [x] Documented per-provider guarantees — **DOC-03**, [providers.md](providers.md)
 - [~] Payload categories beyond text — **MSG-05**. TEXT, BYTES and MAP carried; STREAM and

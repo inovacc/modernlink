@@ -32,34 +32,35 @@ async fn execute_async(request: &Request) -> Result<Response, Error> {
     let mut redirects = 0u32;
     loop {
         let response = execute_once_async(&current).await?;
-        let location = response.headers.get("location").cloned();
-        let redirect_status = matches!(response.status, 301 | 302 | 303 | 307 | 308);
-        if !current.follow_redirects || !redirect_status {
-            return Ok(response);
-        }
-        // H-14: `let ... else` rather than an `is_none()` guard plus `unwrap()`. The old
-        // shape was correct, and correct only by convention - the compiler did not enforce
-        // the relationship, so one edit between the check and the unwrap would have
-        // reintroduced a panic on a path reachable from the JNI boundary.
-        let Some(location) = location.as_ref() else {
+        let Some(next) = redirected_request(&current, &response, redirects)? else {
             return Ok(response);
         };
-        if redirects >= current.max_redirects {
-            return Ok(response);
-        }
-        let target = redirect_target(&current.url, location)?;
-        if target.scheme() != "https" {
-            return Err(Error::InvalidRequest(
-                "redirect target must use https://".to_string(),
-            ));
-        }
-        current.url = target.to_string();
-        if response.status == 301 || response.status == 302 || response.status == 303 {
-            current.method = "GET".to_string();
-            current.body.clear();
-        }
+        current = next;
         redirects += 1;
     }
+}
+
+fn redirected_request(
+    current: &Request,
+    response: &Response,
+    redirects: u32,
+) -> Result<Option<Request>, Error> {
+    let redirect_status = matches!(response.status, 301 | 302 | 303 | 307 | 308);
+    if !current.follow_redirects || !redirect_status || redirects >= current.max_redirects {
+        return Ok(None);
+    }
+    // H-14: keep the location check and use structurally coupled. A missing Location on a
+    // redirect status returns the response instead of panicking at the JNI boundary.
+    let Some(location) = response.headers.get("location") else {
+        return Ok(None);
+    };
+    let mut next = current.clone();
+    next.url = redirect_target(&current.url, location)?.to_string();
+    if matches!(response.status, 301 | 302 | 303) {
+        next.method = "GET".to_string();
+        next.body.clear();
+    }
+    Ok(Some(next))
 }
 
 fn redirect_target(current_url: &str, location: &str) -> Result<url::Url, Error> {
@@ -236,104 +237,4 @@ fn host_header(host: &str, port: u16) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{host_header, redirect_target};
-    use modernlink_core::Error;
-
-    #[test]
-    fn resolves_relative_https_redirects() {
-        let target = redirect_target("https://example.com/path/start", "/next").unwrap();
-        assert_eq!(target.as_str(), "https://example.com/next");
-    }
-
-    #[test]
-    fn rejects_non_https_redirects() {
-        let error = redirect_target("https://example.com/path", "http://example.com/next");
-        assert_eq!(
-            error,
-            Err(Error::InvalidRequest(
-                "redirect target must use https://".to_string()
-            ))
-        );
-    }
-
-    #[test]
-    fn resolves_query_only_redirects() {
-        let target = redirect_target("https://example.com/path?old=1", "?new=2").unwrap();
-        assert_eq!(target.as_str(), "https://example.com/path?new=2");
-    }
-
-    #[test]
-    fn formats_host_header_for_default_and_custom_ports() {
-        assert_eq!(host_header("example.com", 443), "example.com");
-        assert_eq!(host_header("example.com", 8443), "example.com:8443");
-        assert_eq!(host_header("::1", 8443), "[::1]:8443");
-    }
-
-    /// A protocol-relative redirect inherits the scheme of the page it came from. Because
-    /// the base is always https here, `//host/path` must resolve to https and be allowed -
-    /// if it resolved to http it would be a silent downgrade of a secure request.
-    #[test]
-    fn resolves_protocol_relative_redirects_to_https() {
-        let target = redirect_target("https://example.com/a", "//other.example.com/b").unwrap();
-        assert_eq!(target.as_str(), "https://other.example.com/b");
-    }
-
-    #[test]
-    fn resolves_fragment_only_redirects() {
-        let target = redirect_target("https://example.com/a?q=1", "#section").unwrap();
-        assert_eq!(target.as_str(), "https://example.com/a?q=1#section");
-    }
-
-    /// An empty Location resolves back to the current URL. That is a redirect loop rather
-    /// than an error, and it is safe only because the caller bounds `max_redirects` - this
-    /// pins the resolution so the bound stays the thing that stops it.
-    #[test]
-    fn an_empty_location_resolves_to_the_current_url() {
-        let target = redirect_target("https://example.com/a", "").unwrap();
-        assert_eq!(target.as_str(), "https://example.com/a");
-    }
-
-    #[test]
-    fn a_redirect_to_another_host_is_allowed_when_it_stays_https() {
-        let target = redirect_target("https://a.example.com/x", "https://b.example.com/y").unwrap();
-        assert_eq!(target.host_str(), Some("b.example.com"));
-    }
-
-    /// A relative redirect must not silently drop a non-default port - landing on 443
-    /// instead of 8443 would quietly contact a different service.
-    #[test]
-    fn a_relative_redirect_preserves_a_non_default_port() {
-        let target = redirect_target("https://example.com:8443/a", "/b").unwrap();
-        assert_eq!(target.as_str(), "https://example.com:8443/b");
-        assert_eq!(target.port(), Some(8443));
-    }
-
-    #[test]
-    fn rejects_non_http_schemes_outright() {
-        for location in [
-            "ftp://example.com/f",
-            "file:///etc/passwd",
-            "data:text/plain,x",
-        ] {
-            assert!(
-                redirect_target("https://example.com/a", location).is_err(),
-                "must reject {location}"
-            );
-        }
-    }
-
-    /// Neither the location nor the base parses, so there is nothing to resolve against.
-    #[test]
-    fn reports_an_unparseable_base_rather_than_panicking() {
-        let error = redirect_target("not a url", "also not a url");
-        assert!(matches!(error, Err(Error::InvalidRequest(_))), "{error:?}");
-    }
-
-    #[test]
-    fn formats_host_header_for_ipv6_on_the_default_port() {
-        // 443 returns the bare host, so an IPv6 literal comes back unbracketed here.
-        assert_eq!(host_header("::1", 443), "::1");
-        assert_eq!(host_header("2001:db8::1", 8443), "[2001:db8::1]:8443");
-    }
-}
+mod tests;

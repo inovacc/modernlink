@@ -1,5 +1,5 @@
 # ModernLink Messaging Compatibility Backlog
-<!-- rev:020 (RFC 3339) 2026-08-20T00:00:00Z -->
+<!-- rev:025 (RFC 3339) 2026-08-21T19:43:45Z -->
 
 ## Objective
 
@@ -260,75 +260,51 @@ None of the six manifests blocks publication, and the crate names (`core`, `http
 _Evidence:_ no `publish` key in `crates/{core,http,tls,jni,messaging}/Cargo.toml` or
 `hacks/messaging-demo/Cargo.toml`. See ISSUES I-012.
 
-### P1 — broker-backed evidence is partial and not reproducible (VER-01, VER-02)
+### P1 — broker-backed evidence covers only one happy path per provider (VER-01, VER-02)
 
-**Narrowed 2026-08-14 by `a2419b5`.** `crates/messaging/tests/broker_backed.rs` now runs one
-send/receive/ack round trip against live **NATS core, NATS JetStream and RabbitMQ**. What
-remains open, and why this is still P1 and still the largest gap:
+The repository contains five explicit broker tests. Run
+[32386474212](https://github.com/inovacc/modernlink/actions/runs/32386474212) at `3b64484`
+recorded `success` conclusions for the dedicated NATS/JetStream/RabbitMQ and Kafka/Pulsar jobs.
+That is a machine fact about one configured send/receive/ack path, not a delivery-semantics
+verdict. What remains open:
 
-- **Kafka and Pulsar now have tests, but neither has ever been executed.** Written is not
-  proven; the CI job that drives them (`broker-backed-kafka-pulsar`) has not run, and should be
-  expected to need tuning on its first attempts.
-- The three existing tests are `#[ignore]`d (`:117`, `:132`, `:149`). A `Broker-backed
-  messaging` CI job now runs them explicitly against `nats:2.10 -js` and `rabbitmq:3.13`, but
-  **that job ran green** on run
-  [32386474212](https://github.com/inovacc/modernlink/actions/runs/32386474212), so the
-  evidence is now reproducible in CI rather than one operator's manual run.
-- Only the happy path is covered. Durability, acknowledgement under failure, reconnect,
+- All five tests are `#[ignore]`d and ordinary workspace test commands execute none of them.
+  Dedicated workflow jobs must invoke them explicitly.
+- Only the happy path has a recorded broker run. Durability, acknowledgement under failure, reconnect,
   ordering, concurrency and redelivery remain source-level claims for **every** provider.
 
 See ISSUES I-010.
 
-### P2 — `crates/http` coverage is structurally capped, not merely low (H-12)
+### ~~P2 — `crates/http` coverage is structurally capped (H-12)~~ — **MEASUREMENT BLOCKER REMOVED**
 
-`crates/http` sits at **28.52% lines** and cannot meaningfully be raised by writing more
-unit tests. Its pure functions — `redirect_target`, `host_header` — are already covered by 12
-tests. Everything else is `execute_once_async` and `collect_response`, which need a live
-HTTPS server.
+The missing local test-root seam still exists, but it no longer caps measurement. The Rust
+coverage harness loads an instrumented native library from Java and sends real HTTPS requests
+through the shipped JNI boundary; the current dirty-tree report records `crates/http` at 90.25%
+lines. The remaining improvement is determinism: replace reliance on a public HTTPS endpoint with
+a security-reviewed test-only trust seam without making custom roots available in production.
 
-**The blocker is a missing test seam in the TLS boundary.** `tls::client_config` builds its
-root store from `webpki_roots::TLS_SERVER_ROOTS` and exposes no way to add another root
-(`crates/tls/src/lib.rs`). An in-process test server would present a self-signed certificate,
-which is correctly rejected, so the HTTPS path cannot be exercised against localhost at all.
+### ~~P2 — coverage cannot be measured (SC-04)~~ — **GATES WIRED; CLEAN-RUN RESULT PENDING**
 
-That is not an argument for loosening trust. Any seam here is security-sensitive — a feature
-flag that adds test roots is a feature flag that can be enabled in production by mistake —
-so it needs a deliberate design rather than a convenience hook: a `cfg(test)`-only injection
-inside `crates/tls`, or a dedicated integration crate that constructs its own
-`ClientConfig` without going through the shipped boundary.
+The dirty workflow now enforces separate 90% line thresholds:
 
-Until then, quoting the `crates/http` percentage as a code-quality signal is misleading: it
-measures the absence of a test harness, not the absence of tests. **Do not set a coverage
-gate on this crate before the seam exists** — it would either fail permanently or be set so
-low it asserts nothing.
+- Rust: `scripts/run_rust_coverage.sh` cleans profiles, extracts inline unit bodies to the
+  reporter-excluded `src/tests.rs` files, then combines unit tests, instrumented Java→JNI calls,
+  demo binaries, and sequential live-broker/fault paths. A clean local full-production report
+  before the latest redirect/fault additions recorded 2,548/3,071 lines (82.97%). The enforced
+  90% denominator is the production behavior crates (`core`, `http`, `messaging`, `tls`); JNI ABI
+  glue and demo CLIs remain visible in the full report and have separate execution steps.
+- Java: JaCoCo runs on JDK 8 against the same classes compiled for Java 6; the packaged Java 6
+  runtime path is a separate step. The local report recorded 803/889 lines (90.33%).
 
-### ~~P2 — coverage cannot be measured (SC-04)~~ — **MEASURED**; raising and gating it stay open
-
-**SC-07 unblocked it, as predicted.** With the provider clients optional, llvm-cov compiles the
-graph and reports, on 2026-08-19 (Windows, rustc 1.96.0):
-
-- `cargo llvm-cov --workspace --all-features --summary-only` → **34.86% regions / 36.34% lines**
-- `cargo llvm-cov --workspace --summary-only` (broker-free) reads **higher**, and is the
-  misleading one — see ROADMAP. It was 27.37% / 30.58% before the MSG-04/MSG-05 tests and has
-  not been re-measured since; no current figure is quoted here rather than a stale one.
-
-**Quote the `--all-features` figure.** The broker-free run flatters `crates/messaging` by
-compiling the five transports out; with them in it is **46.53%**. That gap is VER-01/VER-02
-expressed as a number: the domain, routing and guarantee logic are well covered, the transports
-are close to untested.
-
-Still open, and still P2:
-- **No coverage gate.** Nothing enforces a threshold on any push.
-- **The Java facade has no coverage tooling at all** — no Maven or Gradle, so no JaCoCo. The 15
-  test classes cover `crates/jni` in a way llvm-cov cannot see, which is why that crate reads
-  only 14.71% despite being the most exercised surface in the project.
+The remaining item is a terminal GitHub Actions result for the current revision. No percentage
+establishes delivery durability, reconnect, ordering, rollback/redelivery, or vendor-host
+compatibility; those remain separate verification work.
 
 ### ~~P2 — CI does not enforce formatting or lint (SC-04)~~ — **DONE `dd080b2`**
 
 `.github/workflows/test.yml` now runs `cargo fmt --all -- --check` and
-`cargo clippy --workspace --all-targets -- -D warnings` alongside test and check; all four
-passed on run
-[31782837766](https://github.com/inovacc/modernlink/actions/runs/31782837766) at `d2479bd`.
+`cargo clippy --workspace --all-targets -- -D warnings` alongside test and check. Recorded
+command results and revision scope are maintained in [VERIFICATION.md](VERIFICATION.md).
 Original text and correction history retained below.
 
 **Correction history (2026-08-14).** An earlier revision claimed both commands "pass today"
@@ -338,24 +314,16 @@ clippy reported **six** findings, including two `MutexGuard`s held across an `.a
 Pulsar transport (a real deadlock risk), all fixed in `242cb3c`. The gates were added to CI in
 `dd080b2`.
 
-**Current state (2026-08-19):** all four gates ran and passed on the runner —
-`test`, `check`, `fmt` and `clippy`, run
-[31782837766](https://github.com/inovacc/modernlink/actions/runs/31782837766) at `d2479bd`. The
-earlier `fmt` failure on `crates/messaging/tests/broker_backed.rs` was fixed before that file was
-committed in `a2419b5`; `cargo fmt --all -- --check` → **exit 0**, verified independently by
-Codex on 2026-08-19.
+**Recorded state:** run 31782837766 reported exit-successful test/check/fmt/clippy steps at
+`d2479bd`; a local 2026-08-19 fmt command exited 0. These are command facts, not runtime or
+contract validation.
 
 ### ~~P2 — seven of ten Java test classes never run (VER-03)~~ — **DONE `dd080b2`**
 
-The workflow now enumerates all **15** classes (ten originally; VER-05 added the native smoke
-test, VER-08 added two messaging tests, MSG-04 and MSG-05 added two more). The 13 that existed at
-the time executed and passed on runs 31781200582 and 31782837766; the two newest have never
-run. Original text retained below for history.
-
-
-CI executes `LegacyHttpResponseStructuredTest`, `ModernHttpsURLConnectionTest`, and
-`LegacyHttpsTest`. The other seven under `java/src/test/java/com/modernlink/` are compiled into
-the JAR but never invoked — a test the workflow does not call never runs.
+The dirty workflow discovers all no-argument compiled `*Test.class` files instead of maintaining
+a fixed list. There are 19 Java test sources: 18 no-argument probes and one parameterized broker
+probe invoked explicitly with NATS. The local packaged Java 6 execution completed both groups;
+the current workflow edit still needs a terminal GitHub Actions result.
 
 ### ~~P2 — unreachable match arm in the JNI provider dispatch~~ — **CLOSED**
 
@@ -407,16 +375,12 @@ worse off than one that gets an error. What remains:
 - and actually verify a negotiated protocol against a TLS broker, the way the HTTPS path
   records `tls-protocol=TLSv1_3`.
 
-### P1 — broker connects have no timeout and block a JVM thread indefinitely
+### ~~P1 — broker connects have no timeout and block a JVM thread indefinitely~~ — **BOUNDED**
 
-`crates/messaging/src/lib.rs` carries only three time bounds in the whole file — a JetStream
-`max_age`, Kafka's `message.timeout.ms` and a 10s receive poll.
-`RabbitMqTransport::connect` does `runtime.block_on(Connection::connect(uri, …))` with **no
-timeout**, and NATS, JetStream and Pulsar are the same shape. A broker that accepts the TCP
-connection and never completes the handshake, or a firewall that DROPs, hangs the calling
-thread forever — and that thread belongs to the vendor-locked Java 6 application, which
-cannot cancel a JNI call. Bound each connect and fail closed on expiry. Found by
-`/project:harden` (H-02).
+`block_on_with_timeout` now bounds setup for NATS, JetStream, RabbitMQ, Kafka, and Pulsar;
+environment overrides retain the documented 10s/30s defaults. Unit commands exercise timeout
+selection, but no recorded live run simulates a broker that accepts TCP and stalls its handshake,
+so cancellation behavior at that boundary remains unproven. Found by `/project:harden` (H-02).
 
 ### P2 — `crates/http` still shadows the external `http` crate (SC-05/SC-06 missed it)
 
@@ -439,16 +403,15 @@ graceful consumer close, and unacknowledged messages are redelivered anyway, so 
 lost by its absence.
 
 The clean fix is to make the fields `Option<_>` so `Drop` can `take()` them the way the other
-four do. That is a struct-wide change to a transport with **no executed test** — the Pulsar
-broker-backed test has never run — so it would be an unverifiable restructure of the least
-proven code in the crate. Deferred deliberately rather than forced. `/project:harden` H-06.
+four do. That is a struct-wide change to a transport with only one recorded happy-path broker
+round trip and no shutdown/reconnect probe. Deferred deliberately rather than forced.
+`/project:harden` H-06.
 
-### P2 — no dependency vulnerability audit has ever been run
+### ~~P2 — no dependency vulnerability audit has ever been run~~ — **AUDIT RUNS; FINDINGS OPEN**
 
-No `cargo-audit` / `cargo-deny` config and no audit step in CI, while the tree pulls
-`rdkafka` (which builds librdkafka from vendored C), `pulsar`, `lapin`, `async-nats`,
-`hyper` and `rustls`. SC-07 shrank the default surface but nobody has inspected it. Treat the
-first run as a finding-generator, not a gate. `/project:harden` H-09.
+The non-blocking workflow audit and its first recorded run now exist. B-009 tracks the open
+`rustls-webpki` advisories; the job remains `continue-on-error`, so its conclusion must not be
+read as an enforced security gate. `/project:harden` H-09.
 
 ### P3 — two panic sites that are correct today and fragile tomorrow
 

@@ -16,8 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("RabbitMQ message identity changed".into());
     }
     println!(
-        "provider=RabbitMq uri={} queue={} message-id={} trace-id={} published={:?} received={:?} acknowledged={:?}",
-        uri,
+        "provider=RabbitMq queue={} message-id={} trace-id={} published={:?} received={:?} acknowledged={:?}",
         queue,
         message.message_id,
         message.tracing.trace_id,

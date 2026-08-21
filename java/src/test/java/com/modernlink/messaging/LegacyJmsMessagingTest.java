@@ -73,7 +73,6 @@ public final class LegacyJmsMessagingTest {
             }
             System.out.println("roundtrip-trace-id=" + traceId);
             System.out.println("roundtrip-message-id=" + sent.getMessageId());
-            System.out.println("roundtrip-payload=" + received.getMessage().getPayload());
         } finally {
             connection.close();
         }
@@ -188,7 +187,7 @@ public final class LegacyJmsMessagingTest {
             if (!"async delivery".equals(delivered[0])) {
                 throw new AssertionError("listener did not receive within 10s, got: " + delivered[0]);
             }
-            System.out.println("listener-delivered=" + delivered[0]);
+            System.out.println("listener-delivered=true");
         } finally {
             connection.close();
         }

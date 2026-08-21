@@ -55,11 +55,47 @@ jobs:
       - name: Lint (all providers)
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+  rust-coverage:
+    name: Rust behavior-crate line coverage (90%)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "8"
+      - name: Install native and coverage dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake libcurl4-openssl-dev libsasl2-dev protobuf-compiler
+          cargo install cargo-llvm-cov --locked
+      # The gate covers production lines in core/http/messaging/tls. JNI ABI glue and
+      # hacks/ fixtures remain in the full report and are executed through Java and live
+      # brokers, but are not allowed to inflate or depress the behavior-crate denominator.
+      - name: Measure Rust coverage through Java and live brokers
+        run: bash scripts/run_rust_coverage.sh
+      - name: Upload Rust coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-coverage
+          path: target/rust-coverage
+          retention-days: 7
+
   java6-jar:
     name: Java 6 JAR integration
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # JaCoCo 0.8.15 requires Java 8 or newer. The distributable is still compiled
+      # and exercised on Java 6 below; JDK 8 only hosts the coverage agent against
+      # those same Java 6-targeted class files.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "8"
       - name: Build Java 6 distributable JAR
         run: docker build -f docker/java6/Dockerfile -t modernlink-java6-https .
       # VER-05: the JAR is built here (the java:6b38-jdk base image is amd64-only) and
@@ -69,6 +105,7 @@ jobs:
         run: |
           container=$(docker create modernlink-java6-https)
           docker cp "$container":/workspace/modernlink.jar ./modernlink.jar
+          docker cp "$container":/workspace/build/main-classes ./java-main-classes
           docker rm "$container"
           ls -l modernlink.jar
       # The aarch64 job below downloads what this uploads, so the two are a pair - but they
@@ -81,35 +118,39 @@ jobs:
           name: modernlink-jar
           path: modernlink.jar
           retention-days: 1
-      # VER-03: run every test class from the packaged JAR - 15 of them. Previously only
-      # three of ten ran, so a test the workflow did not name never executed. A class
-      # added to java/src/test WITHOUT being named here still never runs, which is why
-      # this list is exhaustive rather than a sample. None of them needs a broker.
+      - name: Start NATS for the packaged Java 6 provider path
+        run: |
+          docker run -d --name ml-java6-nats -p 4222:4222 nats:2.10 -js
+          deadline=$(( $(date +%s) + 180 ))
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            docker logs ml-java6-nats 2>&1 | grep -q 'Server is ready' && exit 0
+            sleep 2
+          done
+          docker logs ml-java6-nats
+          exit 1
+      # VER-03: discover every no-argument standalone test class so new Java tests
+      # cannot silently fall out of the gate. The parameterized broker probe runs in
+      # the next step with an explicit provider and endpoint.
       - name: Exercise packaged JAR
         run: |
           docker run --rm modernlink-java6-https sh -c '
-            set -e
-            for test in \
-              NativeLoadSmokeTest \
-              ModernUtilityStandaloneTest \
-              LegacyHttpCapabilitiesTest \
-              LegacyHttpRequestTest \
-              LegacyHttpRequestConfigurationTest \
-              LegacyHttpRequestRedirectTest \
-              LegacyHttpResponseStructuredTest \
-              LegacyHttpsTest \
-              LegacyHttpsPostTest \
-              ModernHttpsURLConnectionTest \
-              ModernHttpsURLConnectionPostTest
+            set -eu
+            find /workspace/build/classes/com/modernlink -name "*Test.class" \
+              ! -name "BrokerBackedMessagingTest.class" -print | sort | while read class_file
             do
-              echo "==== com.modernlink.$test"
-              java -cp /workspace/modernlink.jar "com.modernlink.$test"
+              class_name=${class_file#/workspace/build/classes/}
+              class_name=${class_name%.class}
+              class_name=$(echo "$class_name" | tr "/" ".")
+              echo "==== $class_name"
+              java -cp /workspace/modernlink.jar "$class_name"
             done
-            for test in LegacyJmsMessagingTest RoutingPolicyTest ProviderGuaranteesTest PayloadCategoriesTest
-            do
-              echo "==== com.modernlink.messaging.$test"
-              java -cp /workspace/modernlink.jar "com.modernlink.messaging.$test"
-            done
+          '
+      - name: Exercise packaged Java 6 to JNI to NATS path
+        run: |
+          docker run --rm --network host modernlink-java6-https sh -c '
+            java -cp /workspace/modernlink.jar \
+              com.modernlink.messaging.BrokerBackedMessagingTest \
+              NATS nats://127.0.0.1:4222 modernlink_ci_java6_nats
           '
       # VER-07: exercise the Java 6 contract fixture that BACKLOG names as an
       # acceptance criterion ("the Java 6 fixture registers a JMX metrics MBean").
@@ -121,6 +162,48 @@ jobs:
             java -cp /workspace/modernlink.jar:/workspace/build/fixtures \
               com.modernlink.messaging.LegacyJmsJmxDemo TRANSPARENT LEGACY_JMS
           '
+      - name: Download JaCoCo tools
+        run: |
+          curl --fail --location --silent --show-error \
+            https://repo1.maven.org/maven2/org/jacoco/org.jacoco.agent/0.8.15/org.jacoco.agent-0.8.15-runtime.jar \
+            --output jacocoagent.jar
+          curl --fail --location --silent --show-error \
+            https://repo1.maven.org/maven2/org/jacoco/org.jacoco.cli/0.8.15/org.jacoco.cli-0.8.15-nodeps.jar \
+            --output jacococli.jar
+      - name: Measure Java facade coverage
+        run: |
+          mkdir -p java-coverage
+          rm -f jacoco.exec
+          find java/src/test/java -name "*Test.java" \
+            ! -name "BrokerBackedMessagingTest.java" -print | sort | while read source_file
+          do
+            class_name=${source_file#java/src/test/java/}
+            class_name=${class_name%.java}
+            class_name=${class_name//\//.}
+            java -javaagent:jacocoagent.jar=destfile=jacoco.exec,append=true \
+              -cp modernlink.jar "$class_name"
+          done
+          java -javaagent:jacocoagent.jar=destfile=jacoco.exec,append=true \
+            -cp modernlink.jar \
+            com.modernlink.messaging.BrokerBackedMessagingTest \
+            NATS nats://127.0.0.1:4222 modernlink_ci_jacoco_nats
+          java -jar jacococli.jar report jacoco.exec \
+            --classfiles java-main-classes \
+            --sourcefiles java/src/main/java \
+            --xml java-coverage.xml \
+            --html java-coverage
+          python3 scripts/check_jacoco_line_coverage.py java-coverage.xml 0.90
+      - name: Upload Java coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: java-coverage
+          path: |
+            java-coverage.xml
+            java-coverage
+          retention-days: 7
+      - name: NATS logs on failure
+        if: failure()
+        run: docker logs ml-java6-nats
 
   broker-backed:
     name: Broker-backed messaging (VER-01)
@@ -159,8 +242,8 @@ jobs:
           docker logs ml-nats; docker logs ml-rabbitmq
           exit 1
       # Only the nats and rabbitmq features: both are pure Rust, so this job needs
-      # neither cmake nor protoc. Kafka and Pulsar have no broker-backed test yet
-      # (VER-02), which is why they are absent here rather than merely unstarted.
+      # neither cmake nor protoc. Kafka and Pulsar run in the separate native-dependency
+      # job below.
       - name: Broker-backed send/receive/ack
         env:
           MODERNLINK_NATS_URL: nats://127.0.0.1:4222
@@ -185,18 +268,13 @@ jobs:
           echo "=== rabbitmq ==="; docker logs ml-rabbitmq
 
   broker-backed-kafka-pulsar:
-    name: Broker-backed messaging - Kafka + Pulsar (VER-02, UNPROVEN)
+    name: Broker-backed messaging - Kafka + Pulsar (VER-02)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      # Deliberately a SEPARATE job from `broker-backed`. Those three tests have passed
-      # against live brokers; these two have never run anywhere. Keeping them apart
-      # means a failure here cannot be mistaken for the NATS/RabbitMQ evidence breaking,
-      # and the working evidence stays readable on its own.
-      #
-      # Expect this job to need tuning on its first real runs. That is the point of
-      # landing it: a test that exists but runs nowhere proves nothing, and a red gate
-      # here is a finding (docs/BUGS.md), not a mystery.
+      # Deliberately a SEPARATE job from `broker-backed`: Kafka and Pulsar need cmake,
+      # librdkafka and protoc, while NATS/RabbitMQ do not. Keeping the native dependency
+      # surface separate also makes each broker result easier to interpret.
       - name: Install native build dependencies
         run: |
           sudo apt-get update
