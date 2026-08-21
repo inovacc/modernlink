@@ -1,5 +1,5 @@
 # Verification reach
-<!-- rev:008 (RFC 3339) 2026-08-21T21:51:10Z -->
+<!-- rev:009 (RFC 3339) 2026-08-21T22:45:19Z -->
 
 This file records what commands and runtime paths have actually executed. A machine result is
 reported as a fact about that command at that revision; it is not a verdict that ModernLink is
@@ -37,8 +37,9 @@ correct, production-ready, or compatible with the vendor host.
 The current workflow declares eight jobs in stages: Rust, Java 6, Rust coverage, broker/native/audit
 checks, and release readiness. Java waits for Rust; coverage waits for Java; the remaining checks
 wait for coverage; and release readiness explicitly requires every preceding job result to be
-`success`. Dependency audit is blocking for that final gate; B-009 therefore prevents release
-readiness until its advisory findings are addressed.
+`success`. Dependency audit is blocking for that final gate. After upgrading `async-nats` to
+0.50 and `lapin` to 4.10, the local `cargo audit --deny warnings` command exited 0; the
+post-change GitHub run is still pending and remains the release-readiness evidence required.
 
 ## Java facade reach
 

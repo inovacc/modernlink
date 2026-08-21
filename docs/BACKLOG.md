@@ -1,5 +1,5 @@
 # ModernLink Messaging Compatibility Backlog
-<!-- rev:026 (RFC 3339) 2026-08-21T20:41:35Z -->
+<!-- rev:027 (RFC 3339) 2026-08-21T22:45:19Z -->
 
 ## Objective
 
@@ -407,11 +407,12 @@ four do. That is a struct-wide change to a transport with only one recorded happ
 round trip and no shutdown/reconnect probe. Deferred deliberately rather than forced.
 `/project:harden` H-06.
 
-### ~~P2 — no dependency vulnerability audit has ever been run~~ — **AUDIT RUNS; FINDINGS OPEN**
+### ~~P2 — no dependency vulnerability audit has ever been run~~ — **AUDIT IS A BLOCKING GATE; B-009 RESOLVED**
 
-The non-blocking workflow audit and its first recorded run now exist. B-009 tracks the open
-`rustls-webpki` advisories; the job remains `continue-on-error`, so its conclusion must not be
-read as an enforced security gate. `/project:harden` H-09.
+The workflow audit is now a blocking release-readiness job. The broker-client upgrades in
+`f991820` remove the B-009 dependency set, and local `cargo audit --deny warnings` exits 0.
+The post-change GitHub run remains the machine record required before a release-readiness
+conclusion can be recorded. `/project:harden` H-09.
 
 ### P3 — two panic sites that are correct today and fragile tomorrow
 

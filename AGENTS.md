@@ -1,5 +1,5 @@
 # AGENTS.md — ModernLink
-<!-- rev:020 (RFC 3339) 2026-08-21T21:51:10Z -->
+<!-- rev:021 (RFC 3339) 2026-08-21T22:45:19Z -->
 
 Canonical cross-tool agent instructions for the ModernLink repo (read by Claude Code,
 Codex, Cursor, Gemini, etc. — Claude Code imports this from `CLAUDE.md`). Must-know
@@ -80,8 +80,9 @@ The workflow declares eight jobs in stages: Rust checks, Java 6 JAR, Rust behavi
 the two broker-backed groups plus linux-aarch64 and dependency audit, then release readiness.
 Rust is the root; Java waits for Rust, coverage waits for Java, the remaining checks wait for
 coverage, and release readiness requires every preceding result to be `success`. The five broker
-tests are `#[ignore]`d and run only by the dedicated jobs; dependency advisories are now blocking
-for release readiness while B-009 is open. **Read
+tests are `#[ignore]`d and run only by the dedicated jobs; dependency advisories are blocking for
+release readiness. The dependency set recorded by B-009 is addressed by the current broker-client
+upgrades; the post-change GitHub run remains the authoritative machine record. **Read
 [docs/VERIFICATION.md](docs/VERIFICATION.md)
 before citing any test, CI, Java, native, or broker result.** It separates recorded command facts
 from runtime behavior that remains unproven.
