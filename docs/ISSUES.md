@@ -1,5 +1,5 @@
 # Known Issues and Limitations
-<!-- rev:012 (RFC 3339) 2026-08-21T19:43:45Z -->
+<!-- rev:013 (RFC 3339) 2026-08-21T20:41:35Z -->
 
 Constraints accepted on purpose or imposed by the platform. Defects that should be fixed live
 in [BUGS.md](BUGS.md); future work lives in [BACKLOG.md](BACKLOG.md).
@@ -45,12 +45,11 @@ way to build or test the Java side without Docker, and no IDE project model.
 facade. It also means Java changes are invisible to `cargo test`.
 
 **Measurement consequence (H-13).** Maven/Gradle remains absent, but coverage no longer depends
-on either tool. The dirty workflow runs JaCoCo directly from the Java 6 container and enforces
-90% Java lines; JaCoCo on JDK 8 against Java 6-targeted classes recorded 803/889 (90.33%). The
-Rust harness instruments `libmodernlink` and loads it from Java, so Java-driven JNI paths
-contribute to llvm-cov. Its full production-source report recorded 2,548/3,071 (82.97%) before
-the latest redirect/fault additions; the enforced 90% scope is the four behavior crates. Both
-workflow gates still need a terminal current-revision run.
+on either tool. Run 32523731422 used JaCoCo on JDK 8 against Java 6-targeted classes and recorded
+802/889 production lines (90.21%). The Rust harness instruments `libmodernlink` and loads it from
+Java, so Java-driven JNI paths contribute to llvm-cov; the same run recorded 1,496/1,650 lines
+(90.67%) in the enforced four behavior crates and 2,814/3,075 full production lines (91.51%).
+These machine percentages do not establish vendor-host compatibility.
 
 ### I-004 — the `java:6b38-jdk` base image is deprecated
 

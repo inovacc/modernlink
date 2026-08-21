@@ -1,5 +1,5 @@
 # Bugs
-<!-- rev:022 (RFC 3339) 2026-08-21T19:43:45Z -->
+<!-- rev:023 (RFC 3339) 2026-08-21T20:41:35Z -->
 
 Behaviour that is **wrong and should be fixed**. Deliberate constraints belong in
 [ISSUES.md](ISSUES.md); planned work belongs in [BACKLOG.md](BACKLOG.md).
@@ -16,7 +16,7 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 | B-008 | medium | **resolved** `3f97281` | `NativeResponse` still uses a leaked `Box` address as its handle, dereferenced with only a null check |
 | B-009 | high | **open** | `async-nats 0.38` pulls `rustls-webpki 0.102.8` with 4 advisories, incl. two certificate-validation bypasses and a reachable panic |
 | B-010 | high | **open** | `receive()` returns `Ok(None)` on two providers and blocks forever on four, from the same API |
-| B-011 | medium | **candidate patch in branch** | RabbitMQ demo output included the raw, potentially credential-bearing connection URI |
+| B-011 | medium | **candidate patch at `686adaa`** | RabbitMQ demo output included the raw, potentially credential-bearing connection URI |
 
 ## Open
 
@@ -167,10 +167,11 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
   `RABBITMQ_URI` value to `println!` after a successful round trip.
 - **Expected:** operational summaries may include provider, queue, message ID, trace ID, and
   receipt states, but never connection strings or credentials.
-- **Candidate patch:** the dirty branch removes the URI field and argument. The new
-  `logging_safety` regression command exited 1 against the pre-change source and 0 after the
-  edit. Those are machine results; maintainer acceptance and a live RabbitMQ invocation of the
-  changed fixture remain pending.
+- **Candidate patch:** `686adaa` contains the URI-field removal and the `logging_safety`
+  regression. The command exited 1 against the pre-change source and 0 after the edit; run
+  32523731422 recorded the Rust workspace job with a `success` conclusion. Those are machine
+  results; maintainer acceptance and a live RabbitMQ invocation of the changed fixture remain
+  pending.
 
 ### B-009 — the NATS TLS path uses a rustls-webpki with four open advisories
 
@@ -412,7 +413,8 @@ The canonical execution ledger is [VERIFICATION.md](VERIFICATION.md). In brief:
 - ordinary Rust workspace test commands execute no broker-backed tests;
 - run 32386474212 at `3b64484` recorded the configured one-round-trip broker jobs for all five
   providers and the linux-aarch64/JVM 21 load job;
-- the current dirty workflow/test/JaCoCo changes have no Java 6, broker, ARM64, or CI run;
+- run 32523731422 at `686adaa` recorded `success` conclusions for all seven jobs, including
+  Java 6, both broker groups, linux-aarch64, and the Rust/Java 90% coverage thresholds;
 - no recorded run includes the vendor host product or its JMS implementation;
 - no provider has recorded durability, reconnect, ordering-under-load, concurrency, failure,
   rollback/redelivery, or dead-letter evidence.

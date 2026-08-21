@@ -1,5 +1,5 @@
 # Milestones
-<!-- rev:021 (RFC 3339) 2026-08-21T19:20:00Z -->
+<!-- rev:022 (RFC 3339) 2026-08-21T20:41:35Z -->
 
 Version milestones for ModernLink. **No git tags exist yet** — nothing has been released, so
 every version below is a target, not a shipped artifact. Phases are detailed in
@@ -39,12 +39,13 @@ just implemented.
       **linux-x86_64** (CI, `native-smoke-load=ok` on JVM 1.6.0_38) both load. A CI job now
       targets **linux-aarch64** on an arm64 runner; run 32386474212 recorded the configured
       load/assert steps at `3b64484`.
-- [ ] Separate Rust behavior-crate and Java production-class 90% line gates are wired. Java
-      recorded 90.33% locally; the Rust scoped result and current-revision workflow conclusions
-      are still pending.
+- [x] Separate Rust behavior-crate and Java production-class 90% line gates are wired. Run
+      [32523731422](https://github.com/inovacc/modernlink/actions/runs/32523731422) at `686adaa`
+      recorded 90.67% Rust behavior-crate lines and 90.21% Java production-class lines.
 
 **Coverage target:** at least 90% production lines for Rust behavior crates and Java classes.
-The workflow enforces those scopes; the Rust threshold still needs a Linux branch result.
+The workflow enforces those scopes; run 32523731422 recorded both threshold steps with `success`
+conclusions. The percentages do not establish vendor-host or provider failure semantics.
 
 ## v0.2.0 — Messaging with evidence `[BLOCKED on v0.1.0]`
 

@@ -1,5 +1,5 @@
 # ModernLink
-<!-- rev:010 (RFC 3339) 2026-08-21T19:20:00Z -->
+<!-- rev:011 (RFC 3339) 2026-08-21T20:41:35Z -->
 
 [![Dependabot Updates](https://github.com/inovacc/modernlink/actions/workflows/dependabot/dependabot-updates/badge.svg)](https://github.com/inovacc/modernlink/actions/workflows/dependabot/dependabot-updates)
 [![CI](https://github.com/inovacc/modernlink/actions/workflows/test.yml/badge.svg)](https://github.com/inovacc/modernlink/actions/workflows/test.yml)
@@ -117,6 +117,7 @@ recorded revisions, not a verdict that the integration satisfies the vendor cont
 - **Recorded on a real Java 6 JVM** (`1.6.0_38`, `linux-x86_64`, packaged JAR, CI run [31781200582](https://github.com/inovacc/modernlink/actions/runs/31781200582)): native loading, live TLSv1_3 HTTPS, the JMS-shaped facade, and routing probes executed.
 - **Executed on a modern JVM** (Windows, JVM 21): the same native path on **windows-x86_64**, `status=200` with a 4-certificate chain, and a send → receive → acknowledge round trip against **live NATS, NATS JetStream and RabbitMQ**.
 - CI run [32386474212](https://github.com/inovacc/modernlink/actions/runs/32386474212) at `3b64484` recorded the configured broker tests for all five providers and a linux-aarch64 native load on JVM 21.
+- CI run [32523731422](https://github.com/inovacc/modernlink/actions/runs/32523731422) at `686adaa` recorded `success` conclusions for all seven jobs. Its reports recorded Rust behavior-crate line coverage at **1,496/1,650 (90.67%)**, full Rust production-source coverage at **2,814/3,075 (91.51%)**, and Java production-class coverage at **802/889 (90.21%)**.
 - **Not executed:** the vendor host product and its JMS implementation. Durability across restart, reconnect, ordering under load, concurrency, failure recovery, rollback, redelivery, and dead-letter behavior remain unexercised for every provider.
 
 The integration approach itself is no longer open: embedded JNI was chosen over an external sidecar process, recorded in [`docs/adr/0001-jni-boundary-over-sidecar.md`](docs/adr/0001-jni-boundary-over-sidecar.md) (Status: Accepted). The section below is retained as the rationale behind that decision, not as an open question.

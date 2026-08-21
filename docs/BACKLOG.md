@@ -1,5 +1,5 @@
 # ModernLink Messaging Compatibility Backlog
-<!-- rev:025 (RFC 3339) 2026-08-21T19:43:45Z -->
+<!-- rev:026 (RFC 3339) 2026-08-21T20:41:35Z -->
 
 ## Objective
 
@@ -279,26 +279,26 @@ See ISSUES I-010.
 
 The missing local test-root seam still exists, but it no longer caps measurement. The Rust
 coverage harness loads an instrumented native library from Java and sends real HTTPS requests
-through the shipped JNI boundary; the current dirty-tree report records `crates/http` at 90.25%
-lines. The remaining improvement is determinism: replace reliance on a public HTTPS endpoint with
-a security-reviewed test-only trust seam without making custom roots available in production.
+through the shipped JNI boundary. Run 32523731422 includes `crates/http` in the thresholded
+behavior-crate report. The remaining improvement is determinism: replace reliance on a public
+HTTPS endpoint with a security-reviewed test-only trust seam without making custom roots
+available in production.
 
-### ~~P2 — coverage cannot be measured (SC-04)~~ — **GATES WIRED; CLEAN-RUN RESULT PENDING**
+### ~~P2 — coverage cannot be measured (SC-04)~~ — **GATES RECORDED AT `686adaa`**
 
-The dirty workflow now enforces separate 90% line thresholds:
+The workflow enforces separate 90% line thresholds. Run
+[32523731422](https://github.com/inovacc/modernlink/actions/runs/32523731422) recorded:
 
 - Rust: `scripts/run_rust_coverage.sh` cleans profiles, extracts inline unit bodies to the
   reporter-excluded `src/tests.rs` files, then combines unit tests, instrumented Java→JNI calls,
-  demo binaries, and sequential live-broker/fault paths. A clean local full-production report
-  before the latest redirect/fault additions recorded 2,548/3,071 lines (82.97%). The enforced
-  90% denominator is the production behavior crates (`core`, `http`, `messaging`, `tls`); JNI ABI
-  glue and demo CLIs remain visible in the full report and have separate execution steps.
+  demo binaries, and sequential live-broker/fault paths. The production behavior crates
+  (`core`, `http`, `messaging`, `tls`) recorded 1,496/1,650 lines (90.67%); the full production
+  report, including JNI ABI glue and demo CLIs, recorded 2,814/3,075 lines (91.51%).
 - Java: JaCoCo runs on JDK 8 against the same classes compiled for Java 6; the packaged Java 6
-  runtime path is a separate step. The local report recorded 803/889 lines (90.33%).
+  runtime path is a separate step. The production classes recorded 802/889 lines (90.21%).
 
-The remaining item is a terminal GitHub Actions result for the current revision. No percentage
-establishes delivery durability, reconnect, ordering, rollback/redelivery, or vendor-host
-compatibility; those remain separate verification work.
+No percentage establishes delivery durability, reconnect, ordering, rollback/redelivery, or
+vendor-host compatibility; those remain separate verification work.
 
 ### ~~P2 — CI does not enforce formatting or lint (SC-04)~~ — **DONE `dd080b2`**
 
@@ -320,10 +320,10 @@ contract validation.
 
 ### ~~P2 — seven of ten Java test classes never run (VER-03)~~ — **DONE `dd080b2`**
 
-The dirty workflow discovers all no-argument compiled `*Test.class` files instead of maintaining
+The workflow discovers all no-argument compiled `*Test.class` files instead of maintaining
 a fixed list. There are 19 Java test sources: 18 no-argument probes and one parameterized broker
-probe invoked explicitly with NATS. The local packaged Java 6 execution completed both groups;
-the current workflow edit still needs a terminal GitHub Actions result.
+probe invoked explicitly with NATS. Run 32523731422 recorded the Java 6 integration job with a
+`success` conclusion after executing both groups.
 
 ### ~~P2 — unreachable match arm in the JNI provider dispatch~~ — **CLOSED**
 

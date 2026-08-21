@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:023 (RFC 3339) 2026-08-21T19:43:45Z -->
+<!-- rev:024 (RFC 3339) 2026-08-21T20:41:35Z -->
 
 Reconciled 2026-08-21 against the current tree. Phases follow the M1/M2 structure in
 [BACKLOG.md](BACKLOG.md); tasks are broken out in [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md).
@@ -147,18 +147,19 @@ until then this file is written against the production bar because that is the s
       `modernlink-core`, folders unchanged, native artifact still `modernlink`
 - [x] Rust behavior-crate and Java production-class 90% line thresholds are wired in the dirty
       workflow.
-- [ ] Record terminal current-branch workflow conclusions for both thresholds. Java recorded
-      90.33% locally; the Rust gate and both branch workflow results remain pending.
+- [x] Record terminal branch workflow conclusions for both thresholds. Run
+      [32523731422](https://github.com/inovacc/modernlink/actions/runs/32523731422) at `686adaa`
+      recorded `success` conclusions for both coverage jobs.
 
 ## Test coverage
 
 The current dirty tree records three deliberately distinct coverage scopes:
 
-| Surface | Raw local report | Threshold wired in workflow |
+| Surface | Run 32523731422 report | Threshold wired in workflow |
 |---|---:|---:|
-| Full Rust production source, including JNI ABI glue and demo CLIs (informational) | 2,548/3,071 — **82.97%** before latest redirect/fault additions | none |
-| Rust production behavior crates (`core`, `http`, `messaging`, `tls`) | Linux branch result pending | 90% |
-| Java production classes under JaCoCo/JDK 8, using Java 6-targeted classes and JNI→NATS | 803/889 — **90.33%** | 90% |
+| Full Rust production source, including JNI ABI glue and demo CLIs (informational) | 2,814/3,075 — **91.51%** | none |
+| Rust production behavior crates (`core`, `http`, `messaging`, `tls`) | 1,496/1,650 — **90.67%** | 90% |
+| Java production classes under JaCoCo/JDK 8, using Java 6-targeted classes and JNI→NATS | 802/889 — **90.21%** | 90% |
 
 The Rust reports are not Rust-only unit-test figures. `scripts/run_rust_coverage.sh` instruments
 `libmodernlink`, loads it from Java, runs unit tests and demo binaries, and exercises
@@ -166,10 +167,10 @@ NATS, JetStream, RabbitMQ, Kafka, and Pulsar sequentially, emits a full report, 
 `--fail-under-lines 90` to the behavior-crate scope. JNI entry points and provider dispatch stay
 visible in the full report. The Java job measures the facade independently with JaCoCo.
 
-These are dirty-tree local facts. The workflow code exists, but neither 90% gate has a terminal
-GitHub Actions result at this revision yet. Exact commands, runtime reach, and remaining gaps are
-maintained in [VERIFICATION.md](VERIFICATION.md); provider durability, reconnect, ordering under
-load, and vendor-host compatibility remain outside what either percentage establishes.
+These are machine facts at `686adaa`, not a correctness verdict. Exact commands, runtime reach,
+and remaining gaps are maintained in [VERIFICATION.md](VERIFICATION.md); provider durability,
+reconnect, ordering under load, and vendor-host compatibility remain outside what either
+percentage establishes.
 
 ## Overall
 
