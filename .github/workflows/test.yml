@@ -16,6 +16,7 @@ jobs:
         run: |
           python3 .github/scripts/check_workflow_dependencies.py
           python3 .github/scripts/check_release_drafter_workflow.py
+          python3 .github/scripts/check_ci_stage_order.py
       # SC-02: no toolchain is installed here on purpose. rust-toolchain.toml is the
       # single source of truth, and the runner's rustup honours it — installing
       # `@stable` alongside it would download a second toolchain that never gets used
@@ -62,7 +63,7 @@ jobs:
   rust-coverage:
     name: Rust behavior-crate line coverage (90%)
     runs-on: ubuntu-latest
-    needs: rust
+    needs: java6-jar
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
@@ -214,7 +215,7 @@ jobs:
   broker-backed:
     name: Broker-backed messaging (VER-01)
     runs-on: ubuntu-latest
-    needs: rust
+    needs: rust-coverage
     steps:
       - uses: actions/checkout@v7
       # VER-01. Until now the three broker-backed tests existed but ran nowhere: they
@@ -277,7 +278,7 @@ jobs:
   broker-backed-kafka-pulsar:
     name: Broker-backed messaging - Kafka + Pulsar (VER-02)
     runs-on: ubuntu-latest
-    needs: rust
+    needs: rust-coverage
     steps:
       - uses: actions/checkout@v7
       # Deliberately a SEPARATE job from `broker-backed`: Kafka and Pulsar need cmake,
@@ -335,7 +336,7 @@ jobs:
   native-aarch64:
     name: linux-aarch64 native load (VER-05)
     runs-on: ubuntu-24.04-arm
-    needs: java6-jar
+    needs: [java6-jar, rust-coverage]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -373,7 +374,7 @@ jobs:
   dependency-audit:
     name: Dependency advisories (H-09)
     runs-on: ubuntu-latest
-    needs: rust
+    needs: rust-coverage
     steps:
       - uses: actions/checkout@v7
       # H-09 / BACKLOG P2. Nothing has ever inspected this dependency graph, which pulls
@@ -385,12 +386,29 @@ jobs:
       # cargo-audit and, with it, a different advisory set on every run.
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
-      # DELIBERATELY NON-BLOCKING for now. This was run locally before being wired up and
-      # it exits 1: four advisories against rustls-webpki 0.102.8, pulled by async-nats 0.38,
-      # filed as docs/BUGS.md B-009. Making it a gate today would block every PR on a finding
-      # whose fix is an async-nats major upgrade nobody has been able to verify. Flip
-      # continue-on-error off the moment B-009 is closed - a permanently-ignored red job is
-      # worse than no job at all.
+      # Release readiness is deliberately blocked by unresolved advisories. B-009 records the
+      # current rustls-webpki findings; the release gate must not call an advisory-red run green.
       - name: Audit dependencies
-        continue-on-error: true
         run: cargo audit --deny warnings
+
+  release:
+    name: Release readiness (all gates)
+    runs-on: ubuntu-latest
+    needs:
+      - java6-jar
+      - rust-coverage
+      - broker-backed
+      - broker-backed-kafka-pulsar
+      - native-aarch64
+      - dependency-audit
+    if: >-
+      ${{ always() &&
+      needs['java6-jar'].result == 'success' &&
+      needs['rust-coverage'].result == 'success' &&
+      needs['broker-backed'].result == 'success' &&
+      needs['broker-backed-kafka-pulsar'].result == 'success' &&
+      needs['native-aarch64'].result == 'success' &&
+      needs['dependency-audit'].result == 'success' }}
+    steps:
+      - name: Record release gate
+        run: echo "All staged Rust, Java, coverage, broker, native, and audit gates succeeded."
