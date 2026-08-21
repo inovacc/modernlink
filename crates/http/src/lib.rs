@@ -56,7 +56,7 @@ fn redirected_request(
     };
     let mut next = current.clone();
     next.url = redirect_target(&current.url, location)?.to_string();
-    if matches!(response.status, 301 | 302 | 303) {
+    if matches!(response.status, 301..=303) {
         next.method = "GET".to_string();
         next.body.clear();
     }
