@@ -13,7 +13,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Check workflow dependency graph
-        run: python3 .github/scripts/check_workflow_dependencies.py
+        run: |
+          python3 .github/scripts/check_workflow_dependencies.py
+          python3 .github/scripts/check_release_drafter_workflow.py
       # SC-02: no toolchain is installed here on purpose. rust-toolchain.toml is the
       # single source of truth, and the runner's rustup honours it — installing
       # `@stable` alongside it would download a second toolchain that never gets used

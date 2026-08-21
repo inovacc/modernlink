@@ -1,14 +1,10 @@
 name: Release Drafter
 
 on:
-  # pull_request event is required only for autolabeler
-  pull_request:
-    # Only following types are handled by the action, but one can default to all as well
-    types: [opened, reopened, synchronize]
-  # pull_request_target event is required for autolabeler to support PRs from forks
+  # The target event lets the labeler handle same-repository and fork pull requests once.
   pull_request_target:
     types: [opened, reopened, synchronize]
-  
+
 permissions:
   contents: read
 
@@ -21,8 +17,6 @@ jobs:
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
-      # Runs only pull-request labeler
-      - uses: release-drafter/release-drafter@v6
+      - uses: release-drafter/release-drafter/autolabeler@v7
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
