@@ -1,5 +1,5 @@
 # Verification reach
-<!-- rev:006 (RFC 3339) 2026-08-21T20:41:35Z -->
+<!-- rev:007 (RFC 3339) 2026-08-21T20:55:36Z -->
 
 This file records what commands and runtime paths have actually executed. A machine result is
 reported as a fact about that command at that revision; it is not a verdict that ModernLink is
@@ -34,8 +34,10 @@ correct, production-ready, or compatible with the vendor host.
 | Local Windows record, [2026-08-14-native-runtime.md](evidence/2026-08-14-native-runtime.md) | prior revision | JVM 21 loaded the Windows native, returned HTTP status 200 with four peer certificates, and completed NATS/JetStream/RabbitMQ round trips | Windows JNI/native path and those three brokers on one machine |
 | Local dirty tree, 2026-08-21 | pre-`8d18ca5` | Docker build, 18 packaged Java 6 tests, packaged Java 6→JNI→NATS, and host-JVM→JNI round trips for all five provider variants emitted their recorded results | Local source and Docker runtime paths; superseded by the branch run for coverage and Linux execution facts |
 
-The workflow at `686adaa` declared and executed seven jobs, including a 90% production
-behavior-crate Rust gate and a 90% Java production-class gate.
+The current workflow declares seven jobs, including a 90% production behavior-crate Rust gate
+and a 90% Java production-class gate. Every downstream job depends directly or transitively on
+the Rust workspace job; linux-aarch64 also waits for the Java JAR artifact. This dependency
+graph prevents downstream jobs from starting after an unsuccessful required predecessor.
 The dependency-audit step is deliberately
 `continue-on-error`; its job status must not be read as absence of advisories. B-009 records the
 known advisory output.

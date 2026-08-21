@@ -1,5 +1,5 @@
 # AGENTS.md — ModernLink
-<!-- rev:018 (RFC 3339) 2026-08-21T19:43:45Z -->
+<!-- rev:019 (RFC 3339) 2026-08-21T20:55:36Z -->
 
 Canonical cross-tool agent instructions for the ModernLink repo (read by Claude Code,
 Codex, Cursor, Gemini, etc. — Claude Code imports this from `CLAUDE.md`). Must-know
@@ -77,7 +77,9 @@ already does. **Asking for a provider that was not compiled in fails closed** wi
 naming the missing cargo feature — it is never rerouted to another transport.
 
 The workflow declares seven jobs: Rust checks, Rust behavior-crate coverage, Java 6 JAR, two broker-backed
-groups, linux-aarch64, and dependency audit. The five broker tests are `#[ignore]`d and run only
+groups, linux-aarch64, and dependency audit. Rust checks are the root gate: every other job has
+a direct or transitive `needs: rust` dependency, while linux-aarch64 additionally waits for the
+Java JAR artifact. The five broker tests are `#[ignore]`d and run only
 by the dedicated jobs; the dependency audit is non-blocking while B-009 is open. **Read
 [docs/VERIFICATION.md](docs/VERIFICATION.md)
 before citing any test, CI, Java, native, or broker result.** It separates recorded command facts

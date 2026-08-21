@@ -12,6 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Check workflow dependency graph
+        run: python3 .github/scripts/check_workflow_dependencies.py
       # SC-02: no toolchain is installed here on purpose. rust-toolchain.toml is the
       # single source of truth, and the runner's rustup honours it — installing
       # `@stable` alongside it would download a second toolchain that never gets used
@@ -58,6 +60,7 @@ jobs:
   rust-coverage:
     name: Rust behavior-crate line coverage (90%)
     runs-on: ubuntu-latest
+    needs: rust
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
@@ -87,6 +90,7 @@ jobs:
   java6-jar:
     name: Java 6 JAR integration
     runs-on: ubuntu-latest
+    needs: rust
     steps:
       - uses: actions/checkout@v7
       # JaCoCo 0.8.15 requires Java 8 or newer. The distributable is still compiled
@@ -208,6 +212,7 @@ jobs:
   broker-backed:
     name: Broker-backed messaging (VER-01)
     runs-on: ubuntu-latest
+    needs: rust
     steps:
       - uses: actions/checkout@v7
       # VER-01. Until now the three broker-backed tests existed but ran nowhere: they
@@ -270,6 +275,7 @@ jobs:
   broker-backed-kafka-pulsar:
     name: Broker-backed messaging - Kafka + Pulsar (VER-02)
     runs-on: ubuntu-latest
+    needs: rust
     steps:
       - uses: actions/checkout@v7
       # Deliberately a SEPARATE job from `broker-backed`: Kafka and Pulsar need cmake,
@@ -365,6 +371,7 @@ jobs:
   dependency-audit:
     name: Dependency advisories (H-09)
     runs-on: ubuntu-latest
+    needs: rust
     steps:
       - uses: actions/checkout@v7
       # H-09 / BACKLOG P2. Nothing has ever inspected this dependency graph, which pulls
