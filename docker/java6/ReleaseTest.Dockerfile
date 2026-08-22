@@ -13,6 +13,7 @@ RUN mkdir -p /workspace/build/fixtures \
        | xargs -0 javac -source 1.6 -target 1.6 \
           -classpath /workspace/modernlink.jar \
           -d /workspace/build/fixtures \
+    && sed -i 's/\r$//' /workspace/release-test.sh \
     && chmod +x /workspace/release-test.sh
 
 ENTRYPOINT ["/workspace/release-test.sh"]
