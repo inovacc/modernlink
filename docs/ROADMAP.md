@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:024 (RFC 3339) 2026-08-21T20:41:35Z -->
+<!-- rev:025 (RFC 3339) 2026-08-22T03:15:42Z -->
 
 Reconciled 2026-08-21 against the current tree. Phases follow the M1/M2 structure in
 [BACKLOG.md](BACKLOG.md); tasks are broken out in [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md).
@@ -26,12 +26,11 @@ Concretely, a phase is done when, in addition to its items:
 2. Every guarantee its docs claim is still true after the last change, and
 3. Every finding it produced is in a committed `BUGS.md` / `ISSUES.md` / `BACKLOG.md` entry.
 
-**Ambition tier — unresolved, and the docs disagree.** `README.md:9` says the project *studies* a
-compatibility layer and `README.md:75` calls it a design hypothesis, while
-[MILESTONES.md](MILESTONES.md) targets "v1.0.0 — Production-usable against the locked product"
-and [BACKLOG.md](BACKLOG.md) sets production-grade fail-closed delivery requirements. Research
-prototype and production SDK have very different bars; **the maintainer needs to pick one**, and
-until then this file is written against the production bar because that is the stricter reading.
+**Ambition tier — production bar, still under development.** README describes the compatibility
+layer and explicitly marks the project as actively under development. [MILESTONES.md](MILESTONES.md)
+targets "v1.0.0 — Production-usable against the locked product" and [BACKLOG.md](BACKLOG.md) sets
+production-grade fail-closed delivery requirements. The published Linux Docker path has recorded
+release-JAR evidence, while the vendor host and direct Windows release DLL remain unproven.
 
 ## Phase 0 — Native boundary and packaging · `[COMPLETE — unvalidated]`
 

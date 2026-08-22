@@ -1,5 +1,5 @@
 # Bugs
-<!-- rev:024 (RFC 3339) 2026-08-21T22:45:19Z -->
+<!-- rev:025 (RFC 3339) 2026-08-22T03:15:42Z -->
 
 Behaviour that is **wrong and should be fixed**. Deliberate constraints belong in
 [ISSUES.md](ISSUES.md); planned work belongs in [BACKLOG.md](BACKLOG.md).
@@ -17,8 +17,24 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 | B-009 | high | **resolved** `f991820` | `async-nats 0.38` pulled `rustls-webpki 0.102.8` with 4 advisories, incl. two certificate-validation bypasses and a reachable panic |
 | B-010 | high | **open** | `receive()` returns `Ok(None)` on two providers and blocks forever on four, from the same API |
 | B-011 | medium | **candidate patch at `686adaa`** | RabbitMQ demo output included the raw, potentially credential-bearing connection URI |
+| B-012 | high | **open** | The published `v0.1.0` Windows DLL exposes no `Java_com_modernlink_*` JNI exports; direct Windows JVM execution returns `UnsatisfiedLinkError` |
 
 ## Open
+
+### B-012 — the published Windows native resource has no JNI exports
+
+- **Severity:** high — the JAR loads a Windows DLL, but Java native methods cannot resolve, so
+  the published Windows artifact cannot execute its JNI-backed facade on the tested JVM.
+- **Observed:** direct execution of the downloaded `v0.1.0` JAR on Windows JVM 21 returned
+  `UnsatisfiedLinkError` for `ModernUuid`, `LegacyHttpClient`, and messaging native methods.
+  Inspection of the extracted `native/windows-x86_64/modernlink.dll` found no
+  `Java_com_modernlink_*` export names. The Linux `.so` in the same JAR has the expected JNI
+  dynamic symbols, and the Linux Docker release test reaches them.
+- **Reproduction:** download `v0.1.0/modernlink.jar`, run
+  `com.modernlink.NativeLoadSmokeTest` on Windows, and inspect the extracted DLL with
+  `objdump -p` or `llvm-nm` for `Java_com_modernlink`.
+- **Not addressed by:** the release-JAR Docker validation; that path selects Linux amd64 and
+  is recorded separately in `docs/VERIFICATION.md`.
 
 ### B-004 — a Rust panic can unwind across the JNI boundary into the JVM — **CRITICAL**
 

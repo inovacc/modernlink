@@ -1,5 +1,5 @@
 # Verification reach
-<!-- rev:009 (RFC 3339) 2026-08-21T22:45:19Z -->
+<!-- rev:010 (RFC 3339) 2026-08-22T03:15:42Z -->
 
 This file records what commands and runtime paths have actually executed. A machine result is
 reported as a fact about that command at that revision; it is not a verdict that ModernLink is
@@ -7,9 +7,10 @@ correct, production-ready, or compatible with the vendor host.
 
 ## Current repository state
 
-- The current branch is `feat/integration-samples-coverage`; CI run
-  [32523731422](https://github.com/inovacc/modernlink/actions/runs/32523731422) at `686adaa`
-  recorded `success` conclusions for all seven jobs.
+- `main` contains merge commit `bf333d7`, which includes the published-release Docker test path.
+- CI run [32534452508](https://github.com/inovacc/modernlink/actions/runs/32534452508) at `72c055c`
+  recorded `success` conclusions for the staged Rust, Java, coverage, broker, native, audit, and
+  release-readiness jobs.
 - The distributable Dockerfile now compiles all three native targets with
   `--features all-providers`. A local Docker build produced image `b62d47083b6f`; its packaged
   Java 6 (`1.6.0_38`) JAR completed a NATS publish/receive/client-ack probe with exit code 0.
@@ -22,6 +23,9 @@ correct, production-ready, or compatible with the vendor host.
   remain in the full report but outside the narrower threshold denominator.
 - JaCoCo on JDK 8, against classes compiled for Java 6 and including the NATS provider probe,
   recorded 802/889 lines (90.21%). The packaged Java 6 runtime probe remained a separate step.
+- Release `v0.1.0` contains `modernlink.jar` (19,217,511 bytes). Local Docker validation used
+  that downloaded asset, Java `1.6.0_38`, a live NATS container, and exited 0 after the complete
+  release-JAR test script.
 
 ## Recorded machine runs
 
@@ -33,13 +37,15 @@ correct, production-ready, or compatible with the vendor host.
 | GitHub Actions run [31781200582](https://github.com/inovacc/modernlink/actions/runs/31781200582) | prior revision | The recorded Java job ran the packaged JAR on JVM `1.6.0_38`, including native load, live HTTPS, messaging, and routing probes | Java 6 runtime and linux-x86_64 at that revision; not the vendor product |
 | Local Windows record, [2026-08-14-native-runtime.md](evidence/2026-08-14-native-runtime.md) | prior revision | JVM 21 loaded the Windows native, returned HTTP status 200 with four peer certificates, and completed NATS/JetStream/RabbitMQ round trips | Windows JNI/native path and those three brokers on one machine |
 | Local dirty tree, 2026-08-21 | pre-`8d18ca5` | Docker build, 18 packaged Java 6 tests, packaged Java 6→JNI→NATS, and host-JVM→JNI round trips for all five provider variants emitted their recorded results | Local source and Docker runtime paths; superseded by the branch run for coverage and Linux execution facts |
+| GitHub Actions release validation [32544239585](https://github.com/inovacc/modernlink/actions/runs/32544239585) | `8bafe95`, tag `v0.1.0` | The workflow downloaded the published JAR, built `ReleaseTest.Dockerfile`, started NATS, and the all-tests container returned conclusion `success` | Published Linux x86_64 JAR path; not a Windows native run or vendor-host execution |
+| Local Windows Docker validation | `bf333d7`, tag `v0.1.0` | The release-JAR image ran the Java 6 probes, HTTPS, native smoke, JMS/JMX, routing, and NATS path; container exit code was 0 | Published JAR on Docker Linux/amd64; not direct Windows DLL loading |
 
 The current workflow declares eight jobs in stages: Rust, Java 6, Rust coverage, broker/native/audit
 checks, and release readiness. Java waits for Rust; coverage waits for Java; the remaining checks
 wait for coverage; and release readiness explicitly requires every preceding job result to be
 `success`. Dependency audit is blocking for that final gate. After upgrading `async-nats` to
-0.50 and `lapin` to 4.10, the local `cargo audit --deny warnings` command exited 0; the
-post-change GitHub run is still pending and remains the release-readiness evidence required.
+0.50 and `lapin` to 4.10, the local `cargo audit --deny warnings` command exited 0; run
+32534452508 recorded the corresponding audit and release-readiness job conclusions.
 
 ## Java facade reach
 
@@ -73,3 +79,6 @@ The provider guarantee table remains authoritative for what the code declares or
 - B-003 delivery-mode enforcement remains open. B-011 records the committed candidate patch for
   the RabbitMQ fixture URI log; a live invocation of that changed fixture remains absent.
 - Only the maintainer decides whether the observed behavior satisfies the intended contract.
+- The published Windows native resource remains unresolved: direct JVM 21 execution of the
+  `v0.1.0` JAR returned `UnsatisfiedLinkError` for JNI methods; the extracted DLL had no
+  `Java_com_modernlink_*` exports. Linux Docker validation does not cover that Windows path.
