@@ -1,5 +1,5 @@
 # AGENTS.md — ModernLink
-<!-- rev:021 (RFC 3339) 2026-08-21T22:45:19Z -->
+<!-- rev:022 (RFC 3339) 2026-08-22T03:15:42Z -->
 
 Canonical cross-tool agent instructions for the ModernLink repo (read by Claude Code,
 Codex, Cursor, Gemini, etc. — Claude Code imports this from `CLAUDE.md`). Must-know
@@ -82,7 +82,9 @@ Rust is the root; Java waits for Rust, coverage waits for Java, the remaining ch
 coverage, and release readiness requires every preceding result to be `success`. The five broker
 tests are `#[ignore]`d and run only by the dedicated jobs; dependency advisories are blocking for
 release readiness. The dependency set recorded by B-009 is addressed by the current broker-client
-upgrades; the post-change GitHub run remains the authoritative machine record. **Read
+upgrades; run [32534452508](https://github.com/inovacc/modernlink/actions/runs/32534452508) recorded
+the staged post-change machine results. The published-JAR Docker path is recorded in
+[docs/VERIFICATION.md](docs/VERIFICATION.md). **Read
 [docs/VERIFICATION.md](docs/VERIFICATION.md)
 before citing any test, CI, Java, native, or broker result.** It separates recorded command facts
 from runtime behavior that remains unproven.
