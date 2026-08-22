@@ -12,6 +12,7 @@
 /hacks/java6-messaging/java6-classes/
 /hacks/java6-messaging/java8-classes/
 /modernlink.jar
+/.release-test/
 /.worktrees/
 /.scripts/
 # Per-machine cargo build layout (absolute target-dir); must not reach CI.
