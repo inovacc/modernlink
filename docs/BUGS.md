@@ -1,5 +1,5 @@
 # Bugs
-<!-- rev:023 (RFC 3339) 2026-08-21T20:41:35Z -->
+<!-- rev:024 (RFC 3339) 2026-08-21T22:45:19Z -->
 
 Behaviour that is **wrong and should be fixed**. Deliberate constraints belong in
 [ISSUES.md](ISSUES.md); planned work belongs in [BACKLOG.md](BACKLOG.md).
@@ -14,7 +14,7 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 | B-006 | high | **resolved** `cb8bf8e` | Broker URLs carry credentials into error strings that cross into Java exception messages |
 | B-007 | medium | **resolved** `95c84fe` | A contained panic can leave a transport permanently degraded while the client still looks open |
 | B-008 | medium | **resolved** `3f97281` | `NativeResponse` still uses a leaked `Box` address as its handle, dereferenced with only a null check |
-| B-009 | high | **open** | `async-nats 0.38` pulls `rustls-webpki 0.102.8` with 4 advisories, incl. two certificate-validation bypasses and a reachable panic |
+| B-009 | high | **resolved** `f991820` | `async-nats 0.38` pulled `rustls-webpki 0.102.8` with 4 advisories, incl. two certificate-validation bypasses and a reachable panic |
 | B-010 | high | **open** | `receive()` returns `Ok(None)` on two providers and blocks forever on four, from the same API |
 | B-011 | medium | **candidate patch at `686adaa`** | RabbitMQ demo output included the raw, potentially credential-bearing connection URI |
 
@@ -173,7 +173,7 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
   results; maintainer acceptance and a live RabbitMQ invocation of the changed fixture remain
   pending.
 
-### B-009 — the NATS TLS path uses a rustls-webpki with four open advisories
+### B-009 — the NATS TLS path used a rustls-webpki with four open advisories — RESOLVED
 
 - **Severity:** high — two of the four are certificate-validation bypasses, in a project
   whose stated security posture is that *"TLS terminates and verifies in Rust"*. A third is a
@@ -198,9 +198,10 @@ Behaviour that is **wrong and should be fixed**. Deliberate constraints belong i
 - **`cargo update` cannot fix it.** 0.102 → 0.103 is semver-incompatible;
   `cargo update -p rustls-webpki@0.102.8` locks 0 packages. The fix is upgrading
   **`async-nats` 0.38 → 0.50**, which is available.
-- **Not attempted, deliberately.** That is a twelve-minor-version jump with API changes,
-  across `NatsTransport` and `NatsJetStreamTransport`. Any upgrade needs the dedicated broker
-  jobs plus TLS-specific coverage; the existing send/receive/ack run does not exercise NATS TLS.
+- **Resolution (`f991820`):** upgraded `async-nats` from 0.38 to 0.50 and `lapin` from 2 to
+  4.10, updated the RabbitMQ adapter for the lapin 4 API, and removed `rustls-webpki 0.102.8`,
+  `instant 0.1.13`, and `rustls-pemfile 2.2.0` from the lockfile. Local `cargo audit --deny
+  warnings` exited 0; the post-change GitHub run remains required for the recorded CI result.
 - **Reproduction:** `cargo audit`; `cargo tree --all-features -i rustls-webpki@0.102.8`.
 - **Seen at commit:** `b3e8834`.
 

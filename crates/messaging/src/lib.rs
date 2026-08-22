@@ -14,13 +14,13 @@
 #[cfg(any(feature = "nats", feature = "pulsar"))]
 use futures_util::StreamExt;
 #[cfg(feature = "rabbitmq")]
-use lapin::acker::Acker;
-#[cfg(feature = "rabbitmq")]
 use lapin::options::{BasicAckOptions, BasicGetOptions, BasicPublishOptions, QueueDeclareOptions};
 #[cfg(feature = "rabbitmq")]
 use lapin::types::FieldTable;
 #[cfg(feature = "rabbitmq")]
-use lapin::{BasicProperties, Connection, ConnectionProperties};
+use lapin::Acker;
+#[cfg(feature = "rabbitmq")]
+use lapin::{BasicProperties, Confirmation, Connection, ConnectionProperties};
 #[cfg(feature = "pulsar")]
 use pulsar::consumer::{Consumer as PulsarConsumer, Message as PulsarMessage};
 #[cfg(feature = "pulsar")]
@@ -1424,7 +1424,7 @@ impl RabbitMqTransport {
             "RabbitMQ queue declare",
             broker_timeout(DEFAULT_ADMIN_TIMEOUT_SECS),
             channel.queue_declare(
-                queue,
+                queue.into(),
                 QueueDeclareOptions {
                     durable: true,
                     ..QueueDeclareOptions::default()
@@ -1480,8 +1480,8 @@ impl MessageTransport for RabbitMqTransport {
             .block_on(async {
                 let confirm = channel
                     .basic_publish(
-                        "",
-                        &self.queue,
+                        "".into(),
+                        self.queue.clone().into(),
                         BasicPublishOptions::default(),
                         &payload,
                         BasicProperties::default(),
@@ -1490,12 +1490,7 @@ impl MessageTransport for RabbitMqTransport {
                 confirm.await
             })
             .map_err(transport_error)?;
-        if !confirmation.is_ack()
-            && !matches!(
-                confirmation,
-                lapin::publisher_confirm::Confirmation::NotRequested
-            )
-        {
+        if !confirmation.is_ack() && !matches!(confirmation, Confirmation::NotRequested) {
             return Err(DomainError::Transport(
                 "RabbitMQ publish was not acknowledged".to_string(),
             ));
@@ -1518,7 +1513,7 @@ impl MessageTransport for RabbitMqTransport {
             .as_ref()
             .ok_or_else(|| DomainError::Transport("RabbitMQ channel is unavailable".to_string()))?;
         let result = runtime
-            .block_on(channel.basic_get(&self.queue, BasicGetOptions::default()))
+            .block_on(channel.basic_get(self.queue.clone().into(), BasicGetOptions::default()))
             .map_err(transport_error)?;
         let Some(delivery) = result else {
             return Ok(None);

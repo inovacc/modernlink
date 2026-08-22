@@ -114,10 +114,10 @@ TLS policy defaults to a minimum of TLS 1.2. Java callers may select `LegacyHttp
 [`docs/VERIFICATION.md`](docs/VERIFICATION.md). Machine results below are observations at their
 recorded revisions, not a verdict that the integration satisfies the vendor contract:
 
-The CI workflow uses the Rust workspace job as its root gate. Coverage, Java 6, both broker
-groups, and dependency audit wait directly for Rust; linux-aarch64 waits for the Java JAR and
-therefore transitively for Rust. GitHub Actions skips those downstream jobs when their required
-predecessor does not complete successfully.
+The CI workflow is staged as **Rust → Java 6 → Rust coverage → broker/native/audit checks →
+release readiness**. Each stage is gated by the preceding stage, and the final release-readiness
+job requires every preceding result to be `success`; GitHub Actions skips it when any required
+gate is unsuccessful. The tag-based release publisher remains a separate publishing action.
 
 - **Recorded on a real Java 6 JVM** (`1.6.0_38`, `linux-x86_64`, packaged JAR, CI run [31781200582](https://github.com/inovacc/modernlink/actions/runs/31781200582)): native loading, live TLSv1_3 HTTPS, the JMS-shaped facade, and routing probes executed.
 - **Executed on a modern JVM** (Windows, JVM 21): the same native path on **windows-x86_64**, `status=200` with a 4-certificate chain, and a send → receive → acknowledge round trip against **live NATS, NATS JetStream and RabbitMQ**.

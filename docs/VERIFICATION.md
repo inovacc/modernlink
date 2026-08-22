@@ -1,5 +1,5 @@
 # Verification reach
-<!-- rev:007 (RFC 3339) 2026-08-21T20:55:36Z -->
+<!-- rev:009 (RFC 3339) 2026-08-21T22:45:19Z -->
 
 This file records what commands and runtime paths have actually executed. A machine result is
 reported as a fact about that command at that revision; it is not a verdict that ModernLink is
@@ -34,13 +34,12 @@ correct, production-ready, or compatible with the vendor host.
 | Local Windows record, [2026-08-14-native-runtime.md](evidence/2026-08-14-native-runtime.md) | prior revision | JVM 21 loaded the Windows native, returned HTTP status 200 with four peer certificates, and completed NATS/JetStream/RabbitMQ round trips | Windows JNI/native path and those three brokers on one machine |
 | Local dirty tree, 2026-08-21 | pre-`8d18ca5` | Docker build, 18 packaged Java 6 tests, packaged Java 6→JNI→NATS, and host-JVM→JNI round trips for all five provider variants emitted their recorded results | Local source and Docker runtime paths; superseded by the branch run for coverage and Linux execution facts |
 
-The current workflow declares seven jobs, including a 90% production behavior-crate Rust gate
-and a 90% Java production-class gate. Every downstream job depends directly or transitively on
-the Rust workspace job; linux-aarch64 also waits for the Java JAR artifact. This dependency
-graph prevents downstream jobs from starting after an unsuccessful required predecessor.
-The dependency-audit step is deliberately
-`continue-on-error`; its job status must not be read as absence of advisories. B-009 records the
-known advisory output.
+The current workflow declares eight jobs in stages: Rust, Java 6, Rust coverage, broker/native/audit
+checks, and release readiness. Java waits for Rust; coverage waits for Java; the remaining checks
+wait for coverage; and release readiness explicitly requires every preceding job result to be
+`success`. Dependency audit is blocking for that final gate. After upgrading `async-nats` to
+0.50 and `lapin` to 4.10, the local `cargo audit --deny warnings` command exited 0; the
+post-change GitHub run is still pending and remains the release-readiness evidence required.
 
 ## Java facade reach
 

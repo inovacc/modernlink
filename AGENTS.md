@@ -1,5 +1,5 @@
 # AGENTS.md — ModernLink
-<!-- rev:019 (RFC 3339) 2026-08-21T20:55:36Z -->
+<!-- rev:021 (RFC 3339) 2026-08-21T22:45:19Z -->
 
 Canonical cross-tool agent instructions for the ModernLink repo (read by Claude Code,
 Codex, Cursor, Gemini, etc. — Claude Code imports this from `CLAUDE.md`). Must-know
@@ -76,11 +76,13 @@ anything that must talk to a broker with `--features all-providers`; `docker/jav
 already does. **Asking for a provider that was not compiled in fails closed** with an error
 naming the missing cargo feature — it is never rerouted to another transport.
 
-The workflow declares seven jobs: Rust checks, Rust behavior-crate coverage, Java 6 JAR, two broker-backed
-groups, linux-aarch64, and dependency audit. Rust checks are the root gate: every other job has
-a direct or transitive `needs: rust` dependency, while linux-aarch64 additionally waits for the
-Java JAR artifact. The five broker tests are `#[ignore]`d and run only
-by the dedicated jobs; the dependency audit is non-blocking while B-009 is open. **Read
+The workflow declares eight jobs in stages: Rust checks, Java 6 JAR, Rust behavior-crate coverage,
+the two broker-backed groups plus linux-aarch64 and dependency audit, then release readiness.
+Rust is the root; Java waits for Rust, coverage waits for Java, the remaining checks wait for
+coverage, and release readiness requires every preceding result to be `success`. The five broker
+tests are `#[ignore]`d and run only by the dedicated jobs; dependency advisories are blocking for
+release readiness. The dependency set recorded by B-009 is addressed by the current broker-client
+upgrades; the post-change GitHub run remains the authoritative machine record. **Read
 [docs/VERIFICATION.md](docs/VERIFICATION.md)
 before citing any test, CI, Java, native, or broker result.** It separates recorded command facts
 from runtime behavior that remains unproven.
