@@ -1,5 +1,5 @@
 # Known Issues and Limitations
-<!-- rev:013 (RFC 3339) 2026-08-21T20:41:35Z -->
+<!-- rev:014 (RFC 3339) 2026-08-22T03:15:42Z -->
 
 Constraints accepted on purpose or imposed by the platform. Defects that should be fixed live
 in [BUGS.md](BUGS.md); future work lives in [BACKLOG.md](BACKLOG.md).
@@ -63,7 +63,8 @@ and may no longer be served by every registry, which makes the JAR build environ
 Provider features pull `rdkafka` with `cmake-build` and `pulsar`, which need `cmake`, `libcurl`,
 and `protobuf-compiler`. The default workspace build compiles no broker client. The Dockerfile
 and all-provider workflow jobs install the native dependencies; B-001 records the earlier CI
-failure and its committed remediation. The current feature branch still has no workflow run.
+failure and its committed remediation. The merged mainline has recorded all-provider CI runs; a
+bare host still needs those packages for local all-feature builds.
 
 **Workaround for local all-provider builds:** build through the Dockerfile, or install cmake +
 libcurl + protoc locally.
@@ -150,16 +151,14 @@ separate `build/fixtures` tree (kept out of the distributable JAR) and
 [31782837766](https://github.com/inovacc/modernlink/actions/runs/31782837766) recorded that
 configured fixture step. Closes **VER-07** for build-path reach only.
 
-### I-014 — the project's ambition tier is contradictory across documents
+### I-014 — the project's ambition tier was contradictory across documents
 
-`README.md:9` says the project *studies* a compatibility layer and `README.md:75` calls the
-architecture a design hypothesis, while [MILESTONES.md](MILESTONES.md) targets a
+The README now describes ModernLink as a compatibility layer, marks it as actively under
+development, and records the published-JAR Docker reach. [MILESTONES.md](MILESTONES.md) targets a
 "Production-usable" v1.0.0 and [BACKLOG.md](BACKLOG.md) specifies production-grade fail-closed
-delivery semantics. A research prototype and a vendor-facing production SDK have different bars
-for "done", so this ambiguity makes completion unmeasurable.
+delivery semantics. The vendor host and direct Windows release DLL remain explicit unproven bars.
 
-**Status:** open decision for the maintainer. [ROADMAP.md](ROADMAP.md) currently writes to the
-stricter (production) reading.
+**Status:** clarified in the documentation; the production bar remains the roadmap reading.
 
 ## Verification status
 
