@@ -1,0 +1,67 @@
+name: Release JAR validation
+
+on:
+  workflow_run:
+    workflows: ["Release JAR"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to validate
+        required: true
+        default: v0.1.0
+
+permissions:
+  contents: read
+
+jobs:
+  docker-release-jar:
+    name: Docker tests against published release JAR
+    if: >-
+      ${{
+        (github.event_name == 'workflow_dispatch' && inputs.tag != '') ||
+        (github.event_name == 'workflow_run' &&
+         github.event.workflow_run.conclusion == 'success')
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.event.workflow_run.head_branch }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download published release JAR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p .release-test
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern modernlink.jar \
+            --dir .release-test
+          sha256sum .release-test/modernlink.jar
+
+      - name: Build release-JAR test image
+        run: docker build -f docker/java6/ReleaseTest.Dockerfile -t modernlink-release-jar-test .
+
+      - name: Start NATS
+        run: |
+          docker run -d --name modernlink-release-nats -p 4222:4222 nats:2.10 -js
+          deadline=$(( $(date +%s) + 180 ))
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            docker logs modernlink-release-nats 2>&1 | grep -q 'Server is ready' && exit 0
+            sleep 2
+          done
+          docker logs modernlink-release-nats
+          exit 1
+
+      - name: Run all Docker release-JAR tests
+        run: docker run --rm --network host modernlink-release-jar-test
+
+      - name: NATS logs on failure
+        if: failure()
+        run: docker logs modernlink-release-nats
+
+      - name: Remove NATS
+        if: always()
+        run: docker rm -f modernlink-release-nats
