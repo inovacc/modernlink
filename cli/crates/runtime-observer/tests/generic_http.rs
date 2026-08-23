@@ -181,6 +181,37 @@ fn sensitive_key_matrix_rejects_profiles_and_redacts_payload_digests() {
     }
 }
 
+#[test]
+fn sensitive_suffixes_reject_profiles_and_redact_payloads_without_overmatching() {
+    for key in [
+        "sessionToken",
+        "csrfToken",
+        "jwtToken",
+        "awsAccessKey",
+        "token2",
+    ] {
+        let unsafe_profile = format!(
+            r#"{{"schema_version":"modernlink.runtime-profile/v1","name":"x","kind":"generic-http","endpoint":"http://127.0.0.1/metadata?{key}=secret","http_method":"GET"}}"#
+        );
+        assert!(RuntimeProfile::from_json(&unsafe_profile).is_err(), "{key}");
+        assert_eq!(
+            snapshot_with_payload_key(key, "secret").evidence[0].payload[key],
+            "[REDACTED]",
+            "{key}"
+        );
+    }
+    for key in ["tokenCount", "secretariat"] {
+        let profile = format!(
+            r#"{{"schema_version":"modernlink.runtime-profile/v1","name":"x","kind":"generic-http","endpoint":"http://127.0.0.1/metadata?{key}=value","http_method":"GET"}}"#
+        );
+        assert!(RuntimeProfile::from_json(&profile).is_ok(), "{key}");
+        assert_eq!(
+            snapshot_with_payload_key(key, "value").evidence[0].payload[key],
+            "value"
+        );
+    }
+}
+
 fn snapshot_with_payload_key(key: &str, value: &str) -> ObservationSnapshot {
     ObservationSnapshot::from_observation(
         &profile(),

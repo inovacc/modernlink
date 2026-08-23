@@ -57,7 +57,8 @@ fn normalize_key(key: &str) -> String {
 }
 
 fn sensitive_normalized_key(key: &str) -> bool {
-    matches!(
+    let key = key.trim_end_matches(|character: char| character.is_ascii_digit());
+    let sensitive_atom = matches!(
         key,
         "token"
             | "secret"
@@ -77,7 +78,27 @@ fn sensitive_normalized_key(key: &str) -> bool {
             | "clientsecret"
             | "accesskey"
             | "privatekey"
-    )
+    );
+    sensitive_atom
+        || [
+            "token",
+            "accesstoken",
+            "authtoken",
+            "bearertoken",
+            "refreshtoken",
+            "apikey",
+            "accesskey",
+            "privatekey",
+            "clientsecret",
+            "password",
+            "passwd",
+            "pwd",
+            "credential",
+            "credentials",
+            "secret",
+        ]
+        .iter()
+        .any(|suffix| key.ends_with(suffix))
 }
 
 fn redact_raw_query(reference: &str, counters: &mut BTreeMap<String, usize>) -> String {
