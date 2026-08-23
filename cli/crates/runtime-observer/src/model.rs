@@ -95,7 +95,7 @@ impl ObservationSnapshot {
         observation.capabilities.sort_by(|a, b| a.id.cmp(&b.id));
         let profile_digest = profile.digest()?;
         let connector = connector.into();
-        let mut redaction_counters = BTreeMap::new();
+        let mut redaction_counters = observation.redaction_counters;
         for evidence in &mut observation.evidence {
             let redacted = redact_projection(std::mem::take(&mut evidence.payload));
             for (rule, count) in redacted.counters {

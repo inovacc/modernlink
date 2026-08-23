@@ -17,7 +17,7 @@ pub enum ConnectorKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum CredentialRef {
     Environment { variable: String },
     OsKeyring { service: String, account: String },

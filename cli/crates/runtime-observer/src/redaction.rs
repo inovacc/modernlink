@@ -40,25 +40,75 @@ pub(crate) fn redact_reference(reference: &str, counters: &mut BTreeMap<String, 
 }
 
 pub(crate) fn is_sensitive_query_key(key: &str) -> bool {
-    let normalized = key
-        .chars()
-        .filter(char::is_ascii_alphanumeric)
-        .flat_map(char::to_lowercase)
-        .collect::<String>();
+    let segments = key_segments(key);
+    if segments.iter().any(|segment| sensitive_segment(segment)) {
+        return true;
+    }
+    for width in 2..=segments.len().min(3) {
+        if segments
+            .windows(width)
+            .map(|window| window.concat())
+            .any(|phrase| sensitive_phrase(&phrase))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn key_segments(key: &str) -> Vec<String> {
+    let mut segments = Vec::new();
+    let mut current = String::new();
+    let mut previous_lowercase = false;
+    for character in key.chars() {
+        if !character.is_ascii_alphanumeric() {
+            push_segment(&mut segments, &mut current);
+            previous_lowercase = false;
+            continue;
+        }
+        if character.is_ascii_uppercase() && previous_lowercase {
+            push_segment(&mut segments, &mut current);
+        }
+        current.push(character.to_ascii_lowercase());
+        previous_lowercase = character.is_ascii_lowercase();
+    }
+    push_segment(&mut segments, &mut current);
+    segments
+}
+
+fn push_segment(segments: &mut Vec<String>, current: &mut String) {
+    if !current.is_empty() {
+        segments.push(std::mem::take(current));
+    }
+}
+
+fn sensitive_segment(segment: &str) -> bool {
+    let base = segment.trim_end_matches(|character: char| character.is_ascii_digit());
     matches!(
-        normalized.as_str(),
+        base,
         "token"
-            | "accesstoken"
-            | "idtoken"
-            | "refreshtoken"
-            | "apikey"
-            | "password"
             | "secret"
-            | "clientsecret"
+            | "password"
+            | "passwd"
+            | "pwd"
             | "credential"
             | "credentials"
             | "authorization"
             | "cookie"
+    )
+}
+
+fn sensitive_phrase(phrase: &str) -> bool {
+    matches!(
+        phrase,
+        "authtoken"
+            | "bearertoken"
+            | "refreshtoken"
+            | "idtoken"
+            | "accesstoken"
+            | "clientsecret"
+            | "apikey"
+            | "accesskey"
             | "privatekey"
     )
 }

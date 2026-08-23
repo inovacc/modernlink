@@ -108,6 +108,49 @@ fn profile_rejects_credential_bearing_endpoint_query_keys() {
 }
 
 #[test]
+fn profile_rejects_credential_key_variants_without_rejecting_ordinary_words() {
+    for key in [
+        "auth_token",
+        "bearer_token",
+        "refresh_token",
+        "client_secret",
+        "api_key",
+        "access-key",
+        "password",
+        "passwd",
+        "pwd",
+        "credential",
+        "credentials",
+        "secret",
+        "token",
+    ] {
+        let profile = format!(
+            r#"{{"schema_version":"modernlink.runtime-profile/v1","name":"x","kind":"generic-http","endpoint":"http://127.0.0.1/metadata?{key}=secret","http_method":"GET"}}"#
+        );
+        assert!(RuntimeProfile::from_json(&profile).is_err(), "{key}");
+    }
+    for key in ["tokenizer", "secretary", "passwordless"] {
+        let profile = format!(
+            r#"{{"schema_version":"modernlink.runtime-profile/v1","name":"x","kind":"generic-http","endpoint":"http://127.0.0.1/metadata?{key}=value","http_method":"GET"}}"#
+        );
+        assert!(RuntimeProfile::from_json(&profile).is_ok(), "{key}");
+    }
+}
+
+#[test]
+fn profile_rejects_unknown_nested_credential_material() {
+    let profile = r#"{
+        "schema_version":"modernlink.runtime-profile/v1",
+        "name":"x",
+        "kind":"generic-http",
+        "endpoint":"http://127.0.0.1/metadata",
+        "http_method":"GET",
+        "credential_ref":{"kind":"environment","variable":"RUNTIME_TOKEN","api_key":"secret"}
+    }"#;
+    assert!(RuntimeProfile::from_json(profile).is_err());
+}
+
+#[test]
 fn snapshot_constructor_redacts_untrusted_payload_and_resource_query_before_digesting() {
     let snapshot = ObservationSnapshot::from_observation(
         &profile(),
@@ -125,7 +168,7 @@ fn snapshot_constructor_redacts_untrusted_payload_and_resource_query_before_dige
                 payload_digest: "caller-provided".to_owned(),
                 payload: serde_json::json!({"password": "secret"}),
             }],
-            redaction_counters: BTreeMap::new(),
+            redaction_counters: BTreeMap::from([("connector-rule".to_owned(), 2)]),
         },
     )
     .expect("snapshot");
@@ -135,6 +178,8 @@ fn snapshot_constructor_redacts_untrusted_payload_and_resource_query_before_dige
     assert_eq!(snapshot.evidence[0].payload["password"], "[REDACTED]");
     assert!(snapshot.evidence[0].resource_key.contains("%5BREDACTED%5D"));
     assert_ne!(snapshot.evidence[0].payload_digest, "caller-provided");
+    assert_eq!(snapshot.redaction_counters["connector-rule"], 2);
+    assert_eq!(snapshot.redaction_counters["sensitive-field"], 1);
 }
 
 #[test]
