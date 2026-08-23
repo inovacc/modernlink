@@ -40,52 +40,25 @@ pub(crate) fn redact_reference(reference: &str, counters: &mut BTreeMap<String, 
 }
 
 pub(crate) fn is_sensitive_query_key(key: &str) -> bool {
-    let segments = key_segments(key);
-    if segments.iter().any(|segment| sensitive_segment(segment)) {
+    if sensitive_normalized_key(&normalize_key(key)) {
         return true;
     }
-    for width in 2..=segments.len().min(3) {
-        if segments
-            .windows(width)
-            .map(|window| window.concat())
-            .any(|phrase| sensitive_phrase(&phrase))
-        {
-            return true;
-        }
-    }
-    false
+    key.split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|segment| !segment.is_empty())
+        .map(normalize_key)
+        .any(|segment| sensitive_normalized_key(&segment))
 }
 
-fn key_segments(key: &str) -> Vec<String> {
-    let mut segments = Vec::new();
-    let mut current = String::new();
-    let mut previous_lowercase = false;
-    for character in key.chars() {
-        if !character.is_ascii_alphanumeric() {
-            push_segment(&mut segments, &mut current);
-            previous_lowercase = false;
-            continue;
-        }
-        if character.is_ascii_uppercase() && previous_lowercase {
-            push_segment(&mut segments, &mut current);
-        }
-        current.push(character.to_ascii_lowercase());
-        previous_lowercase = character.is_ascii_lowercase();
-    }
-    push_segment(&mut segments, &mut current);
-    segments
+fn normalize_key(key: &str) -> String {
+    key.chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|character| character.to_ascii_lowercase())
+        .collect()
 }
 
-fn push_segment(segments: &mut Vec<String>, current: &mut String) {
-    if !current.is_empty() {
-        segments.push(std::mem::take(current));
-    }
-}
-
-fn sensitive_segment(segment: &str) -> bool {
-    let base = segment.trim_end_matches(|character: char| character.is_ascii_digit());
+fn sensitive_normalized_key(key: &str) -> bool {
     matches!(
-        base,
+        key,
         "token"
             | "secret"
             | "password"
@@ -95,19 +68,13 @@ fn sensitive_segment(segment: &str) -> bool {
             | "credentials"
             | "authorization"
             | "cookie"
-    )
-}
-
-fn sensitive_phrase(phrase: &str) -> bool {
-    matches!(
-        phrase,
-        "authtoken"
+            | "apikey"
+            | "authtoken"
             | "bearertoken"
             | "refreshtoken"
             | "idtoken"
             | "accesstoken"
             | "clientsecret"
-            | "apikey"
             | "accesskey"
             | "privatekey"
     )
@@ -166,16 +133,5 @@ fn redact_value(value: Value, counters: &mut BTreeMap<String, usize>) -> Value {
     }
 }
 fn secret_key(key: &str) -> bool {
-    let key = key.to_ascii_lowercase();
-    [
-        "password",
-        "secret",
-        "token",
-        "authorization",
-        "cookie",
-        "credential",
-        "api_key",
-    ]
-    .iter()
-    .any(|word| key.contains(word))
+    is_sensitive_query_key(key)
 }

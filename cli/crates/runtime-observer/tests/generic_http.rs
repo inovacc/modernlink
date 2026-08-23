@@ -129,12 +129,79 @@ fn profile_rejects_credential_key_variants_without_rejecting_ordinary_words() {
         );
         assert!(RuntimeProfile::from_json(&profile).is_err(), "{key}");
     }
-    for key in ["tokenizer", "secretary", "passwordless"] {
+    for key in [
+        "tokenizer",
+        "secretary",
+        "passwordless",
+        "tokenCount",
+        "secretariat",
+    ] {
         let profile = format!(
             r#"{{"schema_version":"modernlink.runtime-profile/v1","name":"x","kind":"generic-http","endpoint":"http://127.0.0.1/metadata?{key}=value","http_method":"GET"}}"#
         );
         assert!(RuntimeProfile::from_json(&profile).is_ok(), "{key}");
     }
+}
+
+#[test]
+fn sensitive_key_matrix_rejects_profiles_and_redacts_payload_digests() {
+    let keys = [
+        "apiKey",
+        "api-key",
+        "apikey",
+        "authToken",
+        "authtoken",
+        "accessKey",
+        "accesskey",
+        "privateKey",
+        "privatekey",
+        "bearerToken",
+        "refreshToken",
+        "clientSecret",
+        "password",
+        "passwd",
+        "pwd",
+        "credential",
+        "credentials",
+        "secret",
+        "token",
+    ];
+    for key in keys {
+        let unsafe_profile = format!(
+            r#"{{"schema_version":"modernlink.runtime-profile/v1","name":"x","kind":"generic-http","endpoint":"http://127.0.0.1/metadata?{key}=first","http_method":"GET"}}"#
+        );
+        assert!(RuntimeProfile::from_json(&unsafe_profile).is_err(), "{key}");
+
+        let first = snapshot_with_payload_key(key, "first");
+        let second = snapshot_with_payload_key(key, "second");
+        let json = first.canonical_json().expect("JSON");
+        assert!(!json.contains("first"), "{key}");
+        assert_eq!(first.evidence[0].payload[key], "[REDACTED]", "{key}");
+        assert_eq!(first.content_digest, second.content_digest, "{key}");
+    }
+}
+
+fn snapshot_with_payload_key(key: &str, value: &str) -> ObservationSnapshot {
+    ObservationSnapshot::from_observation(
+        &profile(),
+        "test",
+        "2026-08-23T00:00:00Z",
+        ObservationDepth::Metadata,
+        RuntimeObservation {
+            capabilities: vec![],
+            evidence: vec![RuntimeEvidence {
+                id: "caller-provided".to_owned(),
+                collector: "test".to_owned(),
+                target: "http://127.0.0.1/metadata".to_owned(),
+                resource_key: "http://127.0.0.1/metadata".to_owned(),
+                source_operation: "GET".to_owned(),
+                payload_digest: "caller-provided".to_owned(),
+                payload: serde_json::json!({key: value}),
+            }],
+            redaction_counters: BTreeMap::new(),
+        },
+    )
+    .expect("snapshot")
 }
 
 #[test]
