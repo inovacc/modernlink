@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://modernlink.dev/schemas/binary-pointer-v1.json",
+  "$id": "urn:modernlink:schema:binary-pointer:v1",
   "title": "ModernLink binary pointer",
   "type": "object",
   "additionalProperties": false,
