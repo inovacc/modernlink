@@ -164,6 +164,7 @@ impl TunnelGuard {
         if let Some(status) = child.try_wait().map_err(|error| {
             ObservationError::Tunnel(format!("cannot inspect approved tunnel startup: {error}"))
         })? {
+            terminate_group(&mut child)?;
             let executable = plan
                 .executable
                 .file_name()
@@ -186,26 +187,27 @@ impl TunnelGuard {
         let Some(child) = self.child.as_mut() else {
             return Ok(());
         };
-        match child.try_wait() {
-            Ok(Some(_)) => {
-                self.child.take();
-                Ok(())
-            }
-            Ok(None) => {
-                child.kill().map_err(|error| {
-                    ObservationError::Tunnel(format!("cannot terminate tunnel: {error}"))
-                })?;
-                child.wait().map_err(|error| {
-                    ObservationError::Tunnel(format!("cannot reap tunnel: {error}"))
-                })?;
-                self.child.take();
-                Ok(())
-            }
-            Err(error) => Err(ObservationError::Tunnel(format!(
-                "cannot inspect tunnel: {error}"
-            ))),
-        }
+        terminate_group(child)?;
+        self.child.take();
+        Ok(())
     }
+}
+
+fn terminate_group(child: &mut GroupChild) -> Result<(), ObservationError> {
+    let _ = child.try_wait().map_err(|error| {
+        ObservationError::Tunnel(format!("cannot inspect tunnel group: {error}"))
+    })?;
+    if let Err(error) = child.kill()
+        && error.kind() != std::io::ErrorKind::InvalidInput
+    {
+        return Err(ObservationError::Tunnel(format!(
+            "cannot terminate tunnel group: {error}"
+        )));
+    }
+    child
+        .wait()
+        .map_err(|error| ObservationError::Tunnel(format!("cannot reap tunnel group: {error}")))?;
+    Ok(())
 }
 
 impl Drop for TunnelGuard {

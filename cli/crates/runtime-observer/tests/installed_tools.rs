@@ -296,6 +296,42 @@ fn tunnel_drop_terminates_a_long_lived_connector_plan() {
 }
 
 #[test]
+#[cfg(windows)]
+fn tunnel_startup_rejection_terminates_descendants_after_wrapper_exits() {
+    let temp = tempfile::tempdir().expect("temporary directory");
+    let fixture = temp.path().join("exiting-wrapper.cmd");
+    let reserved = TcpListener::bind("127.0.0.1:0").expect("reserved listener");
+    let port = reserved.local_addr().expect("reserved address").port();
+    drop(reserved);
+    fs::write(
+        &fixture,
+        format!(
+            "@echo off\r\nstart \"\" /b powershell -NoProfile -Command \"$listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, {port}); $listener.Start(); Start-Sleep -Seconds 30\"\r\nexit /b 0\r\n"
+        ),
+    )
+    .expect("fixture");
+    let profile = profile("ssh", "https://unrelated.example.invalid", "orders-host");
+    let plan = ssh_local_forward_plan(
+        &profile,
+        fixture,
+        15433,
+        5432,
+        TunnelApproval::new(true, IpAddr::V4(Ipv4Addr::LOCALHOST)),
+    )
+    .expect("safe plan");
+
+    assert!(
+        TunnelGuard::spawn(plan).is_err(),
+        "exited wrapper must reject startup"
+    );
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(
+        TcpStream::connect(("127.0.0.1", port)).is_err(),
+        "descendant listener survived rejected startup"
+    );
+}
+
+#[test]
 fn tunnel_plans_encode_only_loopback_bindings() {
     let kubernetes = profile(
         "kubernetes",
