@@ -1,0 +1,7 @@
+{
+  "name": "modernlink",
+  "version": "0.1.0",
+  "description": "Evidence-first repository modernization preparation backed by the deterministic ModernLink Rust CLI",
+  "license": "Apache-2.0"
+}
+

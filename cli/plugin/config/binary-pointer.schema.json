@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://modernlink.dev/schemas/binary-pointer-v1.json",
+  "title": "ModernLink binary pointer",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "binary_path",
+    "binary_sha256",
+    "os",
+    "arch",
+    "analysis_schema"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "modernlink.binary-pointer/v1"
+    },
+    "binary_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "binary_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "os": {
+      "type": "string",
+      "minLength": 1
+    },
+    "arch": {
+      "type": "string",
+      "minLength": 1
+    },
+    "analysis_schema": {
+      "const": "modernlink.analysis/v1alpha1"
+    }
+  }
+}
+
