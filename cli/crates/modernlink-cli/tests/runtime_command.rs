@@ -170,6 +170,7 @@ fn runtime_diagnostics_distinguish_input_network_and_output_failures() {
 }
 
 #[test]
+#[cfg(windows)]
 fn runtime_probe_runs_an_authorized_kubernetes_profile_through_a_controlled_tool() {
     let temp = tempfile::tempdir().expect("temporary directory");
     let argument_log = temp.path().join("kubectl-argv.txt");

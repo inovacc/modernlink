@@ -1,10 +1,12 @@
 use crate::{CredentialRef, ObservationError};
+use command_group::CommandGroup;
 use std::{
     ffi::OsString,
     fmt,
     io::Read,
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::mpsc,
     thread,
     time::{Duration, Instant},
 };
@@ -35,6 +37,13 @@ impl CommandLimits {
 }
 
 #[derive(Clone, PartialEq, Eq)]
+/// Secret bytes that deliberately do not implement `Serialize`.
+///
+/// ```compile_fail
+/// use runtime_observer::CredentialValue;
+/// # let value: CredentialValue = todo!();
+/// let _ = serde_json::to_string(&value);
+/// ```
 pub struct CredentialValue(Vec<u8>);
 
 impl CredentialValue {
@@ -84,70 +93,91 @@ impl CommandExecutor for SystemCommandExecutor {
         args: &[OsString],
         limits: CommandLimits,
     ) -> Result<CommandOutput, ObservationError> {
-        let mut child = Command::new(executable)
+        let mut command = Command::new(executable);
+        command
             .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| {
-                ObservationError::Command(format!(
-                    "cannot run approved tool {}: {error}",
-                    executable.display()
-                ))
-            })?;
-        let stdout = child.stdout.take().ok_or_else(|| {
+            .stderr(Stdio::piped());
+        let mut child = command.group_spawn().map_err(|error| {
+            ObservationError::Command(format!(
+                "cannot run approved tool {}: {error}",
+                executable.display()
+            ))
+        })?;
+        let stdout = child.inner().stdout.take().ok_or_else(|| {
             ObservationError::Command("approved tool stdout was unavailable".to_owned())
         })?;
-        let stderr = child.stderr.take().ok_or_else(|| {
+        let stderr = child.inner().stderr.take().ok_or_else(|| {
             ObservationError::Command("approved tool stderr was unavailable".to_owned())
         })?;
-        let stdout_reader = thread::spawn(move || read_bounded(stdout, limits.stdout_limit));
-        let stderr_reader = thread::spawn(move || read_bounded(stderr, limits.stderr_limit));
+        let (stdout_sender, stdout_receiver) = mpsc::sync_channel(1);
+        let (stderr_sender, stderr_receiver) = mpsc::sync_channel(1);
+        let stdout_reader = thread::spawn(move || {
+            let _ = stdout_sender.send(read_bounded(stdout, limits.stdout_limit));
+        });
+        let stderr_reader = thread::spawn(move || {
+            let _ = stderr_sender.send(read_bounded(stderr, limits.stderr_limit));
+        });
         let deadline = Instant::now() + limits.timeout;
-        let mut timed_out = false;
-        let status = loop {
-            match child.try_wait() {
-                Ok(Some(status)) => break status,
-                Ok(None) if Instant::now() >= deadline => {
-                    timed_out = true;
-                    child.kill().map_err(|error| {
-                        ObservationError::Command(format!(
-                            "cannot terminate timed-out approved tool: {error}"
-                        ))
-                    })?;
-                    break child.wait().map_err(|error| {
-                        ObservationError::Command(format!(
-                            "cannot reap timed-out approved tool: {error}"
-                        ))
-                    })?;
-                }
-                Ok(None) => thread::sleep(Duration::from_millis(10)),
-                Err(error) => {
-                    return Err(ObservationError::Command(format!(
+        let mut status = None;
+        let mut stdout = None;
+        let mut stderr = None;
+        while Instant::now() < deadline {
+            if status.is_none() {
+                status = child.try_wait().map_err(|error| {
+                    ObservationError::Command(format!(
                         "cannot inspect approved tool status: {error}"
-                    )));
-                }
+                    ))
+                })?;
             }
-        };
-        let stdout = stdout_reader.join().map_err(|_| {
-            ObservationError::Command("approved tool stdout reader panicked".to_owned())
-        })??;
-        let stderr = stderr_reader.join().map_err(|_| {
-            ObservationError::Command("approved tool stderr reader panicked".to_owned())
-        })??;
-        if timed_out {
+            if stdout.is_none() {
+                stdout = stdout_receiver.try_recv().ok();
+            }
+            if stderr.is_none() {
+                stderr = stderr_receiver.try_recv().ok();
+            }
+            if status.is_some() && stdout.is_some() && stderr.is_some() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        if status.is_none() || stdout.is_none() || stderr.is_none() {
+            child.kill().map_err(|error| {
+                ObservationError::Command(format!("cannot terminate approved tool group: {error}"))
+            })?;
+            let _ = child.wait();
+            let cleanup_deadline = Instant::now() + Duration::from_millis(250);
+            while (stdout.is_none() || stderr.is_none()) && Instant::now() < cleanup_deadline {
+                if stdout.is_none() {
+                    stdout = stdout_receiver.try_recv().ok();
+                }
+                if stderr.is_none() {
+                    stderr = stderr_receiver.try_recv().ok();
+                }
+                thread::sleep(Duration::from_millis(5));
+            }
+            drop(stdout_reader);
+            drop(stderr_reader);
             return Err(ObservationError::Command(
-                "approved tool exceeded its deadline".to_owned(),
+                "approved tool exceeded its bounded deadline".to_owned(),
             ));
         }
+        let stdout = stdout
+            .unwrap()
+            .map_err(|error| ObservationError::Command(error.to_string()))?;
+        let stderr = stderr
+            .unwrap()
+            .map_err(|error| ObservationError::Command(error.to_string()))?;
+        let _ = stdout_reader.join();
+        let _ = stderr_reader.join();
         if stdout.exceeded || stderr.exceeded {
             return Err(ObservationError::Command(
                 "approved tool exceeded a bounded output limit".to_owned(),
             ));
         }
         Ok(CommandOutput {
-            status: status.code().unwrap_or(-1),
+            status: status.expect("status checked").code().unwrap_or(-1),
             stdout: stdout.bytes,
             stderr: stderr.bytes,
         })

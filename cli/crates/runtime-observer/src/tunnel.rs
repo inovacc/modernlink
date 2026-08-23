@@ -4,6 +4,8 @@ use std::{
     net::IpAddr,
     path::PathBuf,
     process::{Child, Command, Stdio},
+    thread,
+    time::Duration,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -148,7 +150,7 @@ impl TunnelGuard {
     /// ```
     pub fn spawn(plan: TunnelPlan) -> Result<Self, ObservationError> {
         plan.validate()?;
-        let child = Command::new(&plan.executable)
+        let mut child = Command::new(&plan.executable)
             .args(plan.argv())
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -157,6 +159,20 @@ impl TunnelGuard {
             .map_err(|error| {
                 ObservationError::Tunnel(format!("cannot start approved tunnel: {error}"))
             })?;
+        thread::sleep(Duration::from_millis(500));
+        if let Some(status) = child.try_wait().map_err(|error| {
+            ObservationError::Tunnel(format!("cannot inspect approved tunnel startup: {error}"))
+        })? {
+            let executable = plan
+                .executable
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("approved-tunnel");
+            return Err(ObservationError::Tunnel(format!(
+                "approved tunnel {executable} exited immediately with status {}",
+                status.code().unwrap_or(-1)
+            )));
+        }
         Ok(Self { child: Some(child) })
     }
     pub fn pid(&self) -> u32 {

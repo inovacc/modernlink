@@ -4,6 +4,8 @@ use runtime_observer::{
     RuntimeConnector, RuntimeProfile, SshConnector, SystemCommandExecutor, TunnelApproval,
     TunnelGuard, kubernetes_port_forward_plan, ssh_local_forward_plan,
 };
+#[cfg(windows)]
+use std::fs;
 use std::{
     ffi::OsString,
     net::{IpAddr, Ipv4Addr},
@@ -16,6 +18,22 @@ use std::{
 struct RecordingExecutor {
     calls: Mutex<Vec<(PathBuf, Vec<OsString>)>>,
     output: Vec<u8>,
+}
+
+struct FailingExecutor;
+impl CommandExecutor for FailingExecutor {
+    fn execute(
+        &self,
+        _: &Path,
+        _: &[OsString],
+        _: CommandLimits,
+    ) -> Result<CommandOutput, ObservationError> {
+        Ok(CommandOutput {
+            status: 17,
+            stdout: Vec::new(),
+            stderr: b"password=must-not-escape".to_vec(),
+        })
+    }
 }
 
 impl CommandExecutor for RecordingExecutor {
@@ -84,7 +102,7 @@ fn kubernetes_uses_the_exact_profile_context_and_emits_allowlisted_evidence() {
 #[test]
 fn ssh_uses_the_exact_profile_alias_and_never_emits_process_arguments() {
     let executor = RecordingExecutor {
-        output: b"Linux 6.1 x86_64\n--java--\nopenjdk version \"17.0.1\"\n--listeners--\ntcp LISTEN 0 4096 127.0.0.1:8080 0.0.0.0:*\n".to_vec(),
+        output: b"Linux 6.1 x86_64\n--java--\nopenjdk version \"17.0.1\"\n--listeners--\nLISTEN 0 4096 127.0.0.1:8080 0.0.0.0:*\nLISTEN 0 4096 [::]:8443 [::]:*\nLISTEN 0 4096 :::9090 :::*\nLISTEN 0 4096 *:7070 *:*\nnot a listener\n".to_vec(),
         ..Default::default()
     };
     let connector = SshConnector::new(&executor, PathBuf::from("ssh-fixture"));
@@ -116,15 +134,14 @@ fn ssh_uses_the_exact_profile_alias_and_never_emits_process_arguments() {
             .payload["os"],
         "Linux 6.1 x86_64"
     );
-    assert_eq!(
-        snapshot
-            .evidence
-            .iter()
-            .find(|item| item.source_operation == "listener")
-            .expect("listener evidence")
-            .payload["port"],
-        8080
-    );
+    let mut ports = snapshot
+        .evidence
+        .iter()
+        .filter(|item| item.source_operation == "listener")
+        .map(|item| item.payload["port"].as_u64().expect("numeric port"))
+        .collect::<Vec<_>>();
+    ports.sort_unstable();
+    assert_eq!(ports, vec![7070, 8080, 8443, 9090]);
 }
 
 #[test]
@@ -142,6 +159,61 @@ fn helper_is_not_executed_without_an_exact_approval() {
     let provider = ApprovedCredentialProvider::new(&executor, Some(mismatch), None);
     assert!(provider.resolve(&reference).is_err());
     assert!(executor.calls.lock().expect("calls").is_empty());
+}
+
+#[test]
+fn approved_helper_value_is_never_serialized_or_debugged() {
+    let executor = RecordingExecutor {
+        output: b"credential-value\n".to_vec(),
+        ..Default::default()
+    };
+    let approval = ExternalHelperApproval::for_executable(PathBuf::from("helper-fixture"));
+    let provider = ApprovedCredentialProvider::new(&executor, Some(approval), None);
+    let value = provider
+        .resolve(&CredentialRef::ExternalHelper {
+            command: "helper-fixture".to_owned(),
+        })
+        .expect("approved helper");
+    assert_eq!(value.expose_for_authorized_use(), b"credential-value");
+    assert!(!format!("{value:?}").contains("credential-value"));
+    assert_eq!(executor.calls.lock().expect("calls").len(), 1);
+}
+
+#[test]
+fn mutated_profiles_fail_before_connector_argv_or_tunnel_plan_construction() {
+    let executor = RecordingExecutor::default();
+    let connector = SshConnector::new(&executor, PathBuf::from("ssh-fixture"));
+    let mut profile = profile("ssh", "https://unrelated.example.invalid", "orders-host");
+    profile.target = Some("-oProxyCommand=bad".to_owned());
+
+    assert!(connector.probe(&profile).is_err());
+    assert!(
+        ssh_local_forward_plan(
+            &profile,
+            PathBuf::from("ssh-fixture"),
+            10022,
+            22,
+            TunnelApproval::new(true, IpAddr::V4(Ipv4Addr::LOCALHOST))
+        )
+        .is_err()
+    );
+    assert!(executor.calls.lock().expect("calls").is_empty());
+}
+
+#[test]
+fn nonzero_tool_errors_expose_only_tool_identity_and_status() {
+    let profile = profile(
+        "kubernetes",
+        "https://unrelated.example.invalid",
+        "orders-context",
+    );
+    let error = KubernetesConnector::new(&FailingExecutor, PathBuf::from("kubectl-fixture"))
+        .probe(&profile)
+        .expect_err("nonzero tool result");
+    let diagnostic = error.to_string();
+    assert!(diagnostic.contains("kubectl"));
+    assert!(diagnostic.contains("17"));
+    assert!(!diagnostic.contains("must-not-escape"));
 }
 
 #[test]
@@ -167,7 +239,7 @@ fn kubernetes_does_not_resolve_an_unused_profile_credential_reference() {
 }
 
 #[test]
-fn tunnel_spawn_accepts_only_a_validated_connector_plan_and_reaps_an_immediate_exit() {
+fn tunnel_spawn_rejects_an_immediately_exited_connector_plan() {
     let profile = profile("ssh", "https://unrelated.example.invalid", "orders-host");
     let plan = ssh_local_forward_plan(
         &profile,
@@ -177,9 +249,36 @@ fn tunnel_spawn_accepts_only_a_validated_connector_plan_and_reaps_an_immediate_e
         TunnelApproval::new(true, IpAddr::V4(Ipv4Addr::LOCALHOST)),
     )
     .expect("safe plan");
-    let tunnel = TunnelGuard::spawn(plan).expect("spawn validated plan");
-    std::thread::sleep(Duration::from_millis(30));
-    tunnel.close().expect("immediate process reaped");
+    assert!(TunnelGuard::spawn(plan).is_err());
+}
+
+#[test]
+#[cfg(windows)]
+fn tunnel_drop_terminates_a_long_lived_connector_plan() {
+    let temp = tempfile::tempdir().expect("temporary directory");
+    let fixture = temp.path().join("long-lived-tunnel.cmd");
+    fs::write(&fixture, "@echo off\r\nping 127.0.0.1 -n 30 > nul\r\n").expect("fixture");
+    let profile = profile("ssh", "https://unrelated.example.invalid", "orders-host");
+    let plan = ssh_local_forward_plan(
+        &profile,
+        fixture,
+        15432,
+        5432,
+        TunnelApproval::new(true, IpAddr::V4(Ipv4Addr::LOCALHOST)),
+    )
+    .expect("safe plan");
+    let tunnel = TunnelGuard::spawn(plan).expect("long lived tunnel");
+    let pid = tunnel.pid();
+    drop(tunnel);
+    let check = std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            &format!("Get-Process -Id {pid} -ErrorAction SilentlyContinue"),
+        ])
+        .output()
+        .expect("process check");
+    assert!(check.stdout.is_empty(), "tunnel process survived its guard");
 }
 
 #[test]
@@ -221,7 +320,9 @@ fn system_executor_bounds_timeout_and_both_output_streams_with_native_fixtures()
         "fixture_sleeps",
         "fixture_writes_stdout",
         "fixture_writes_stderr",
+        "fixture_exits_with_output_holding_descendant",
     ] {
+        let started = std::time::Instant::now();
         let result = SystemCommandExecutor.execute(
             &executable,
             &[
@@ -233,6 +334,10 @@ fn system_executor_bounds_timeout_and_both_output_streams_with_native_fixtures()
             limits,
         );
         assert!(result.is_err(), "{fixture}");
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "{fixture} exceeded bounded return time"
+        );
         assert!(
             !result
                 .expect_err("bounded failure")
@@ -258,4 +363,17 @@ fn fixture_writes_stdout() {
 #[ignore]
 fn fixture_writes_stderr() {
     eprint!("{}", "x".repeat(4096));
+}
+
+#[test]
+#[ignore]
+#[allow(clippy::zombie_processes)] // The executor's process group owns and reaps this descendant.
+fn fixture_exits_with_output_holding_descendant() {
+    let executable = std::env::current_exe().expect("fixture executable");
+    std::process::Command::new(executable)
+        .args(["--exact", "fixture_sleeps", "--ignored", "--nocapture"])
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .expect("descendant fixture");
 }

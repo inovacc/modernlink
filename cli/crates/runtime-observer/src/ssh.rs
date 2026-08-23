@@ -15,6 +15,7 @@ pub fn ssh_local_forward_plan(
     remote_port: u16,
     approval: TunnelApproval,
 ) -> Result<TunnelPlan, ObservationError> {
+    profile.validate()?;
     if !matches!(profile.kind, crate::ConnectorKind::Ssh) {
         return Err(ObservationError::InvalidProfile(
             "SSH forwarding requires an ssh profile".to_owned(),
@@ -47,6 +48,7 @@ impl<'a, E: CommandExecutor + ?Sized> SshConnector<'a, E> {
         }
     }
     fn metadata_args(profile: &RuntimeProfile) -> Result<Vec<OsString>, ObservationError> {
+        profile.validate()?;
         require_authorized(profile)?;
         Ok(vec![
             "-o".into(),
@@ -64,9 +66,10 @@ impl<'a, E: CommandExecutor + ?Sized> SshConnector<'a, E> {
             CommandLimits::observation(),
         )?;
         if output.status != 0 {
-            return Err(ObservationError::Command(
-                "SSH metadata command failed".to_owned(),
-            ));
+            return Err(ObservationError::Command(format!(
+                "approved ssh exited with status {}",
+                output.status
+            )));
         }
         Ok(RuntimeObservation {
             capabilities: vec![Capability::supported("ssh-fixed-metadata")],
@@ -77,6 +80,7 @@ impl<'a, E: CommandExecutor + ?Sized> SshConnector<'a, E> {
 }
 impl<E: CommandExecutor + ?Sized> RuntimeConnector for SshConnector<'_, E> {
     fn probe(&self, profile: &RuntimeProfile) -> Result<CapabilityReport, ObservationError> {
+        profile.validate()?;
         if !matches!(profile.kind, crate::ConnectorKind::Ssh) {
             return Err(ObservationError::InvalidProfile(
                 "SSH connector requires an ssh profile".to_owned(),
@@ -95,6 +99,7 @@ impl<E: CommandExecutor + ?Sized> RuntimeConnector for SshConnector<'_, E> {
         depth: ObservationDepth,
         captured_at: &str,
     ) -> Result<ObservationSnapshot, ObservationError> {
+        profile.validate()?;
         if !matches!(profile.kind, crate::ConnectorKind::Ssh) {
             return Err(ObservationError::InvalidProfile(
                 "SSH connector requires an ssh profile".to_owned(),
@@ -201,6 +206,6 @@ fn bounded(value: &str) -> Result<String, ObservationError> {
     }
 }
 fn listening_port(line: &str) -> Option<u16> {
-    let address = line.split_whitespace().nth(4)?;
+    let address = line.split_whitespace().nth(3)?;
     address.rsplit(':').next()?.parse().ok()
 }

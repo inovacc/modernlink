@@ -13,6 +13,7 @@ pub fn kubernetes_port_forward_plan(
     remote_port: u16,
     approval: TunnelApproval,
 ) -> Result<TunnelPlan, ObservationError> {
+    profile.validate()?;
     if !matches!(profile.kind, crate::ConnectorKind::Kubernetes) {
         return Err(ObservationError::InvalidProfile(
             "Kubernetes port-forward requires a kubernetes profile".to_owned(),
@@ -49,6 +50,7 @@ impl<'a, E: CommandExecutor + ?Sized> KubernetesConnector<'a, E> {
         }
     }
     fn discovery_args(profile: &RuntimeProfile) -> Result<Vec<OsString>, ObservationError> {
+        profile.validate()?;
         require_authorized(profile)?;
         let namespace = namespace(profile, "Kubernetes observation")?;
         Ok(vec![
@@ -68,9 +70,10 @@ impl<'a, E: CommandExecutor + ?Sized> KubernetesConnector<'a, E> {
             CommandLimits::observation(),
         )?;
         if output.status != 0 {
-            return Err(ObservationError::Command(
-                "Kubernetes discovery command failed".to_owned(),
-            ));
+            return Err(ObservationError::Command(format!(
+                "approved kubectl exited with status {}",
+                output.status
+            )));
         }
         Ok(RuntimeObservation {
             capabilities: vec![Capability::supported("kubernetes-namespaced-read")],
@@ -82,6 +85,7 @@ impl<'a, E: CommandExecutor + ?Sized> KubernetesConnector<'a, E> {
 
 impl<E: CommandExecutor + ?Sized> RuntimeConnector for KubernetesConnector<'_, E> {
     fn probe(&self, profile: &RuntimeProfile) -> Result<CapabilityReport, ObservationError> {
+        profile.validate()?;
         if !matches!(profile.kind, crate::ConnectorKind::Kubernetes) {
             return Err(ObservationError::InvalidProfile(
                 "Kubernetes connector requires a kubernetes profile".to_owned(),
@@ -100,6 +104,7 @@ impl<E: CommandExecutor + ?Sized> RuntimeConnector for KubernetesConnector<'_, E
         depth: ObservationDepth,
         captured_at: &str,
     ) -> Result<ObservationSnapshot, ObservationError> {
+        profile.validate()?;
         if !matches!(profile.kind, crate::ConnectorKind::Kubernetes) {
             return Err(ObservationError::InvalidProfile(
                 "Kubernetes connector requires a kubernetes profile".to_owned(),
