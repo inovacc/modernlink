@@ -104,3 +104,67 @@ fn runtime_commands_validate_probe_and_observe_a_loopback_profile() {
 
     server.join().expect("fixture exits");
 }
+
+#[test]
+fn runtime_diagnostics_distinguish_input_network_and_output_failures() {
+    let temp = tempfile::tempdir().expect("temporary directory");
+    let binary = env!("CARGO_BIN_EXE_modernlink");
+    let invalid_profile = temp.path().join("invalid.json");
+    fs::write(
+        &invalid_profile,
+        r#"{"schema_version":"wrong","name":"x","kind":"generic-http","endpoint":"http://127.0.0.1","http_method":"GET"}"#,
+    )
+    .expect("invalid profile");
+    let input = Command::new(binary)
+        .args(["runtime", "profile", "validate"])
+        .arg(&invalid_profile)
+        .output()
+        .expect("input command");
+    assert!(String::from_utf8_lossy(&input.stderr).contains("MLK-INPUT-001"));
+
+    let unreachable_profile = temp.path().join("unreachable.json");
+    fs::write(
+        &unreachable_profile,
+        r#"{"schema_version":"modernlink.runtime-profile/v1","name":"x","kind":"generic-http","endpoint":"http://127.0.0.1:9","http_method":"GET"}"#,
+    )
+    .expect("unreachable profile");
+    let network = Command::new(binary)
+        .args(["runtime", "probe", "--profile"])
+        .arg(&unreachable_profile)
+        .output()
+        .expect("network command");
+    assert!(String::from_utf8_lossy(&network.stderr).contains("MLK-NETWORK-001"));
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("loopback listener");
+    let endpoint = format!(
+        "http://{}/metadata",
+        listener.local_addr().expect("address")
+    );
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("fixture request");
+        let mut request = [0_u8; 1024];
+        let _ = stream.read(&mut request).expect("read request");
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 20\r\nConnection: close\r\n\r\n{\"service\":\"orders\"}")
+            .expect("write response");
+    });
+    let output_profile = temp.path().join("output.json");
+    fs::write(
+        &output_profile,
+        format!(
+            r#"{{"schema_version":"modernlink.runtime-profile/v1","name":"x","kind":"generic-http","endpoint":"{endpoint}","http_method":"GET"}}"#
+        ),
+    )
+    .expect("output profile");
+    let output_parent = temp.path().join("not-a-directory");
+    fs::write(&output_parent, "file").expect("output parent file");
+    let output = Command::new(binary)
+        .args(["runtime", "observe", "--profile"])
+        .arg(&output_profile)
+        .args(["--output"])
+        .arg(output_parent.join("snapshot.json"))
+        .output()
+        .expect("output command");
+    server.join().expect("fixture exits");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("MLK-IO-001"));
+}

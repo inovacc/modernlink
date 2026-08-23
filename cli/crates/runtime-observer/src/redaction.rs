@@ -9,6 +9,88 @@ pub(crate) fn redact_projection(value: Value) -> RedactedProjection {
     let value = redact_value(value, &mut counters);
     RedactedProjection { value, counters }
 }
+
+pub(crate) fn redact_reference(reference: &str, counters: &mut BTreeMap<String, usize>) -> String {
+    let Ok(mut url) = reqwest::Url::parse(reference) else {
+        return redact_raw_query(reference, counters);
+    };
+    if !url.username().is_empty() || url.password().is_some() {
+        let _ = url.set_username("");
+        let _ = url.set_password(None);
+        *counters.entry("url-userinfo".to_owned()).or_default() += 1;
+    }
+    let pairs = url
+        .query_pairs()
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect::<Vec<_>>();
+    if pairs.iter().any(|(key, _)| is_sensitive_query_key(key)) {
+        let mut query = url.query_pairs_mut();
+        query.clear();
+        for (key, value) in pairs {
+            let value = if is_sensitive_query_key(&key) {
+                *counters.entry("sensitive-query".to_owned()).or_default() += 1;
+                "[REDACTED]".to_owned()
+            } else {
+                value
+            };
+            query.append_pair(&key, &value);
+        }
+    }
+    url.into()
+}
+
+pub(crate) fn is_sensitive_query_key(key: &str) -> bool {
+    let normalized = key
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .flat_map(char::to_lowercase)
+        .collect::<String>();
+    matches!(
+        normalized.as_str(),
+        "token"
+            | "accesstoken"
+            | "idtoken"
+            | "refreshtoken"
+            | "apikey"
+            | "password"
+            | "secret"
+            | "clientsecret"
+            | "credential"
+            | "credentials"
+            | "authorization"
+            | "cookie"
+            | "privatekey"
+    )
+}
+
+fn redact_raw_query(reference: &str, counters: &mut BTreeMap<String, usize>) -> String {
+    let Some((prefix, query_and_fragment)) = reference.split_once('?') else {
+        return reference.to_owned();
+    };
+    let (query, fragment) = query_and_fragment
+        .split_once('#')
+        .map_or((query_and_fragment, ""), |(query, fragment)| {
+            (query, fragment)
+        });
+    let query = query
+        .split('&')
+        .map(|part| {
+            let (key, value) = part.split_once('=').map_or((part, ""), |pair| pair);
+            if is_sensitive_query_key(key) {
+                *counters.entry("sensitive-query".to_owned()).or_default() += 1;
+                format!("{key}=%5BREDACTED%5D")
+            } else {
+                format!("{key}={value}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("&");
+    if fragment.is_empty() {
+        format!("{prefix}?{query}")
+    } else {
+        format!("{prefix}?{query}#{fragment}")
+    }
+}
 fn redact_value(value: Value, counters: &mut BTreeMap<String, usize>) -> Value {
     match value {
         Value::Object(object) => Value::Object(

@@ -102,7 +102,7 @@ fn run(cli: Cli) -> Result<(), CommandError> {
                 },
         } => bind_plugin(plugin_root, binary),
         Command::Runtime { command } => {
-            runtime_command::run(command).map_err(CommandError::invalid_input)
+            runtime_command::run(command).map_err(runtime_command::into_command_error)
         }
     }
 }
@@ -171,6 +171,14 @@ impl CommandError {
             code: "MLK-IO-001",
             message,
             exit_code: 2,
+        }
+    }
+
+    fn network(message: String) -> Self {
+        Self {
+            code: "MLK-NETWORK-001",
+            message,
+            exit_code: 3,
         }
     }
 

@@ -1,7 +1,8 @@
 use runtime_observer::{
     Capability, ConnectorKind, GenericHttpConnector, HttpResponse, HttpTransport, ObservationDepth,
-    RuntimeConnector, RuntimeProfile,
+    ObservationSnapshot, RuntimeConnector, RuntimeEvidence, RuntimeObservation, RuntimeProfile,
 };
+use std::collections::BTreeMap;
 
 struct FixtureTransport;
 
@@ -88,4 +89,70 @@ fn profile_rejects_inline_credentials_tunnel_bind_and_state_changing_method() {
             "{profile_json}"
         );
     }
+}
+
+#[test]
+fn profile_rejects_credential_bearing_endpoint_query_keys() {
+    for key in [
+        "token",
+        "access_token",
+        "apiKey",
+        "password",
+        "client-secret",
+    ] {
+        let profile = format!(
+            r#"{{"schema_version":"modernlink.runtime-profile/v1","name":"x","kind":"generic-http","endpoint":"http://127.0.0.1/metadata?{key}=secret","http_method":"GET"}}"#
+        );
+        assert!(RuntimeProfile::from_json(&profile).is_err(), "{key}");
+    }
+}
+
+#[test]
+fn snapshot_constructor_redacts_untrusted_payload_and_resource_query_before_digesting() {
+    let snapshot = ObservationSnapshot::from_observation(
+        &profile(),
+        "test",
+        "2026-08-23T00:00:00Z",
+        ObservationDepth::Metadata,
+        RuntimeObservation {
+            capabilities: vec![],
+            evidence: vec![RuntimeEvidence {
+                id: "caller-provided".to_owned(),
+                collector: "test".to_owned(),
+                target: "http://127.0.0.1/metadata?token=secret".to_owned(),
+                resource_key: "http://127.0.0.1/metadata?token=secret".to_owned(),
+                source_operation: "GET".to_owned(),
+                payload_digest: "caller-provided".to_owned(),
+                payload: serde_json::json!({"password": "secret"}),
+            }],
+            redaction_counters: BTreeMap::new(),
+        },
+    )
+    .expect("snapshot");
+
+    let json = snapshot.canonical_json().expect("JSON");
+    assert!(!json.contains("secret"));
+    assert_eq!(snapshot.evidence[0].payload["password"], "[REDACTED]");
+    assert!(snapshot.evidence[0].resource_key.contains("%5BREDACTED%5D"));
+    assert_ne!(snapshot.evidence[0].payload_digest, "caller-provided");
+}
+
+#[test]
+fn generic_http_accepts_case_insensitive_json_content_type() {
+    struct MixedCaseTransport;
+    impl HttpTransport for MixedCaseTransport {
+        fn get(&self, _: &str) -> Result<HttpResponse, runtime_observer::ObservationError> {
+            Ok(HttpResponse {
+                status: 200,
+                content_type: Some("Application/JSON; charset=UTF-8".to_owned()),
+                body: br#"{"service":"orders"}"#.to_vec(),
+            })
+        }
+    }
+
+    assert!(
+        GenericHttpConnector::new(MixedCaseTransport)
+            .probe(&profile())
+            .is_ok()
+    );
 }

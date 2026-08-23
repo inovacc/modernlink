@@ -1,4 +1,4 @@
-use crate::ObservationError;
+use crate::{ObservationError, redaction::is_sensitive_query_key};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{net::IpAddr, str::FromStr};
@@ -92,6 +92,27 @@ impl RuntimeProfile {
                 "name and endpoint must be non-empty".to_owned(),
             ));
         }
+        let endpoint = reqwest::Url::parse(&self.endpoint).map_err(|_| {
+            ObservationError::InvalidProfile("endpoint must be an absolute HTTP(S) URL".to_owned())
+        })?;
+        if !matches!(endpoint.scheme(), "http" | "https") {
+            return Err(ObservationError::InvalidProfile(
+                "endpoint must use HTTP or HTTPS".to_owned(),
+            ));
+        }
+        if !endpoint.username().is_empty() || endpoint.password().is_some() {
+            return Err(ObservationError::InvalidProfile(
+                "endpoint must not contain inline credentials".to_owned(),
+            ));
+        }
+        if endpoint
+            .query_pairs()
+            .any(|(key, _)| is_sensitive_query_key(&key))
+        {
+            return Err(ObservationError::InvalidProfile(
+                "endpoint query must not contain credential material".to_owned(),
+            ));
+        }
         let method = self.http_method.to_ascii_uppercase();
         if method != "GET" {
             return Err(ObservationError::InvalidProfile(format!(
@@ -109,11 +130,6 @@ impl RuntimeProfile {
                     "tunnel_bind must be loopback-only".to_owned(),
                 ));
             }
-        }
-        if self.endpoint.contains('@') {
-            return Err(ObservationError::InvalidProfile(
-                "endpoint must not contain inline credentials".to_owned(),
-            ));
         }
         Ok(())
     }

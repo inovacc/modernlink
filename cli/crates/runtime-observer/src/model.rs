@@ -1,4 +1,7 @@
-use crate::{ObservationError, RuntimeProfile};
+use crate::{
+    ObservationError, RuntimeProfile,
+    redaction::{redact_projection, redact_reference},
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, str::FromStr};
@@ -88,11 +91,37 @@ impl ObservationSnapshot {
         depth: ObservationDepth,
         mut observation: RuntimeObservation,
     ) -> Result<Self, ObservationError> {
+        profile.validate()?;
         observation.capabilities.sort_by(|a, b| a.id.cmp(&b.id));
-        observation.evidence.sort_by(|a, b| a.id.cmp(&b.id));
         let profile_digest = profile.digest()?;
         let connector = connector.into();
-        let digestable = serde_json::json!({"schema_version": OBSERVATION_SCHEMA, "profile_digest": profile_digest, "connector": connector, "depth": depth, "capabilities": observation.capabilities, "evidence": observation.evidence, "redaction_counters": observation.redaction_counters});
+        let mut redaction_counters = BTreeMap::new();
+        for evidence in &mut observation.evidence {
+            let redacted = redact_projection(std::mem::take(&mut evidence.payload));
+            for (rule, count) in redacted.counters {
+                *redaction_counters.entry(rule).or_default() += count;
+            }
+            evidence.payload = redacted.value;
+            evidence.target = redact_reference(&evidence.target, &mut redaction_counters);
+            evidence.resource_key =
+                redact_reference(&evidence.resource_key, &mut redaction_counters);
+            evidence.payload_digest = format!(
+                "sha256:{}",
+                hex::encode(Sha256::digest(serde_json::to_vec(&evidence.payload)?))
+            );
+            evidence.id = stable_id(
+                "runtime-evidence",
+                vec![
+                    profile_digest.clone(),
+                    evidence.collector.clone(),
+                    evidence.resource_key.clone(),
+                    evidence.source_operation.clone(),
+                    evidence.payload_digest.clone(),
+                ],
+            );
+        }
+        observation.evidence.sort_by(|a, b| a.id.cmp(&b.id));
+        let digestable = serde_json::json!({"schema_version": OBSERVATION_SCHEMA, "profile_digest": profile_digest, "connector": connector, "depth": depth, "capabilities": observation.capabilities, "evidence": observation.evidence, "redaction_counters": redaction_counters});
         let content_digest = format!(
             "sha256:{}",
             hex::encode(Sha256::digest(serde_json::to_vec(&digestable)?))
@@ -105,7 +134,7 @@ impl ObservationSnapshot {
             depth,
             capabilities: observation.capabilities,
             evidence: observation.evidence,
-            redaction_counters: observation.redaction_counters,
+            redaction_counters,
             content_digest,
         })
     }

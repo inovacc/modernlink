@@ -2,10 +2,7 @@ use crate::model::stable_id;
 use crate::{
     Capability, CapabilityReport, ConnectorKind, HttpTransport, ObservationDepth, ObservationError,
     ObservationSnapshot, RuntimeConnector, RuntimeEvidence, RuntimeObservation, RuntimeProfile,
-    redaction::redact_projection,
 };
-use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
 pub struct GenericHttpConnector<T> {
     transport: T,
 }
@@ -18,7 +15,7 @@ impl<T: HttpTransport> GenericHttpConnector<T> {
     fn fetch_projection(
         &self,
         profile: &RuntimeProfile,
-    ) -> Result<(serde_json::Value, BTreeMap<String, usize>), ObservationError> {
+    ) -> Result<serde_json::Value, ObservationError> {
         profile.validate()?;
         if profile.kind != ConnectorKind::GenericHttp {
             return Err(ObservationError::InvalidProfile(
@@ -35,7 +32,12 @@ impl<T: HttpTransport> GenericHttpConnector<T> {
         if !response
             .content_type
             .as_deref()
-            .is_some_and(|content_type| content_type.starts_with("application/json"))
+            .is_some_and(|content_type| {
+                content_type
+                    .split(';')
+                    .next()
+                    .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("application/json"))
+            })
         {
             return Err(ObservationError::Response(
                 "GET response must declare application/json".to_owned(),
@@ -49,8 +51,7 @@ impl<T: HttpTransport> GenericHttpConnector<T> {
                 "GET response must be a JSON object".to_owned(),
             ));
         }
-        let redacted = redact_projection(value);
-        Ok((redacted.value, redacted.counters))
+        Ok(value)
     }
 }
 impl<T: HttpTransport> RuntimeConnector for GenericHttpConnector<T> {
@@ -73,11 +74,7 @@ impl<T: HttpTransport> RuntimeConnector for GenericHttpConnector<T> {
                 "generic HTTP connector supports metadata depth only".to_owned(),
             ));
         }
-        let (payload, redaction_counters) = self.fetch_projection(profile)?;
-        let payload_digest = format!(
-            "sha256:{}",
-            hex::encode(Sha256::digest(serde_json::to_vec(&payload)?))
-        );
+        let payload = self.fetch_projection(profile)?;
         let profile_digest = profile.digest()?;
         let evidence = RuntimeEvidence {
             id: stable_id(
@@ -87,14 +84,14 @@ impl<T: HttpTransport> RuntimeConnector for GenericHttpConnector<T> {
                     "generic-http-metadata".to_owned(),
                     profile.endpoint.clone(),
                     "GET".to_owned(),
-                    payload_digest.clone(),
+                    "pending-redaction".to_owned(),
                 ],
             ),
             collector: "generic-http".to_owned(),
             target: profile.endpoint.clone(),
             resource_key: profile.endpoint.clone(),
             source_operation: "GET".to_owned(),
-            payload_digest,
+            payload_digest: "pending-redaction".to_owned(),
             payload,
         };
         ObservationSnapshot::from_observation(
@@ -105,7 +102,7 @@ impl<T: HttpTransport> RuntimeConnector for GenericHttpConnector<T> {
             RuntimeObservation {
                 capabilities: vec![Capability::supported("http-json-metadata")],
                 evidence: vec![evidence],
-                redaction_counters,
+                redaction_counters: Default::default(),
             },
         )
     }
