@@ -17,3 +17,4 @@
 /.scripts/
 # Per-machine cargo build layout (absolute target-dir); must not reach CI.
 /.cargo/
+/.idea/
