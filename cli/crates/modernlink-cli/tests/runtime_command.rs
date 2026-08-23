@@ -168,3 +168,44 @@ fn runtime_diagnostics_distinguish_input_network_and_output_failures() {
     server.join().expect("fixture exits");
     assert!(String::from_utf8_lossy(&output.stderr).contains("MLK-IO-001"));
 }
+
+#[test]
+fn runtime_probe_runs_an_authorized_kubernetes_profile_through_a_controlled_tool() {
+    let temp = tempfile::tempdir().expect("temporary directory");
+    let argument_log = temp.path().join("kubectl-argv.txt");
+    let tool = temp.path().join("kubectl-fixture.cmd");
+    fs::write(
+        &tool,
+        format!(
+            "@echo off\r\necho %* > \"{}\"\r\necho {{\"items\":[]}}\r\n",
+            argument_log.display()
+        ),
+    )
+    .expect("fake kubectl");
+    let profile = temp.path().join("kubernetes.json");
+    fs::write(
+        &profile,
+        r#"{"schema_version":"modernlink.runtime-profile/v1","name":"orders","kind":"kubernetes","endpoint":"https://cluster-context.invalid","scope":{"environment":"test","namespace":"orders","server_group":null},"authorization":{"owner":"platform","reference":"CHG-42","expires_at":"2030-01-01T00:00:00Z"},"http_method":"GET"}"#,
+    )
+    .expect("profile");
+
+    let result = Command::new(env!("CARGO_BIN_EXE_modernlink"))
+        .args(["runtime", "probe", "--profile"])
+        .arg(&profile)
+        .args(["--tool"])
+        .arg(&tool)
+        .output()
+        .expect("runtime probe");
+    assert!(
+        result.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let args = fs::read_to_string(argument_log).expect("fake tool arguments");
+    assert_eq!(
+        args.trim(),
+        "--context cluster-context.invalid --namespace orders get \"deployments,statefulsets,daemonsets,pods,services,ingresses,jobs,cronjobs\" \"--output=json\""
+    );
+    assert!(!args.contains("secret"));
+    assert!(!args.contains("configmap"));
+}
