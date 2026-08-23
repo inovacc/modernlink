@@ -97,6 +97,7 @@ The existing user change to root `.gitignore` was neither staged nor committed.
 - `72d17b3` — `feat: add deterministic Java modernization analyzer`
 - `add913b` — `style: normalize CLI file endings`
 - `a2364ef` — `fix: remove unowned schema domain`
+- `d05fc17` — `feat: detect legacy Java platform signals`
 
 ## Machine probes and remaining uncertainty
 
