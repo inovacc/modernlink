@@ -55,6 +55,8 @@ pub struct RuntimeProfile {
     pub kind: ConnectorKind,
     pub endpoint: String,
     #[serde(default)]
+    pub target: Option<String>,
+    #[serde(default)]
     pub scope: Option<Scope>,
     #[serde(default)]
     pub authorization: Option<Authorization>,
@@ -131,6 +133,24 @@ impl RuntimeProfile {
                 ));
             }
         }
+        match self.kind {
+            ConnectorKind::Kubernetes => validate_target(
+                self.target.as_deref(),
+                "Kubernetes context",
+                is_safe_kubernetes_context,
+            )?,
+            ConnectorKind::Ssh => validate_target(
+                self.target.as_deref(),
+                "SSH destination",
+                is_safe_ssh_destination,
+            )?,
+            _ if self.target.is_some() => {
+                return Err(ObservationError::InvalidProfile(
+                    "target is only valid for kubernetes and ssh profiles".to_owned(),
+                ));
+            }
+            _ => {}
+        }
         Ok(())
     }
     pub fn digest(&self) -> Result<String, ObservationError> {
@@ -139,6 +159,42 @@ impl RuntimeProfile {
             hex::encode(Sha256::digest(serde_json::to_vec(self)?))
         ))
     }
+}
+
+fn validate_target(
+    target: Option<&str>,
+    label: &str,
+    permitted: impl Fn(&str) -> bool,
+) -> Result<(), ObservationError> {
+    let target = target
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ObservationError::InvalidProfile(format!("{label} target is required")))?;
+    if !permitted(target) {
+        return Err(ObservationError::InvalidProfile(format!(
+            "{label} target is invalid or may be interpreted as an option"
+        )));
+    }
+    Ok(())
+}
+
+fn is_safe_kubernetes_context(value: &str) -> bool {
+    value.len() <= 253
+        && value.bytes().enumerate().all(|(index, byte)| match byte {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'.' | b'_' | b'/' | b':' | b'-' => {
+                index > 0 || byte != b'-'
+            }
+            _ => false,
+        })
+}
+
+fn is_safe_ssh_destination(value: &str) -> bool {
+    value.len() <= 253
+        && value.bytes().enumerate().all(|(index, byte)| match byte {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'.' | b'_' | b'@' | b'-' => {
+                index > 0 || byte != b'-'
+            }
+            _ => false,
+        })
 }
 
 fn reject_inline_credentials(value: &serde_json::Value) -> Result<(), ObservationError> {

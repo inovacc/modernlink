@@ -185,7 +185,7 @@ fn runtime_probe_runs_an_authorized_kubernetes_profile_through_a_controlled_tool
     let profile = temp.path().join("kubernetes.json");
     fs::write(
         &profile,
-        r#"{"schema_version":"modernlink.runtime-profile/v1","name":"orders","kind":"kubernetes","endpoint":"https://cluster-context.invalid","scope":{"environment":"test","namespace":"orders","server_group":null},"authorization":{"owner":"platform","reference":"CHG-42","expires_at":"2030-01-01T00:00:00Z"},"http_method":"GET"}"#,
+        r#"{"schema_version":"modernlink.runtime-profile/v1","name":"orders","kind":"kubernetes","endpoint":"https://cluster-context.invalid","target":"orders-context","scope":{"environment":"test","namespace":"orders","server_group":null},"authorization":{"owner":"platform","reference":"CHG-42","expires_at":"2030-01-01T00:00:00Z"},"http_method":"GET"}"#,
     )
     .expect("profile");
 
@@ -204,8 +204,44 @@ fn runtime_probe_runs_an_authorized_kubernetes_profile_through_a_controlled_tool
     let args = fs::read_to_string(argument_log).expect("fake tool arguments");
     assert_eq!(
         args.trim(),
-        "--context cluster-context.invalid --namespace orders get \"deployments,statefulsets,daemonsets,pods,services,ingresses,jobs,cronjobs\" \"--output=json\""
+        "--context orders-context --namespace orders get \"deployments,statefulsets,daemonsets,pods,services,ingresses,jobs,cronjobs\" \"--output=json\""
     );
     assert!(!args.contains("secret"));
     assert!(!args.contains("configmap"));
+}
+
+#[test]
+fn runtime_probe_does_not_eagerly_execute_an_unused_credential_helper() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("loopback listener");
+    let endpoint = format!(
+        "http://{}/metadata",
+        listener.local_addr().expect("address")
+    );
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("fixture request");
+        let mut request = [0_u8; 1024];
+        let _ = stream.read(&mut request).expect("read request");
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
+            .expect("write response");
+    });
+    let temp = tempfile::tempdir().expect("temporary directory");
+    let profile = temp.path().join("profile.json");
+    fs::write(
+        &profile,
+        format!(r#"{{"schema_version":"modernlink.runtime-profile/v1","name":"orders","kind":"generic-http","endpoint":"{endpoint}","credential_ref":{{"kind":"external-helper","command":"not-approved-or-run"}},"http_method":"GET"}}"#),
+    )
+    .expect("profile");
+
+    let result = Command::new(env!("CARGO_BIN_EXE_modernlink"))
+        .args(["runtime", "probe", "--profile"])
+        .arg(&profile)
+        .output()
+        .expect("runtime probe");
+    server.join().expect("fixture exits");
+    assert!(
+        result.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
 }

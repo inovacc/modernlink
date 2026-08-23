@@ -1,8 +1,7 @@
 use clap::Subcommand;
 use runtime_observer::{
-    ConnectorKind, CredentialResolver, GenericHttpConnector, KubernetesConnector, ObservationDepth,
-    ObservationError, ReqwestHttpTransport, RuntimeConnector, RuntimeProfile, SshConnector,
-    SystemCommandExecutor,
+    ConnectorKind, GenericHttpConnector, KubernetesConnector, ObservationDepth, ObservationError,
+    ReqwestHttpTransport, RuntimeConnector, RuntimeProfile, SshConnector, SystemCommandExecutor,
 };
 use std::{
     fs,
@@ -69,7 +68,6 @@ pub fn run(command: RuntimeCommand) -> Result<(), RuntimeCommandError> {
         }
         RuntimeCommand::Probe { profile, tool } => {
             let profile = read_profile(&profile)?;
-            resolve_credential_reference(&profile)?;
             let report = probe(&profile, tool.as_deref())?;
             println!(
                 "{}",
@@ -84,7 +82,6 @@ pub fn run(command: RuntimeCommand) -> Result<(), RuntimeCommandError> {
             tool,
         } => {
             let profile = read_profile(&profile)?;
-            resolve_credential_reference(&profile)?;
             let depth: ObservationDepth = depth.parse().map_err(observation_error)?;
             let captured_at = format!(
                 "unix-seconds:{}",
@@ -191,14 +188,6 @@ fn observe(
     }
 }
 
-fn resolve_credential_reference(profile: &RuntimeProfile) -> Result<(), RuntimeCommandError> {
-    if let Some(reference) = &profile.credential_ref {
-        let executor = SystemCommandExecutor;
-        let _credential =
-            CredentialResolver::resolve(reference, &executor, None).map_err(observation_error)?;
-    }
-    Ok(())
-}
 fn read_profile(path: &PathBuf) -> Result<RuntimeProfile, RuntimeCommandError> {
     let json = fs::read_to_string(path).map_err(|error| {
         RuntimeCommandError::Input(format!("cannot read {}: {error}", path.display()))

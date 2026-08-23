@@ -23,6 +23,7 @@ fn profile() -> RuntimeProfile {
         name: "orders-loopback".to_owned(),
         kind: ConnectorKind::GenericHttp,
         endpoint: "http://127.0.0.1:18080/metadata".to_owned(),
+        target: None,
         scope: None,
         authorization: None,
         credential_ref: None,
@@ -246,6 +247,35 @@ fn profile_rejects_unknown_nested_credential_material() {
         "credential_ref":{"kind":"environment","variable":"RUNTIME_TOKEN","api_key":"secret"}
     }"#;
     assert!(RuntimeProfile::from_json(profile).is_err());
+}
+
+#[test]
+fn connector_targets_are_exact_and_required_for_cluster_and_host_profiles() {
+    let base = r#"{"schema_version":"modernlink.runtime-profile/v1","name":"orders","endpoint":"https://unrelated.example.invalid","scope":{"environment":"test","namespace":"orders","server_group":null},"authorization":{"owner":"platform","reference":"CHG-42","expires_at":"2030-01-01T00:00:00Z"},"http_method":"GET"}"#;
+    let kubernetes = base.replace(
+        "\"http_method\"",
+        "\"kind\":\"kubernetes\",\"target\":\"orders-context\",\"http_method\"",
+    );
+    assert!(RuntimeProfile::from_json(&kubernetes).is_ok());
+    for target in [None, Some("-leading-option"), Some("context with spaces")] {
+        let target_json =
+            target.map_or_else(String::new, |value| format!("\"target\":\"{value}\","));
+        let invalid = base.replace(
+            "\"http_method\"",
+            &format!("\"kind\":\"kubernetes\",{target_json}\"http_method\""),
+        );
+        assert!(RuntimeProfile::from_json(&invalid).is_err(), "{invalid}");
+    }
+    let ssh = base.replace(
+        "\"http_method\"",
+        "\"kind\":\"ssh\",\"target\":\"operator@orders-host_1\",\"http_method\"",
+    );
+    assert!(RuntimeProfile::from_json(&ssh).is_ok());
+    let unsafe_ssh = base.replace(
+        "\"http_method\"",
+        "\"kind\":\"ssh\",\"target\":\"-oProxyCommand=x\",\"http_method\"",
+    );
+    assert!(RuntimeProfile::from_json(&unsafe_ssh).is_err());
 }
 
 #[test]
