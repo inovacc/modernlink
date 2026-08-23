@@ -99,7 +99,7 @@ cli/
 ├── rules/
 │   └── tree-sitter/              # versioned per-language extraction/query/graph rules
 ├── vendor/
-│   └── tree-sitter-graph/        # only if the licensed 0.27 compatibility upgrade is accepted
+│   └── tree-sitter-graph/        # only if the licensed compatibility upgrade is accepted
 ├── bootstrap/
 │   └── npm/                      # tiny npm package used by npx and bunx
 ├── plugin/
@@ -319,9 +319,9 @@ never durable identities.
 The initial pinned syntax stack is:
 
 ```text
-tree-sitter       = 0.27.0
+tree-sitter       = 0.26.13
 tree-sitter-java  = 0.23.5
-tree-sitter-graph = compatibility upgrade from upstream 0.12.0 to tree-sitter 0.27
+tree-sitter-graph = compatibility upgrade from upstream 0.12.0 to tree-sitter 0.26
 ```
 
 The upstream commits assessed on 2026-08-23 are:
