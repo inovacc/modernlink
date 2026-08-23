@@ -2,6 +2,7 @@
 members = [
     "crates/analyzer",
     "crates/modernlink-cli",
+    "crates/runtime-observer",
 ]
 resolver = "2"
 

@@ -4,6 +4,9 @@ use clap::{Parser, Subcommand};
 use modernlink_analyzer::analyze_repository;
 use sha2::{Digest, Sha256};
 
+mod runtime_command;
+use runtime_command::RuntimeCommand;
+
 #[derive(Debug, Parser)]
 #[command(
     name = "modernlink",
@@ -29,6 +32,11 @@ enum Command {
     Plugin {
         #[command(subcommand)]
         command: PluginCommand,
+    },
+    /// Validate and observe an operator-authorized runtime target.
+    Runtime {
+        #[command(subcommand)]
+        command: RuntimeCommand,
     },
 }
 
@@ -93,6 +101,9 @@ fn run(cli: Cli) -> Result<(), CommandError> {
                     binary,
                 },
         } => bind_plugin(plugin_root, binary),
+        Command::Runtime { command } => {
+            runtime_command::run(command).map_err(CommandError::invalid_input)
+        }
     }
 }
 
