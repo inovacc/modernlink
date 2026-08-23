@@ -8,6 +8,7 @@ use tree_sitter::{Node, Parser};
 
 const SCHEMA_VERSION: &str = "modernlink.analysis/v1alpha1";
 const COLLECTOR: &str = "java-tree-sitter";
+const DESCRIPTOR_COLLECTOR: &str = "repository-descriptor";
 const COLLECTOR_VERSION: &str = "0.1.0";
 
 #[derive(Debug, Error)]
@@ -35,6 +36,7 @@ pub struct AnalysisReport {
     pub evidence: Vec<Evidence>,
     pub nodes: Vec<GraphNode>,
     pub edges: Vec<GraphEdge>,
+    pub signals: Vec<TechnologySignal>,
 }
 
 impl AnalysisReport {
@@ -48,10 +50,12 @@ impl AnalysisReport {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnalysisSummary {
     pub java_files: usize,
+    pub configuration_files: usize,
     pub parse_errors: usize,
     pub evidence_items: usize,
     pub graph_nodes: usize,
     pub graph_edges: usize,
+    pub technology_signals: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -94,6 +98,16 @@ pub struct GraphEdge {
     pub evidence_ids: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TechnologySignal {
+    pub id: String,
+    pub category: String,
+    pub technology: String,
+    pub rule_id: String,
+    pub epistemic_state: String,
+    pub evidence_ids: Vec<String>,
+}
+
 #[derive(Default)]
 struct FileFacts {
     package: Option<Fact>,
@@ -105,6 +119,12 @@ struct Fact {
     name: String,
     start_byte: usize,
     end_byte: usize,
+}
+
+struct SignalRule {
+    category: &'static str,
+    technology: &'static str,
+    rule_id: &'static str,
 }
 
 pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisError> {
@@ -124,6 +144,7 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
         .filter(|path| {
             path.extension()
                 .is_some_and(|extension| extension == "java")
+                || descriptor_rule(&repository_relative(repository, path)).is_some()
         })
         .collect::<Vec<_>>();
     paths.sort_by_key(|path| repository_relative(repository, path));
@@ -137,7 +158,10 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
     let mut evidence = Vec::new();
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
+    let mut signals = Vec::new();
     let mut parse_errors = 0;
+    let mut java_files = 0;
+    let mut configuration_files = 0;
 
     for path in paths {
         let relative = repository_relative(repository, &path);
@@ -147,44 +171,85 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
         })?;
         let digest = format!("sha256:{}", hex::encode(Sha256::digest(&source)));
         let artifact_id = stable_id("artifact", [relative.as_str(), digest.as_str()]);
-        let tree = parser
-            .parse(&source, None)
-            .ok_or_else(|| AnalysisError::Parser(format!("parser cancelled for {relative}")))?;
-        let has_error = tree.root_node().has_error();
-        parse_errors += usize::from(has_error);
-        artifacts.push(Artifact {
-            id: artifact_id.clone(),
-            path: relative.clone(),
-            digest,
-            language: "java".to_owned(),
-            parse_health: if has_error {
-                "recovered-error"
-            } else {
-                "complete"
-            }
-            .to_owned(),
-        });
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "java")
+        {
+            java_files += 1;
+            let tree = parser
+                .parse(&source, None)
+                .ok_or_else(|| AnalysisError::Parser(format!("parser cancelled for {relative}")))?;
+            let has_error = tree.root_node().has_error();
+            parse_errors += usize::from(has_error);
+            artifacts.push(Artifact {
+                id: artifact_id.clone(),
+                path: relative.clone(),
+                digest,
+                language: "java".to_owned(),
+                parse_health: if has_error {
+                    "recovered-error"
+                } else {
+                    "complete"
+                }
+                .to_owned(),
+            });
 
-        let mut facts = FileFacts::default();
-        collect_facts(tree.root_node(), &source, &mut facts);
-        add_file_facts(
-            &relative,
-            &artifact_id,
-            facts,
-            &mut evidence,
-            &mut nodes,
-            &mut edges,
-        );
+            let mut facts = FileFacts::default();
+            collect_facts(tree.root_node(), &source, &mut facts);
+            add_file_facts(
+                &relative,
+                &artifact_id,
+                facts,
+                &mut evidence,
+                &mut nodes,
+                &mut edges,
+                &mut signals,
+            );
+        } else if let Some(rule) = descriptor_rule(&relative) {
+            configuration_files += 1;
+            artifacts.push(Artifact {
+                id: artifact_id.clone(),
+                path: relative.clone(),
+                digest,
+                language: descriptor_language(&relative).to_owned(),
+                parse_health: "not-parsed".to_owned(),
+            });
+            if !source.is_empty() {
+                let fact = Fact {
+                    name: relative.clone(),
+                    start_byte: 0,
+                    end_byte: source.len(),
+                };
+                let evidence_id = push_evidence_with_collector(
+                    "descriptor-path",
+                    &fact,
+                    &relative,
+                    &artifact_id,
+                    DESCRIPTOR_COLLECTOR,
+                    &mut evidence,
+                );
+                signals.push(signal_from_rule(rule, evidence_id));
+            }
+        }
     }
 
     artifacts.sort_by(|a, b| a.path.cmp(&b.path));
     evidence.sort_by(|a, b| a.id.cmp(&b.id));
     let mut nodes = coalesce_nodes(nodes);
     let mut edges = coalesce_edges(edges);
+    let mut signals = coalesce_signals(signals);
     nodes.sort_by(|a, b| {
         (&a.qualified_name, &a.kind, &a.id).cmp(&(&b.qualified_name, &b.kind, &b.id))
     });
     edges.sort_by(|a, b| (&a.kind, &a.target_name, &a.id).cmp(&(&b.kind, &b.target_name, &b.id)));
+    signals.sort_by(|a, b| {
+        (&a.category, &a.technology, &a.rule_id, &a.id).cmp(&(
+            &b.category,
+            &b.technology,
+            &b.rule_id,
+            &b.id,
+        ))
+    });
 
     let repository_digest = stable_id(
         "repository",
@@ -193,11 +258,13 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
             .flat_map(|artifact| [artifact.path.as_str(), artifact.digest.as_str()]),
     );
     let summary = AnalysisSummary {
-        java_files: artifacts.len(),
+        java_files,
+        configuration_files,
         parse_errors,
         evidence_items: evidence.len(),
         graph_nodes: nodes.len(),
         graph_edges: edges.len(),
+        technology_signals: signals.len(),
     };
 
     Ok(AnalysisReport {
@@ -208,6 +275,7 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
         evidence,
         nodes,
         edges,
+        signals,
     })
 }
 
@@ -275,6 +343,7 @@ fn add_file_facts(
     evidence: &mut Vec<Evidence>,
     nodes: &mut Vec<GraphNode>,
     edges: &mut Vec<GraphEdge>,
+    signals: &mut Vec<TechnologySignal>,
 ) {
     facts.imports.sort_by(|a, b| a.name.cmp(&b.name));
     facts.types.sort_by(|a, b| a.name.cmp(&b.name));
@@ -297,6 +366,9 @@ fn add_file_facts(
 
     for import in facts.imports {
         let evidence_id = push_evidence("import", &import, path, artifact_id, evidence);
+        if let Some(rule) = import_rule(&import.name) {
+            signals.push(signal_from_rule(rule, evidence_id.clone()));
+        }
         let source_id = package_id.clone().unwrap_or_else(|| artifact_id.to_owned());
         edges.push(GraphEdge {
             id: stable_id(
@@ -344,6 +416,17 @@ fn push_evidence(
     artifact_id: &str,
     evidence: &mut Vec<Evidence>,
 ) -> String {
+    push_evidence_with_collector(kind, fact, path, artifact_id, COLLECTOR, evidence)
+}
+
+fn push_evidence_with_collector(
+    kind: &str,
+    fact: &Fact,
+    path: &str,
+    artifact_id: &str,
+    collector: &str,
+    evidence: &mut Vec<Evidence>,
+) -> String {
     let start = fact.start_byte.to_string();
     let end = fact.end_byte.to_string();
     let id = stable_id(
@@ -356,12 +439,23 @@ fn push_evidence(
         path: path.to_owned(),
         start_byte: fact.start_byte,
         end_byte: fact.end_byte,
-        collector: COLLECTOR.to_owned(),
+        collector: collector.to_owned(),
         collector_version: COLLECTOR_VERSION.to_owned(),
         observation_kind: kind.to_owned(),
         observed_value: fact.name.clone(),
     });
     id
+}
+
+fn signal_from_rule(rule: SignalRule, evidence_id: String) -> TechnologySignal {
+    TechnologySignal {
+        id: stable_id("signal", [rule.category, rule.technology, rule.rule_id]),
+        category: rule.category.to_owned(),
+        technology: rule.technology.to_owned(),
+        rule_id: rule.rule_id.to_owned(),
+        epistemic_state: "derived".to_owned(),
+        evidence_ids: vec![evidence_id],
+    }
 }
 
 fn coalesce_nodes(nodes: Vec<GraphNode>) -> Vec<GraphNode> {
@@ -396,6 +490,126 @@ fn coalesce_edges(edges: Vec<GraphEdge>) -> Vec<GraphEdge> {
         edge.evidence_ids.dedup();
     }
     coalesced.into_values().collect()
+}
+
+fn coalesce_signals(signals: Vec<TechnologySignal>) -> Vec<TechnologySignal> {
+    let mut coalesced = BTreeMap::<String, TechnologySignal>::new();
+    for mut signal in signals {
+        match coalesced.get_mut(&signal.id) {
+            Some(existing) => existing.evidence_ids.append(&mut signal.evidence_ids),
+            None => {
+                coalesced.insert(signal.id.clone(), signal);
+            }
+        }
+    }
+    for signal in coalesced.values_mut() {
+        signal.evidence_ids.sort();
+        signal.evidence_ids.dedup();
+    }
+    coalesced.into_values().collect()
+}
+
+fn descriptor_rule(path: &str) -> Option<SignalRule> {
+    let lower = path.to_ascii_lowercase();
+    let mut components = lower.rsplit('/');
+    let file_name = components.next()?;
+    let parent = components.next();
+    match (file_name, parent) {
+        ("pom.xml", _) => Some(SignalRule {
+            category: "build-system",
+            technology: "maven",
+            rule_id: "descriptor.filename.pom-xml",
+        }),
+        ("build.gradle" | "build.gradle.kts" | "settings.gradle" | "settings.gradle.kts", _) => {
+            Some(SignalRule {
+                category: "build-system",
+                technology: "gradle",
+                rule_id: "descriptor.filename.gradle",
+            })
+        }
+        ("build.xml", _) => Some(SignalRule {
+            category: "build-system",
+            technology: "ant",
+            rule_id: "descriptor.filename.build-xml",
+        }),
+        ("jboss-web.xml", Some("web-inf")) => Some(SignalRule {
+            category: "application-server",
+            technology: "jboss",
+            rule_id: "descriptor.path.jboss-web-xml",
+        }),
+        (
+            "jboss.xml" | "jboss-app.xml" | "jboss-deployment-structure.xml",
+            Some("meta-inf" | "web-inf"),
+        ) => Some(SignalRule {
+            category: "application-server",
+            technology: "jboss",
+            rule_id: "descriptor.path.jboss-deployment",
+        }),
+        ("weblogic.xml", Some("web-inf")) => Some(SignalRule {
+            category: "application-server",
+            technology: "weblogic",
+            rule_id: "descriptor.path.weblogic-xml",
+        }),
+        ("weblogic-application.xml", Some("meta-inf")) => Some(SignalRule {
+            category: "application-server",
+            technology: "weblogic",
+            rule_id: "descriptor.path.weblogic-application-xml",
+        }),
+        ("weblogic-ejb-jar.xml", Some("meta-inf")) => Some(SignalRule {
+            category: "application-server",
+            technology: "weblogic",
+            rule_id: "descriptor.path.weblogic-ejb-jar-xml",
+        }),
+        ("ibm-web-bnd.xmi" | "ibm-web-ext.xmi", Some("web-inf"))
+        | ("ibm-application-bnd.xmi", Some("meta-inf")) => Some(SignalRule {
+            category: "application-server",
+            technology: "websphere",
+            rule_id: "descriptor.path.ibm-websphere",
+        }),
+        ("web.xml", Some("web-inf")) => Some(SignalRule {
+            category: "deployment-model",
+            technology: "java-ee-web",
+            rule_id: "descriptor.path.web-xml",
+        }),
+        ("application.xml", Some("meta-inf")) => Some(SignalRule {
+            category: "deployment-model",
+            technology: "java-ee-ear",
+            rule_id: "descriptor.path.application-xml",
+        }),
+        ("ejb-jar.xml", Some("meta-inf")) => Some(SignalRule {
+            category: "deployment-model",
+            technology: "ejb",
+            rule_id: "descriptor.path.ejb-jar-xml",
+        }),
+        _ => None,
+    }
+}
+
+fn descriptor_language(path: &str) -> &'static str {
+    if path.to_ascii_lowercase().ends_with(".kts") {
+        "kotlin"
+    } else if path.to_ascii_lowercase().ends_with(".gradle") {
+        "groovy"
+    } else {
+        "xml"
+    }
+}
+
+fn import_rule(import: &str) -> Option<SignalRule> {
+    let (technology, rule_id) = if import.starts_with("weblogic.") {
+        ("weblogic", "java.import-prefix.weblogic")
+    } else if import.starts_with("org.jboss.") {
+        ("jboss", "java.import-prefix.org-jboss")
+    } else if import.starts_with("com.ibm.websphere.") || import.starts_with("com.ibm.ws.") {
+        ("websphere", "java.import-prefix.ibm-websphere")
+    } else {
+        return None;
+    };
+    Some(SignalRule {
+        category: "vendor-api",
+        technology,
+        rule_id,
+    })
 }
 
 fn repository_relative(repository: &Path, path: &Path) -> String {

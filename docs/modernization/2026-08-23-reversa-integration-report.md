@@ -110,14 +110,35 @@ The existing user change to root `.gitignore` was neither staged nor committed.
 - The root runtime workspace baseline did not execute because its existing `.cargo/config.toml`
   directs output to `C:\temp\jni\target`, where this environment received access denied. No
   runtime-library file was changed to bypass that independent issue.
-- Real JBoss, WebLogic, WebSphere, EAR/WAR, Maven, Gradle, multi-module, generated-source, malformed
-  Java, and very large repository inputs remain unexercised. Package/import syntax evidence alone
-  does not prove bounded contexts, runtime calls, ownership, or safe seams.
+- Real WebLogic, WebSphere, Gradle, Ant, generated-source, malformed Java, and very large repository
+  inputs remain unexercised. Descriptor-path and import evidence alone does not prove bounded
+  contexts, runtime calls, ownership, deployment topology, or safe seams.
+
+## Continuation: legacy-platform signal collection
+
+The analyzer now recognizes Maven, Gradle, and Ant build descriptors; Java EE web, EAR, and EJB
+deployment descriptors; JBoss, WebLogic, and WebSphere vendor descriptors; and JBoss, WebLogic,
+and WebSphere Java import prefixes. Each result is a `derived` technology signal carrying a stable
+rule ID and one or more observed evidence IDs. Repeated matches coalesce without losing their
+individual evidence references.
+
+A shallow checkout of `wildfly/quickstart` was analyzed as a real positive input. The machine run
+reported 369 Java files, 105 recognized configuration files, 3,545 evidence items, and six
+coalesced technology-signal classes. Those classes cited 85 Maven descriptors, seven JBoss
+deployment descriptors, 154 JBoss vendor imports, 12 Java EE web descriptors, and one EJB
+descriptor. Two runs produced byte-identical report SHA-256
+`635C4D734E8FDD16F874D37E7D8A153FCC67083C1F04387DFD892A8F6DAB4D0E`.
+
+This does not establish that every quickstart deploys to a specific server, that imports represent
+executed paths, or that the rules cover all vendor descriptor variants. WebLogic and WebSphere
+positive paths currently have controlled repository probes but no independently sourced real
+repository run in this slice.
 
 ## Recommended next implementation steps
 
-1. Add deterministic build/deployment/config collectors for Maven, Gradle, Ant, EAR/WAR,
-   JBoss/WildFly, WebLogic, WebSphere, JNDI, EJB, JMS, JAX-WS, JAXB, JDBC, and Hibernate.
+1. Parse descriptor contents and dependency coordinates for Maven, Gradle, Ant, EAR/WAR,
+   JBoss/WildFly, WebLogic, WebSphere, JNDI, EJB, JMS, JAX-WS, JAXB, JDBC, and Hibernate instead of
+   relying only on file paths and vendor import prefixes.
 2. Extract stable report types into the planned model crate and add claim authority
    (`Observed`, `Derived`, `Hypothesis`, `Confirmed`, `Rejected`) without changing the current JSON
    contract silently.

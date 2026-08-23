@@ -2,7 +2,7 @@
 name: modernlink-analyze-repository
 description: This skill should be used when the user asks to "analyze a legacy Java repository", "discover architecture boundaries", "build a modernization evidence graph", or "find where to modernize a Java system" with ModernLink.
 metadata:
-  version: 0.1.0
+  version: 0.2.0
 ---
 
 # Analyze a Repository with ModernLink
@@ -38,10 +38,14 @@ preparation ecosystem as separate domains.
 
 ## Initial evidence scope
 
-Expect Java artifacts, package and declared-type nodes, package containment, import relationships,
-source byte spans, content digests, parse health, stable content-derived IDs, and deterministic JSON
-ordering. Do not imply that imports alone establish runtime calls, domain ownership, bounded
-contexts, or safe migration seams.
+Expect Java artifacts, recognized build/deployment descriptors, package and declared-type nodes,
+package containment, import relationships, source byte spans, content digests, parse health,
+stable content-derived IDs, deterministic JSON ordering, and rule-cited technology signals.
+
+Interpret `signals` according to `epistemic_state`. A `derived` signal means that a deterministic
+rule matched cited evidence—for example, `pom.xml`, `jboss-web.xml`, or an `org.jboss.*` import.
+Do not convert that match into a claim about the production server, runtime calls, domain
+ownership, bounded contexts, or safe migration seams without corroborating evidence and review.
 
 ## Migration-readiness questions
 
