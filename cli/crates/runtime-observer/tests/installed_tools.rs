@@ -8,7 +8,7 @@ use runtime_observer::{
 use std::fs;
 use std::{
     ffi::OsString,
-    net::{IpAddr, Ipv4Addr},
+    net::{IpAddr, Ipv4Addr, TcpListener, TcpStream},
     path::{Path, PathBuf},
     sync::Mutex,
     time::Duration,
@@ -257,7 +257,16 @@ fn tunnel_spawn_rejects_an_immediately_exited_connector_plan() {
 fn tunnel_drop_terminates_a_long_lived_connector_plan() {
     let temp = tempfile::tempdir().expect("temporary directory");
     let fixture = temp.path().join("long-lived-tunnel.cmd");
-    fs::write(&fixture, "@echo off\r\nping 127.0.0.1 -n 30 > nul\r\n").expect("fixture");
+    let reserved = TcpListener::bind("127.0.0.1:0").expect("reserved listener");
+    let port = reserved.local_addr().expect("reserved address").port();
+    drop(reserved);
+    fs::write(
+        &fixture,
+        format!(
+            "@echo off\r\nstart \"\" /b powershell -NoProfile -Command \"$listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, {port}); $listener.Start(); Start-Sleep -Seconds 30\"\r\nping 127.0.0.1 -n 30 > nul\r\n"
+        ),
+    )
+    .expect("fixture");
     let profile = profile("ssh", "https://unrelated.example.invalid", "orders-host");
     let plan = ssh_local_forward_plan(
         &profile,
@@ -268,17 +277,22 @@ fn tunnel_drop_terminates_a_long_lived_connector_plan() {
     )
     .expect("safe plan");
     let tunnel = TunnelGuard::spawn(plan).expect("long lived tunnel");
-    let pid = tunnel.pid();
+    for _ in 0..20 {
+        if TcpStream::connect(("127.0.0.1", port)).is_ok() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    assert!(
+        TcpStream::connect(("127.0.0.1", port)).is_ok(),
+        "descendant listener did not start"
+    );
     drop(tunnel);
-    let check = std::process::Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-Command",
-            &format!("Get-Process -Id {pid} -ErrorAction SilentlyContinue"),
-        ])
-        .output()
-        .expect("process check");
-    assert!(check.stdout.is_empty(), "tunnel process survived its guard");
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(
+        TcpStream::connect(("127.0.0.1", port)).is_err(),
+        "descendant listener survived tunnel cleanup"
+    );
 }
 
 #[test]

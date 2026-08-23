@@ -1,9 +1,10 @@
 use crate::ObservationError;
+use command_group::{CommandGroup, GroupChild};
 use std::{
     ffi::OsString,
     net::IpAddr,
     path::PathBuf,
-    process::{Child, Command, Stdio},
+    process::{Command, Stdio},
     thread,
     time::Duration,
 };
@@ -136,7 +137,7 @@ impl TunnelPlan {
 }
 
 pub struct TunnelGuard {
-    child: Option<Child>,
+    child: Option<GroupChild>,
 }
 
 impl TunnelGuard {
@@ -155,7 +156,7 @@ impl TunnelGuard {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .spawn()
+            .group_spawn()
             .map_err(|error| {
                 ObservationError::Tunnel(format!("cannot start approved tunnel: {error}"))
             })?;
@@ -176,7 +177,7 @@ impl TunnelGuard {
         Ok(Self { child: Some(child) })
     }
     pub fn pid(&self) -> u32 {
-        self.child.as_ref().map_or(0, Child::id)
+        self.child.as_ref().map_or(0, GroupChild::id)
     }
     pub fn close(mut self) -> Result<(), ObservationError> {
         self.terminate()
