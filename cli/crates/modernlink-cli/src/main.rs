@@ -27,6 +27,15 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Identify evidence-backed modernization seams from a shared evidence graph.
+    Seams {
+        /// Shared evidence graph JSON path.
+        #[arg(long)]
+        evidence: PathBuf,
+        /// Modernization seam report JSON output path.
+        #[arg(long, short)]
+        output: PathBuf,
+    },
     /// Infer architectural layers and candidate contexts from a shared evidence graph.
     Architecture {
         /// Shared evidence graph JSON path.
@@ -128,12 +137,27 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<(), CommandError> {
     match cli.command {
+        Command::Seams { evidence, output } => {
+            let graph = read_evidence_graph(&evidence)?;
+            let report = inference::infer_seams(&graph)
+                .map_err(|error| CommandError::internal(error.to_string()))?;
+            let json = report
+                .canonical_json()
+                .map_err(|error| CommandError::internal(error.to_string()))?;
+            ensure_report_absent(&output)?;
+            write_report(&output, json)?;
+            println!(
+                "{}",
+                serde_json::json!({
+                    "report": output,
+                    "schema_version": report.schema_version,
+                    "summary": { "seams": report.seams.len() },
+                })
+            );
+            Ok(())
+        }
         Command::Architecture { evidence, output } => {
-            let input = fs::read_to_string(&evidence).map_err(|error| {
-                CommandError::io(format!("cannot read {}: {error}", evidence.display()))
-            })?;
-            let graph = model::EvidenceGraph::from_json(&input)
-                .map_err(|error| CommandError::invalid_input(error.to_string()))?;
+            let graph = read_evidence_graph(&evidence)?;
             let report = inference::infer_structure(&graph)
                 .map_err(|error| CommandError::internal(error.to_string()))?;
             let json = report
@@ -293,6 +317,13 @@ fn run(cli: Cli) -> Result<(), CommandError> {
             runtime_command::run(command).map_err(runtime_command::into_command_error)
         }
     }
+}
+
+fn read_evidence_graph(path: &Path) -> Result<model::EvidenceGraph, CommandError> {
+    let input = fs::read_to_string(path)
+        .map_err(|error| CommandError::io(format!("cannot read {}: {error}", path.display())))?;
+    model::EvidenceGraph::from_json(&input)
+        .map_err(|error| CommandError::invalid_input(error.to_string()))
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]

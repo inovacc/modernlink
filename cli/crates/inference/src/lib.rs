@@ -55,6 +55,47 @@ pub struct CandidateContext {
     pub reasoning: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SeamReport {
+    pub schema_version: String,
+    pub seams: Vec<ModernizationSeam>,
+}
+
+impl SeamReport {
+    pub fn canonical_json(&self) -> Result<String, InferenceError> {
+        let mut normalized = self.clone();
+        normalized
+            .seams
+            .sort_by(|left, right| left.id.cmp(&right.id));
+        let mut json = serde_json::to_string_pretty(&normalized)?;
+        json.push('\n');
+        Ok(json)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModernizationSeam {
+    pub id: String,
+    pub state: ClaimState,
+    pub location_node_id: String,
+    pub seam_type: String,
+    pub current_technology: String,
+    pub leverage_score: u8,
+    pub migration_risk_score: u8,
+    pub isolation_score: u8,
+    pub confidence_percent: u8,
+    pub score_components: Vec<ScoreComponent>,
+    pub evidence_ids: Vec<String>,
+    pub recommended_mode: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScoreComponent {
+    pub factor: String,
+    pub points: u8,
+    pub reasoning: String,
+}
+
 pub fn infer_structure(graph: &EvidenceGraph) -> Result<StructureReport, InferenceError> {
     graph.validate()?;
     let mut layers = Vec::new();
@@ -103,6 +144,59 @@ pub fn infer_structure(graph: &EvidenceGraph) -> Result<StructureReport, Inferen
     })
 }
 
+pub fn infer_seams(graph: &EvidenceGraph) -> Result<SeamReport, InferenceError> {
+    graph.validate()?;
+    let nodes = graph
+        .nodes
+        .iter()
+        .map(|node| (node.id.as_str(), node))
+        .collect::<BTreeMap<_, _>>();
+    let mut seams = Vec::new();
+    for edge in &graph.edges {
+        if edge.kind != "imports" {
+            continue;
+        }
+        let Some(target) = nodes.get(edge.target_id.as_str()) else {
+            continue;
+        };
+        if target.kind != "external-reference" {
+            continue;
+        }
+        let technology = vendor_technology(&target.name).unwrap_or("external-api");
+        let mut score_components = vec![ScoreComponent {
+            factor: "external-boundary".to_owned(),
+            points: 25,
+            reasoning: "an import crosses from an owned node to an external reference".to_owned(),
+        }];
+        if technology != "external-api" {
+            score_components.push(ScoreComponent {
+                factor: "vendor-lock".to_owned(),
+                points: 45,
+                reasoning: format!("target name identifies {technology} vendor coupling"),
+            });
+        }
+        let leverage_score = score_components.iter().map(|item| item.points).sum::<u8>();
+        seams.push(ModernizationSeam {
+            id: model::stable_id("modernization-seam", [edge.id.as_str()]),
+            state: ClaimState::Inference,
+            location_node_id: edge.source_id.clone(),
+            seam_type: "outbound-import-dependency".to_owned(),
+            current_technology: technology.to_owned(),
+            leverage_score,
+            migration_risk_score: if technology == "external-api" { 40 } else { 60 },
+            isolation_score: 70,
+            confidence_percent: if technology == "external-api" { 60 } else { 80 },
+            score_components,
+            evidence_ids: edge.evidence_ids.clone(),
+            recommended_mode: "PASSTHROUGH -> SHADOW -> REDIRECT".to_owned(),
+        });
+    }
+    Ok(SeamReport {
+        schema_version: "modernlink.seams/v1alpha1".to_owned(),
+        seams,
+    })
+}
+
 fn layer_for(name: &str) -> Option<&'static str> {
     let lower = name.to_ascii_lowercase();
     if lower.ends_with("controller") || lower.ends_with("resource") {
@@ -122,4 +216,16 @@ fn layer_for(name: &str) -> Option<&'static str> {
 fn context_for(name: &str) -> Option<&str> {
     let segments = name.split('.').collect::<Vec<_>>();
     (segments.len() >= 2).then(|| segments[segments.len() - 2])
+}
+
+fn vendor_technology(name: &str) -> Option<&'static str> {
+    if name.starts_with("weblogic.") {
+        Some("weblogic")
+    } else if name.starts_with("org.jboss.") {
+        Some("jboss")
+    } else if name.starts_with("com.ibm.websphere.") || name.starts_with("com.ibm.ws.") {
+        Some("websphere")
+    } else {
+        None
+    }
 }

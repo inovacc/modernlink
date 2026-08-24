@@ -143,6 +143,7 @@ stateful agent modernization lifecycle.
 - [x] Optional `modernlink analyze --history` sibling artifact with unchanged analysis schema
 - [~] Shared evidence model plus Java and Git adapters through `modernlink inspect [--history]`; deeper detectors remain pending
 - [~] `modernlink architecture` deterministic layer inference and candidate-context hypotheses; richer domain evidence remains pending
+- [~] `modernlink seams` decomposed vendor-import seam scoring; transaction, messaging, data, and runtime seam detectors remain pending
 - [~] Lifecycle transition/replay plus append-only JSONL journal; snapshots, approval records, and reconciliation remain pending
 - [~] Descriptor-driven Codex/Claude registry and `modernlink harness list`; verified installation adapters remain pending
 - [ ] Java/application-server/transaction/messaging/database boundary detectors
