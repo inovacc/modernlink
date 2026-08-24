@@ -145,7 +145,7 @@ stateful agent modernization lifecycle.
 - [~] Shared evidence model plus Java and Git adapters through `modernlink inspect [--history]`, including parser-derived inheritance edges; deeper detectors remain pending
 - [~] `modernlink architecture` deterministic layer inference and candidate-context hypotheses; richer domain evidence remains pending
 - [~] `modernlink seams` decomposed vendor/JMS/JNDI/database/SOAP import-boundary scoring; transaction, message-flow, data-flow, and runtime seam detectors remain pending
-- [~] Deterministic import-derived legacy infrastructure inventory (JMS, JNDI, JDBC/persistence, EJB, JTA, JAX-WS, JAXB, JMX, Servlet, RMI, Spring); call/data-flow confirmation remains pending
+- [~] Deterministic import-derived legacy infrastructure inventory (JMS, JNDI, JDBC/persistence, EJB, JTA, JAX-WS, JAXB, JMX, Servlet, RMI, Spring), plus XML descriptor JNDI/JMS references; call/data-flow confirmation remains pending
 - [~] Deterministic recognized annotation signals for transaction, messaging, SOAP, HTTP, and batch boundaries; method ownership, transaction resources, and runtime activation remain pending
 - [~] `modernlink boundaries` emits annotation-backed boundary candidates with explicit limitations; source call graphs, destination/resource mapping, and runtime confirmation remain pending
 - [~] Compiled `.class` and JAR/WAR/EAR header inventory with cited classfile major versions and known Java mappings; bytecode-reference traversal and nested deployment descriptors remain pending
