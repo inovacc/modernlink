@@ -16,6 +16,7 @@ const SCHEMA_VERSION: &str = "modernlink.analysis/v1alpha1";
 const COLLECTOR: &str = "java-tree-sitter";
 const DESCRIPTOR_COLLECTOR: &str = "repository-descriptor";
 const BYTECODE_COLLECTOR: &str = "classfile-header";
+const SQL_COLLECTOR: &str = "sql-lexical";
 const COLLECTOR_VERSION: &str = "0.1.0";
 const MAX_BYTECODE_ENTRY_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_DESCRIPTOR_ENTRY_BYTES: u64 = 4 * 1024 * 1024;
@@ -154,6 +155,7 @@ pub struct AnalysisSummary {
     pub class_files: usize,
     pub archive_files: usize,
     pub configuration_files: usize,
+    pub sql_files: usize,
     pub parse_errors: usize,
     pub evidence_items: usize,
     pub graph_nodes: usize,
@@ -233,6 +235,44 @@ struct TypeRelation {
     target: Fact,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SqlAccessKind {
+    Read,
+    Write,
+    SchemaWrite,
+}
+
+impl SqlAccessKind {
+    fn edge_kind(self) -> &'static str {
+        match self {
+            Self::Read => "reads",
+            Self::Write | Self::SchemaWrite => "writes",
+        }
+    }
+
+    fn observation_kind(self) -> &'static str {
+        match self {
+            Self::Read => "sql-table-read",
+            Self::Write => "sql-table-write",
+            Self::SchemaWrite => "sql-table-schema-write",
+        }
+    }
+
+    fn rule_id(self) -> &'static str {
+        match self {
+            Self::Read => "sql.table-read",
+            Self::Write => "sql.table-write",
+            Self::SchemaWrite => "sql.table-schema-write",
+        }
+    }
+}
+
+struct SqlToken {
+    text: String,
+    start_byte: usize,
+    end_byte: usize,
+}
+
 struct SignalRule {
     category: &'static str,
     technology: &'static str,
@@ -262,6 +302,9 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
                 || path.extension().is_some_and(|extension| {
                     matches!(extension.to_str(), Some("jar" | "war" | "ear"))
                 })
+                || path
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("sql"))
                 || descriptor_rule(&repository_relative(repository, path)).is_some()
         })
         .collect::<Vec<_>>();
@@ -282,6 +325,7 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
     let mut class_files = 0;
     let mut archive_files = 0;
     let mut configuration_files = 0;
+    let mut sql_files = 0;
 
     for path in paths {
         let relative = repository_relative(repository, &path);
@@ -361,6 +405,27 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
                 path: relative.clone(),
                 digest,
                 language: format!("java-{kind}"),
+                parse_health,
+            });
+        } else if path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("sql"))
+        {
+            sql_files += 1;
+            let parse_health = add_sql_facts(
+                &relative,
+                &artifact_id,
+                &source,
+                &mut evidence,
+                &mut nodes,
+                &mut edges,
+                &mut signals,
+            );
+            artifacts.push(Artifact {
+                id: artifact_id.clone(),
+                path: relative.clone(),
+                digest,
+                language: "sql".to_owned(),
                 parse_health,
             });
         } else if let Some(rule) = descriptor_rule(&relative) {
@@ -450,6 +515,7 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
         class_files,
         archive_files,
         configuration_files,
+        sql_files,
         parse_errors,
         evidence_items: evidence.len(),
         graph_nodes: nodes.len(),
@@ -619,6 +685,228 @@ fn add_classfile_facts(
         return "header-only".to_owned();
     }
     "constant-pool".to_owned()
+}
+
+fn add_sql_facts(
+    path: &str,
+    artifact_id: &str,
+    source: &[u8],
+    evidence: &mut Vec<Evidence>,
+    nodes: &mut Vec<GraphNode>,
+    edges: &mut Vec<GraphEdge>,
+    signals: &mut Vec<TechnologySignal>,
+) -> String {
+    let Ok(text) = std::str::from_utf8(source) else {
+        return "non-utf8".to_owned();
+    };
+    if text.is_empty() {
+        return "empty".to_owned();
+    }
+
+    for (access, table) in sql_table_accesses(text) {
+        let fact = Fact {
+            name: table.text.clone(),
+            start_byte: table.start_byte,
+            end_byte: table.end_byte,
+        };
+        let evidence_id = push_evidence_with_collector(
+            access.observation_kind(),
+            &fact,
+            path,
+            artifact_id,
+            SQL_COLLECTOR,
+            evidence,
+        );
+        let node_id = stable_id("database-table", [table.text.as_str()]);
+        nodes.push(GraphNode {
+            id: node_id,
+            kind: "database-table".to_owned(),
+            name: table.text.clone(),
+            qualified_name: table.text.clone(),
+            evidence_ids: vec![evidence_id.clone()],
+        });
+        edges.push(GraphEdge {
+            id: stable_id(
+                "edge",
+                [access.edge_kind(), artifact_id, table.text.as_str()],
+            ),
+            kind: access.edge_kind().to_owned(),
+            source_id: artifact_id.to_owned(),
+            target_name: table.text,
+            evidence_ids: vec![evidence_id.clone()],
+        });
+        signals.push(TechnologySignal {
+            id: stable_id("signal", ["data-access", "sql", access.rule_id()]),
+            category: "data-access".to_owned(),
+            technology: "sql".to_owned(),
+            rule_id: access.rule_id().to_owned(),
+            epistemic_state: "derived".to_owned(),
+            evidence_ids: vec![evidence_id],
+        });
+    }
+    "lexed".to_owned()
+}
+
+fn sql_table_accesses(source: &str) -> Vec<(SqlAccessKind, SqlToken)> {
+    let tokens = sql_tokens(source);
+    let mut accesses = Vec::new();
+    let mut index = 0;
+    while index < tokens.len() {
+        let keyword = tokens[index].text.to_ascii_uppercase();
+        let (access, table_start) = match keyword.as_str() {
+            "FROM" | "JOIN" => (SqlAccessKind::Read, index + 1),
+            "INSERT" | "MERGE" => match tokens.get(index + 1) {
+                Some(next) if next.text.eq_ignore_ascii_case("INTO") => {
+                    (SqlAccessKind::Write, index + 2)
+                }
+                _ => {
+                    index += 1;
+                    continue;
+                }
+            },
+            "UPDATE" => (SqlAccessKind::Write, index + 1),
+            "DELETE" => match tokens.get(index + 1) {
+                Some(next) if next.text.eq_ignore_ascii_case("FROM") => {
+                    (SqlAccessKind::Write, index + 2)
+                }
+                _ => {
+                    index += 1;
+                    continue;
+                }
+            },
+            "CREATE" | "ALTER" | "DROP" | "TRUNCATE" => match tokens.get(index + 1) {
+                Some(next) if next.text.eq_ignore_ascii_case("TABLE") => {
+                    (SqlAccessKind::SchemaWrite, index + 2)
+                }
+                _ => {
+                    index += 1;
+                    continue;
+                }
+            },
+            _ => {
+                index += 1;
+                continue;
+            }
+        };
+        if let Some((table, last_index)) = sql_table_name(&tokens, table_start) {
+            accesses.push((access, table));
+            index = last_index + 1;
+        } else {
+            index += 1;
+        }
+    }
+    accesses
+}
+
+fn sql_table_name(tokens: &[SqlToken], start: usize) -> Option<(SqlToken, usize)> {
+    let first = tokens.get(start)?;
+    if first.text == "(" || first.text == ")" || first.text == "." {
+        return None;
+    }
+    let mut text = first.text.clone();
+    let start_byte = first.start_byte;
+    let mut end_byte = first.end_byte;
+    let mut index = start;
+    while tokens.get(index + 1).is_some_and(|token| token.text == ".") {
+        let name = tokens.get(index + 2)?;
+        if matches!(name.text.as_str(), "(" | ")" | ".") {
+            return None;
+        }
+        text.push('.');
+        text.push_str(&name.text);
+        end_byte = name.end_byte;
+        index += 2;
+    }
+    Some((
+        SqlToken {
+            text,
+            start_byte,
+            end_byte,
+        },
+        index,
+    ))
+}
+
+fn sql_tokens(source: &str) -> Vec<SqlToken> {
+    let bytes = source.as_bytes();
+    let mut tokens = Vec::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            value if value.is_ascii_whitespace() => index += 1,
+            b'-' if bytes.get(index + 1) == Some(&b'-') => {
+                index += 2;
+                while index < bytes.len() && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'/' if bytes.get(index + 1) == Some(&b'*') => {
+                index += 2;
+                while index + 1 < bytes.len() && !(bytes[index] == b'*' && bytes[index + 1] == b'/')
+                {
+                    index += 1;
+                }
+                index = (index + 2).min(bytes.len());
+            }
+            b'\'' => index = skip_sql_string(bytes, index, b'\''),
+            b'\"' | b'`' | b'[' => {
+                let quote = bytes[index];
+                let close = if quote == b'[' { b']' } else { quote };
+                let start = index;
+                index = skip_sql_string(bytes, index, close);
+                if index > start + 1 {
+                    let end = index.saturating_sub(1);
+                    tokens.push(SqlToken {
+                        text: source[start + 1..end].to_owned(),
+                        start_byte: start,
+                        end_byte: index,
+                    });
+                }
+            }
+            b'.' | b'(' | b')' => {
+                let start = index;
+                index += 1;
+                tokens.push(SqlToken {
+                    text: source[start..index].to_owned(),
+                    start_byte: start,
+                    end_byte: index,
+                });
+            }
+            value if value.is_ascii_alphabetic() || value == b'_' || value == b'$' => {
+                let start = index;
+                index += 1;
+                while index < bytes.len()
+                    && (bytes[index].is_ascii_alphanumeric()
+                        || matches!(bytes[index], b'_' | b'$' | b'#'))
+                {
+                    index += 1;
+                }
+                tokens.push(SqlToken {
+                    text: source[start..index].to_owned(),
+                    start_byte: start,
+                    end_byte: index,
+                });
+            }
+            _ => index += 1,
+        }
+    }
+    tokens
+}
+
+fn skip_sql_string(bytes: &[u8], start: usize, quote: u8) -> usize {
+    let mut index = start + 1;
+    while index < bytes.len() {
+        if bytes[index] == quote {
+            if bytes.get(index + 1) == Some(&quote) {
+                index += 2;
+            } else {
+                return index + 1;
+            }
+        } else {
+            index += 1;
+        }
+    }
+    bytes.len()
 }
 
 fn add_classfile_reference_facts(

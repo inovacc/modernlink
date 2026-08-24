@@ -244,6 +244,67 @@ fn derives_legacy_infrastructure_signals_from_import_evidence() {
 }
 
 #[test]
+fn derives_cited_table_reads_and_writes_from_sql_artifacts() {
+    let repository = tempfile::tempdir().expect("temporary repository");
+    let migrations = repository.path().join("db/migrations");
+    fs::create_dir_all(&migrations).expect("migrations directory");
+    fs::write(
+        migrations.join("V001__payments.sql"),
+        "-- FROM ignored_comment\nCREATE TABLE ledger.payment (id bigint);\nINSERT INTO ledger.payment VALUES (1);\nUPDATE ledger.payment SET id = 2;\nDELETE FROM ledger.payment WHERE id = 2;\nSELECT * FROM ledger.payment JOIN ledger.customer ON 1 = 1;\nSELECT 'FROM ignored_string' FROM ledger.audit;\n",
+    )
+    .expect("SQL fixture");
+
+    let report = analyze_repository(repository.path()).expect("analysis");
+
+    assert_eq!(report.summary.sql_files, 1);
+    assert!(report.artifacts.iter().any(|artifact| {
+        artifact.path == "db/migrations/V001__payments.sql"
+            && artifact.language == "sql"
+            && artifact.parse_health == "lexed"
+    }));
+    for (kind, target) in [
+        ("writes", "ledger.payment"),
+        ("reads", "ledger.payment"),
+        ("reads", "ledger.customer"),
+        ("reads", "ledger.audit"),
+    ] {
+        assert!(
+            report
+                .edges
+                .iter()
+                .any(|edge| edge.kind == kind && edge.target_name == target)
+        );
+    }
+    assert!(
+        report.nodes.iter().any(|node| {
+            node.kind == "database-table" && node.qualified_name == "ledger.payment"
+        })
+    );
+    assert_signal(
+        &report,
+        "data-access",
+        "sql",
+        "sql.table-read",
+        "db/migrations/V001__payments.sql",
+    );
+    assert_signal(
+        &report,
+        "data-access",
+        "sql",
+        "sql.table-schema-write",
+        "db/migrations/V001__payments.sql",
+    );
+    let graph = report.to_evidence_graph().expect("evidence graph");
+    assert!(
+        graph
+            .nodes
+            .iter()
+            .any(|node| { node.kind == "database-table" && node.name == "ledger.payment" })
+    );
+    assert!(graph.validate().is_ok());
+}
+
+#[test]
 fn derives_wildfly_and_tomcat_signals_only_from_explicit_vendor_evidence() {
     let repository = tempfile::tempdir().expect("temporary repository");
     let meta_inf = repository.path().join("app/META-INF");
