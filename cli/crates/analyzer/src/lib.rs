@@ -704,10 +704,29 @@ fn add_archive_facts(
         let Ok(mut entry) = archive.by_index(index) else {
             continue;
         };
-        if entry.is_dir() || !entry.name().ends_with(".class") {
+        if entry.is_dir() {
             continue;
         }
         let entry_name = entry.name().to_owned();
+        if let Some(rule) = descriptor_rule(&entry_name) {
+            let fact = Fact {
+                name: format!("{path}!{entry_name}"),
+                start_byte: 0,
+                end_byte: 0,
+            };
+            let evidence_id = push_evidence_with_collector(
+                "archive-descriptor-path",
+                &fact,
+                path,
+                artifact_id,
+                "zip-central-directory",
+                evidence,
+            );
+            signals.push(signal_from_rule(rule, evidence_id));
+        }
+        if !entry_name.ends_with(".class") {
+            continue;
+        }
         let mut header = [0_u8; 8];
         let Ok(read) = entry.read(&mut header) else {
             continue;

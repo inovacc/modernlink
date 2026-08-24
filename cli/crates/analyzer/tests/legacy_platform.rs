@@ -353,6 +353,15 @@ fn indexes_nested_class_headers_in_a_war_without_executing_them() {
             &["weblogic/jms/extensions/WLMessage"],
         ))
         .expect("class header");
+    archive
+        .start_file(
+            "WEB-INF/weblogic.xml",
+            zip::write::SimpleFileOptions::default(),
+        )
+        .expect("descriptor entry");
+    archive
+        .write_all(b"<weblogic-web-app/>")
+        .expect("descriptor content");
     archive.finish().expect("finish archive");
 
     let report = analyze_repository(repository.path()).expect("analysis");
@@ -388,6 +397,18 @@ fn indexes_nested_class_headers_in_a_war_without_executing_them() {
         "vendor-api",
         "weblogic",
         "java.import-prefix.weblogic",
+        "legacy.war",
+    );
+    assert!(report.evidence.iter().any(|evidence| {
+        evidence.path == "legacy.war"
+            && evidence.observation_kind == "archive-descriptor-path"
+            && evidence.observed_value == "legacy.war!WEB-INF/weblogic.xml"
+    }));
+    assert_signal(
+        &report,
+        "application-server",
+        "weblogic",
+        "descriptor.path.weblogic-xml",
         "legacy.war",
     );
 }
