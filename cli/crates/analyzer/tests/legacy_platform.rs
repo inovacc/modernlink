@@ -198,6 +198,49 @@ fn indexes_nested_class_headers_in_a_war_without_executing_them() {
     );
 }
 
+#[test]
+fn derives_static_boundary_signals_from_recognized_annotations() {
+    let repository = tempfile::tempdir().expect("temporary repository");
+    let java_dir = repository.path().join("src/main/java/com/acme");
+    fs::create_dir_all(&java_dir).expect("Java package");
+    fs::write(
+        java_dir.join("Endpoints.java"),
+        "package com.acme; @Transactional public class PaymentService {} @MessageDriven public class Consumer {} @WebService public class LegacySoap {} @Path(\"/payments\") public class PaymentEndpoint {}",
+    )
+    .expect("Java fixture");
+    let report = analyze_repository(repository.path()).expect("analysis");
+    for (category, technology, rule_id) in [
+        (
+            "transaction-boundary",
+            "transaction-annotation",
+            "java.annotation.transaction",
+        ),
+        (
+            "messaging-boundary",
+            "message-consumer-annotation",
+            "java.annotation.messaging",
+        ),
+        (
+            "integration-boundary",
+            "soap-annotation",
+            "java.annotation.soap",
+        ),
+        (
+            "http-boundary",
+            "http-endpoint-annotation",
+            "java.annotation.http",
+        ),
+    ] {
+        assert_signal(
+            &report,
+            category,
+            technology,
+            rule_id,
+            "src/main/java/com/acme/Endpoints.java",
+        );
+    }
+}
+
 fn assert_signal(
     report: &modernlink_analyzer::AnalysisReport,
     category: &str,

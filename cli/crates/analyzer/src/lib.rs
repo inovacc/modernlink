@@ -212,6 +212,7 @@ pub struct TechnologySignal {
 struct FileFacts {
     package: Option<Fact>,
     imports: Vec<Fact>,
+    annotations: Vec<Fact>,
     types: Vec<Fact>,
 }
 
@@ -593,6 +594,24 @@ fn collect_facts(node: Node<'_>, source: &[u8], facts: &mut FileFacts) {
                 facts.imports.push(name);
             }
         }
+        "marker_annotation" | "annotation" => {
+            if let Ok(text) = node.utf8_text(source) {
+                let name = text
+                    .trim()
+                    .trim_start_matches('@')
+                    .split('(')
+                    .next()
+                    .unwrap_or_default()
+                    .trim();
+                if !name.is_empty() {
+                    facts.annotations.push(Fact {
+                        name: name.to_owned(),
+                        start_byte: node.start_byte(),
+                        end_byte: node.end_byte(),
+                    });
+                }
+            }
+        }
         "class_declaration"
         | "interface_declaration"
         | "enum_declaration"
@@ -648,6 +667,7 @@ fn add_file_facts(
     signals: &mut Vec<TechnologySignal>,
 ) {
     facts.imports.sort_by(|a, b| a.name.cmp(&b.name));
+    facts.annotations.sort_by(|a, b| a.name.cmp(&b.name));
     facts.types.sort_by(|a, b| a.name.cmp(&b.name));
     let package_name = facts
         .package
@@ -682,6 +702,13 @@ fn add_file_facts(
             target_name: import.name,
             evidence_ids: vec![evidence_id],
         });
+    }
+
+    for annotation in facts.annotations {
+        let evidence_id = push_evidence("annotation", &annotation, path, artifact_id, evidence);
+        if let Some(rule) = annotation_rule(&annotation.name) {
+            signals.push(signal_from_rule(rule, evidence_id));
+        }
     }
 
     for declared_type in facts.types {
@@ -959,6 +986,43 @@ fn import_rule(import: &str) -> Option<SignalRule> {
         ("framework", "spring", "java.import-prefix.spring")
     } else {
         return None;
+    };
+    Some(SignalRule {
+        category,
+        technology,
+        rule_id,
+    })
+}
+
+fn annotation_rule(annotation: &str) -> Option<SignalRule> {
+    let name = annotation.rsplit('.').next().unwrap_or(annotation);
+    let (category, technology, rule_id) = match name {
+        "Transactional" | "TransactionAttribute" => (
+            "transaction-boundary",
+            "transaction-annotation",
+            "java.annotation.transaction",
+        ),
+        "MessageDriven" | "JmsListener" => (
+            "messaging-boundary",
+            "message-consumer-annotation",
+            "java.annotation.messaging",
+        ),
+        "WebService" | "WebMethod" => (
+            "integration-boundary",
+            "soap-annotation",
+            "java.annotation.soap",
+        ),
+        "Path" | "RequestMapping" => (
+            "http-boundary",
+            "http-endpoint-annotation",
+            "java.annotation.http",
+        ),
+        "Scheduled" => (
+            "batch-boundary",
+            "scheduled-annotation",
+            "java.annotation.batch",
+        ),
+        _ => return None,
     };
     Some(SignalRule {
         category,
