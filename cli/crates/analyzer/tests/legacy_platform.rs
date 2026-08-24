@@ -2,6 +2,29 @@ use std::{fs, io::Write};
 
 use modernlink_analyzer::analyze_repository;
 
+fn classfile_with_class_references(major: u16, references: &[&str]) -> Vec<u8> {
+    let mut bytes = vec![0xCA, 0xFE, 0xBA, 0xBE, 0, 0];
+    bytes.extend_from_slice(&major.to_be_bytes());
+    let count = 1_u16 + u16::try_from(references.len() * 2).expect("fixture pool count");
+    bytes.extend_from_slice(&count.to_be_bytes());
+    for (index, reference) in references.iter().enumerate() {
+        bytes.push(1);
+        bytes.extend_from_slice(
+            &u16::try_from(reference.len())
+                .expect("fixture reference length")
+                .to_be_bytes(),
+        );
+        bytes.extend_from_slice(reference.as_bytes());
+        bytes.push(7);
+        bytes.extend_from_slice(
+            &u16::try_from(index * 2 + 1)
+                .expect("fixture UTF-8 index")
+                .to_be_bytes(),
+        );
+    }
+    bytes
+}
+
 #[test]
 fn derives_build_and_application_server_signals_from_cited_artifacts() {
     let repository = tempfile::tempdir().expect("temporary repository");
@@ -190,7 +213,7 @@ fn derives_classfile_version_evidence_without_executing_bytecode() {
             .artifacts
             .iter()
             .any(|artifact| artifact.language == "java-bytecode"
-                && artifact.parse_health == "header-only")
+                && artifact.parse_health == "constant-pool")
     );
     assert_signal(
         &report,
@@ -199,6 +222,70 @@ fn derives_classfile_version_evidence_without_executing_bytecode() {
         "classfile.major-version",
         "target/classes/com/acme/Legacy.class",
     );
+}
+
+#[test]
+fn derives_cited_vendor_and_jms_references_from_a_classfile_constant_pool() {
+    let repository = tempfile::tempdir().expect("temporary repository");
+    let classes = repository.path().join("target/classes/com/acme");
+    fs::create_dir_all(&classes).expect("class directory");
+    fs::write(
+        classes.join("Legacy.class"),
+        classfile_with_class_references(
+            52,
+            &["weblogic/jms/extensions/WLMessage", "javax/jms/Queue"],
+        ),
+    )
+    .expect("class fixture");
+
+    let report = analyze_repository(repository.path()).expect("analysis");
+    let path = "target/classes/com/acme/Legacy.class";
+    assert!(report.evidence.iter().any(|evidence| {
+        evidence.path == path
+            && evidence.observation_kind == "bytecode-class-reference"
+            && evidence.observed_value == "weblogic.jms.extensions.WLMessage"
+    }));
+    assert!(report.edges.iter().any(|edge| {
+        edge.kind == "bytecode-references" && edge.target_name == "javax.jms.Queue"
+    }));
+    assert_signal(
+        &report,
+        "vendor-api",
+        "weblogic",
+        "java.import-prefix.weblogic",
+        path,
+    );
+    assert_signal(
+        &report,
+        "integration-boundary",
+        "jms",
+        "java.import-prefix.javax-jms",
+        path,
+    );
+}
+
+#[test]
+fn malformed_constant_pools_retain_only_header_evidence() {
+    let repository = tempfile::tempdir().expect("temporary repository");
+    let classes = repository.path().join("target/classes/com/acme");
+    fs::create_dir_all(&classes).expect("class directory");
+    fs::write(
+        classes.join("Broken.class"),
+        [
+            0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 52, 0, 2, // one pool entry
+            7, 0, 5, // Class entry points outside the pool
+        ],
+    )
+    .expect("class fixture");
+
+    let report = analyze_repository(repository.path()).expect("analysis");
+    let path = "target/classes/com/acme/Broken.class";
+    assert!(report.artifacts.iter().any(|artifact| {
+        artifact.path == path && artifact.parse_health == "header-only"
+    }));
+    assert!(!report.evidence.iter().any(|evidence| {
+        evidence.path == path && evidence.observation_kind == "bytecode-class-reference"
+    }));
 }
 
 #[test]

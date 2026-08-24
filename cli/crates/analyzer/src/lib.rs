@@ -328,20 +328,21 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
             .is_some_and(|extension| extension == "class")
         {
             class_files += 1;
+            let parse_health = add_classfile_facts(
+                &relative,
+                &artifact_id,
+                &source,
+                &mut evidence,
+                &mut edges,
+                &mut signals,
+            );
             artifacts.push(Artifact {
                 id: artifact_id.clone(),
                 path: relative.clone(),
                 digest,
                 language: "java-bytecode".to_owned(),
-                parse_health: "header-only".to_owned(),
+                parse_health,
             });
-            add_classfile_facts(
-                &relative,
-                &artifact_id,
-                &source,
-                &mut evidence,
-                &mut signals,
-            );
         } else if let Some(kind) = archive_type(&path) {
             archive_files += 1;
             let parse_health = add_archive_facts(
@@ -543,10 +544,11 @@ fn add_classfile_facts(
     artifact_id: &str,
     source: &[u8],
     evidence: &mut Vec<Evidence>,
+    edges: &mut Vec<GraphEdge>,
     signals: &mut Vec<TechnologySignal>,
-) {
+) -> String {
     let Some(major_version) = classfile_major_version(source) else {
-        return;
+        return "invalid-classfile".to_owned();
     };
     let fact = Fact {
         name: major_version.to_string(),
@@ -580,6 +582,38 @@ fn add_classfile_facts(
         epistemic_state: "derived".to_owned(),
         evidence_ids: vec![evidence_id],
     });
+    let Ok(references) = classfile_references(source) else {
+        return "header-only".to_owned();
+    };
+    for reference in references {
+        let fact = Fact {
+            name: reference.name.clone(),
+            start_byte: reference.start_byte,
+            end_byte: reference.end_byte,
+        };
+        let evidence_id = push_evidence_with_collector(
+            "bytecode-class-reference",
+            &fact,
+            path,
+            artifact_id,
+            BYTECODE_COLLECTOR,
+            evidence,
+        );
+        if let Some(rule) = import_rule(&reference.name) {
+            signals.push(signal_from_rule(rule, evidence_id.clone()));
+        }
+        edges.push(GraphEdge {
+            id: stable_id(
+                "edge",
+                ["bytecode-references", artifact_id, reference.name.as_str()],
+            ),
+            kind: "bytecode-references".to_owned(),
+            source_id: artifact_id.to_owned(),
+            target_name: reference.name,
+            evidence_ids: vec![evidence_id],
+        });
+    }
+    "constant-pool".to_owned()
 }
 
 fn archive_type(path: &Path) -> Option<&'static str> {
@@ -680,6 +714,110 @@ fn add_archive_facts(
 fn classfile_major_version(source: &[u8]) -> Option<u16> {
     (source.len() >= 8 && source[..4] == [0xCA, 0xFE, 0xBA, 0xBE])
         .then(|| u16::from_be_bytes([source[6], source[7]]))
+}
+
+#[derive(Debug)]
+struct ClassReference {
+    name: String,
+    start_byte: usize,
+    end_byte: usize,
+}
+
+#[derive(Debug)]
+enum ConstantPoolEntry {
+    Empty,
+    Utf8 { value: String },
+    Class { name_index: usize, start_byte: usize, end_byte: usize },
+}
+
+fn classfile_references(source: &[u8]) -> Result<Vec<ClassReference>, ()> {
+    if classfile_major_version(source).is_none() || source.len() < 10 {
+        return Err(());
+    }
+    let constant_pool_count = usize::from(read_u16(source, 8).ok_or(())?);
+    let mut entries = (0..constant_pool_count)
+        .map(|_| ConstantPoolEntry::Empty)
+        .collect::<Vec<_>>();
+    let mut cursor = 10;
+    let mut index = 1;
+    while index < constant_pool_count {
+        let tag = *source.get(cursor).ok_or(())?;
+        cursor += 1;
+        match tag {
+            1 => {
+                let length = usize::from(read_u16(source, cursor).ok_or(())?);
+                cursor += 2;
+                let end = cursor.checked_add(length).ok_or(())?;
+                let value = std::str::from_utf8(source.get(cursor..end).ok_or(())?)
+                    .map_err(|_| ())?
+                    .to_owned();
+                entries[index] = ConstantPoolEntry::Utf8 { value };
+                cursor = end;
+            }
+            7 => {
+                let start_byte = cursor - 1;
+                let name_index = usize::from(read_u16(source, cursor).ok_or(())?);
+                cursor += 2;
+                entries[index] = ConstantPoolEntry::Class {
+                    name_index,
+                    start_byte,
+                    end_byte: cursor,
+                };
+            }
+            3 | 4 => cursor = cursor.checked_add(4).ok_or(())?,
+            5 | 6 => {
+                cursor = cursor.checked_add(8).ok_or(())?;
+                index += 1;
+                if index >= constant_pool_count {
+                    return Err(());
+                }
+            }
+            8 | 16 | 19 | 20 => cursor = cursor.checked_add(2).ok_or(())?,
+            9 | 10 | 11 | 12 | 17 | 18 => cursor = cursor.checked_add(4).ok_or(())?,
+            15 => cursor = cursor.checked_add(3).ok_or(())?,
+            _ => return Err(()),
+        }
+        if cursor > source.len() {
+            return Err(());
+        }
+        index += 1;
+    }
+
+    let mut references = BTreeMap::new();
+    for entry in &entries {
+        let ConstantPoolEntry::Class {
+            name_index,
+            start_byte,
+            end_byte,
+        } = entry else {
+            continue;
+        };
+        let Some(ConstantPoolEntry::Utf8 { value }) = entries.get(*name_index) else {
+            return Err(());
+        };
+        let Some(name) = normalize_class_reference(value) else {
+            continue;
+        };
+        references.entry(name.clone()).or_insert(ClassReference {
+            name,
+            start_byte: *start_byte,
+            end_byte: *end_byte,
+        });
+    }
+    Ok(references.into_values().collect())
+}
+
+fn read_u16(source: &[u8], offset: usize) -> Option<u16> {
+    let bytes = source.get(offset..offset.checked_add(2)?)?;
+    Some(u16::from_be_bytes([bytes[0], bytes[1]]))
+}
+
+fn normalize_class_reference(value: &str) -> Option<String> {
+    (!value.is_empty()
+        && !value.starts_with('[')
+        && !value.ends_with("module-info")
+        && !value.ends_with("package-info"))
+        .then(|| value.replace('/', "."))
 }
 
 fn classfile_java_version(major: u16) -> Option<u16> {
