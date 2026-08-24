@@ -305,6 +305,37 @@ fn derives_cited_table_reads_and_writes_from_sql_artifacts() {
 }
 
 #[test]
+fn derives_table_accesses_from_unescaped_java_sql_literals_only() {
+    let repository = tempfile::tempdir().expect("temporary repository");
+    fs::write(
+        repository.path().join("PaymentDao.java"),
+        "class PaymentDao { String direct = \"SELECT * FROM ledger.payment\"; String dynamic = \"SELECT * FROM \" + table; String escaped = \"SELECT * FROM ledger\\\\.payment\"; }",
+    )
+    .expect("Java fixture");
+
+    let report = analyze_repository(repository.path()).expect("analysis");
+
+    let access = report
+        .edges
+        .iter()
+        .find(|edge| edge.kind == "reads" && edge.target_name == "ledger.payment")
+        .expect("static Java SQL access");
+    let evidence = report
+        .evidence
+        .iter()
+        .find(|evidence| access.evidence_ids.contains(&evidence.id))
+        .expect("static Java SQL evidence");
+    assert_eq!(evidence.collector, "java-static-sql-literal");
+    assert_eq!(evidence.path, "PaymentDao.java");
+    assert!(
+        !report
+            .edges
+            .iter()
+            .any(|edge| edge.target_name == "ledger\\.payment")
+    );
+}
+
+#[test]
 fn derives_wildfly_and_tomcat_signals_only_from_explicit_vendor_evidence() {
     let repository = tempfile::tempdir().expect("temporary repository");
     let meta_inf = repository.path().join("app/META-INF");

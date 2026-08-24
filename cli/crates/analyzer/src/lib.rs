@@ -220,6 +220,7 @@ struct FileFacts {
     annotations: Vec<Fact>,
     types: Vec<Fact>,
     method_calls: Vec<Fact>,
+    sql_literals: Vec<Fact>,
     type_relations: Vec<TypeRelation>,
 }
 
@@ -704,47 +705,74 @@ fn add_sql_facts(
     }
 
     for (access, table) in sql_table_accesses(text) {
-        let fact = Fact {
-            name: table.text.clone(),
-            start_byte: table.start_byte,
-            end_byte: table.end_byte,
-        };
-        let evidence_id = push_evidence_with_collector(
-            access.observation_kind(),
-            &fact,
+        add_sql_table_access(
+            access,
+            table,
+            0,
             path,
             artifact_id,
             SQL_COLLECTOR,
             evidence,
+            nodes,
+            edges,
+            signals,
         );
-        let node_id = stable_id("database-table", [table.text.as_str()]);
-        nodes.push(GraphNode {
-            id: node_id,
-            kind: "database-table".to_owned(),
-            name: table.text.clone(),
-            qualified_name: table.text.clone(),
-            evidence_ids: vec![evidence_id.clone()],
-        });
-        edges.push(GraphEdge {
-            id: stable_id(
-                "edge",
-                [access.edge_kind(), artifact_id, table.text.as_str()],
-            ),
-            kind: access.edge_kind().to_owned(),
-            source_id: artifact_id.to_owned(),
-            target_name: table.text,
-            evidence_ids: vec![evidence_id.clone()],
-        });
-        signals.push(TechnologySignal {
-            id: stable_id("signal", ["data-access", "sql", access.rule_id()]),
-            category: "data-access".to_owned(),
-            technology: "sql".to_owned(),
-            rule_id: access.rule_id().to_owned(),
-            epistemic_state: "derived".to_owned(),
-            evidence_ids: vec![evidence_id],
-        });
     }
     "lexed".to_owned()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn add_sql_table_access(
+    access: SqlAccessKind,
+    table: SqlToken,
+    offset: usize,
+    path: &str,
+    artifact_id: &str,
+    collector: &str,
+    evidence: &mut Vec<Evidence>,
+    nodes: &mut Vec<GraphNode>,
+    edges: &mut Vec<GraphEdge>,
+    signals: &mut Vec<TechnologySignal>,
+) {
+    let fact = Fact {
+        name: table.text.clone(),
+        start_byte: offset + table.start_byte,
+        end_byte: offset + table.end_byte,
+    };
+    let evidence_id = push_evidence_with_collector(
+        access.observation_kind(),
+        &fact,
+        path,
+        artifact_id,
+        collector,
+        evidence,
+    );
+    let node_id = stable_id("database-table", [table.text.as_str()]);
+    nodes.push(GraphNode {
+        id: node_id,
+        kind: "database-table".to_owned(),
+        name: table.text.clone(),
+        qualified_name: table.text.clone(),
+        evidence_ids: vec![evidence_id.clone()],
+    });
+    edges.push(GraphEdge {
+        id: stable_id(
+            "edge",
+            [access.edge_kind(), artifact_id, table.text.as_str()],
+        ),
+        kind: access.edge_kind().to_owned(),
+        source_id: artifact_id.to_owned(),
+        target_name: table.text,
+        evidence_ids: vec![evidence_id.clone()],
+    });
+    signals.push(TechnologySignal {
+        id: stable_id("signal", ["data-access", "sql", access.rule_id()]),
+        category: "data-access".to_owned(),
+        technology: "sql".to_owned(),
+        rule_id: access.rule_id().to_owned(),
+        epistemic_state: "derived".to_owned(),
+        evidence_ids: vec![evidence_id],
+    });
 }
 
 fn sql_table_accesses(source: &str) -> Vec<(SqlAccessKind, SqlToken)> {
@@ -1280,6 +1308,21 @@ fn collect_facts(node: Node<'_>, source: &[u8], facts: &mut FileFacts) {
                 });
             }
         }
+        "string_literal" => {
+            if let Ok(text) = node.utf8_text(source)
+                && let Some(value) = text
+                    .strip_prefix('"')
+                    .and_then(|value| value.strip_suffix('"'))
+                && !value.contains('\\')
+                && !sql_table_accesses(value).is_empty()
+            {
+                facts.sql_literals.push(Fact {
+                    name: value.to_owned(),
+                    start_byte: node.start_byte() + 1,
+                    end_byte: node.end_byte().saturating_sub(1),
+                });
+            }
+        }
         "class_declaration"
         | "interface_declaration"
         | "enum_declaration"
@@ -1375,6 +1418,7 @@ fn add_file_facts(
     facts.annotations.sort_by(|a, b| a.name.cmp(&b.name));
     facts.types.sort_by(|a, b| a.name.cmp(&b.name));
     facts.method_calls.sort_by(|a, b| a.name.cmp(&b.name));
+    facts.sql_literals.sort_by(|a, b| a.name.cmp(&b.name));
     facts.type_relations.sort_by(|a, b| {
         (&a.source_type, a.kind, &a.target.name).cmp(&(&b.source_type, b.kind, &b.target.name))
     });
@@ -1430,6 +1474,23 @@ fn add_file_facts(
             target_name: call.name,
             evidence_ids: vec![evidence_id],
         });
+    }
+
+    for literal in facts.sql_literals {
+        for (access, table) in sql_table_accesses(&literal.name) {
+            add_sql_table_access(
+                access,
+                table,
+                literal.start_byte,
+                path,
+                artifact_id,
+                "java-static-sql-literal",
+                evidence,
+                nodes,
+                edges,
+                signals,
+            );
+        }
     }
 
     for relation in facts.type_relations {
