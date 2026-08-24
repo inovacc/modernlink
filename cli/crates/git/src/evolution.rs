@@ -19,26 +19,29 @@ pub struct EvolutionReport {
 impl EvolutionReport {
     pub fn canonical_json(&self) -> Result<String, serde_json::Error> {
         let mut normalized = self.clone();
-        normalized.hotspots.sort_by(|left, right| {
+        normalized.normalize();
+        let mut json = serde_json::to_string_pretty(&normalized)?;
+        json.push('\n');
+        Ok(json)
+    }
+
+    fn normalize(&mut self) {
+        self.hotspots.sort_by(|left, right| {
             right
                 .changed_commit_count
                 .cmp(&left.changed_commit_count)
                 .then_with(|| left.path.cmp(&right.path))
         });
-        normalized.co_changes.sort_by(|left, right| {
+        self.co_changes.sort_by(|left, right| {
             right
                 .changed_commit_count
                 .cmp(&left.changed_commit_count)
                 .then_with(|| left.left_path.cmp(&right.left_path))
                 .then_with(|| left.right_path.cmp(&right.right_path))
         });
-        normalized
-            .contributors
+        self.contributors
             .sort_by(|left, right| left.identity_key.cmp(&right.identity_key));
-        normalized.limitations.sort();
-        let mut json = serde_json::to_string_pretty(&normalized)?;
-        json.push('\n');
-        Ok(json)
+        self.limitations.sort();
     }
 }
 
@@ -141,7 +144,7 @@ pub fn xray_history(snapshot: &GitHistorySnapshot) -> EvolutionReport {
             authored_commit_count: commits.len() as u64,
         })
         .collect();
-    EvolutionReport {
+    let mut report = EvolutionReport {
         schema_version: EVOLUTION_SCHEMA_VERSION.to_owned(),
         repository_digest: snapshot.repository.repository_digest.clone(),
         hotspots,
@@ -151,5 +154,7 @@ pub fn xray_history(snapshot: &GitHistorySnapshot) -> EvolutionReport {
             "Contributor fields are continuity signals, not productivity or quality rankings.".to_owned(),
             "Line counts and co-change relationships inherit the history collector's completeness limits.".to_owned(),
         ],
-    }
+    };
+    report.normalize();
+    report
 }
