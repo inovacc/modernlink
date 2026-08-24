@@ -59,19 +59,24 @@ jobs:
         run: cargo test --workspace --all-features
       - name: Lint (all providers)
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-      # Downstream Linux broker jobs use the same source revision and target triple.
-      # Transfer the compiled debug dependency graph rather than rebuilding it on each
-      # fresh runner. Coverage and Docker packaging remain independent builds because
-      # they require instrumentation and a different build environment respectively.
-      - name: Package reusable Rust debug artifacts
-        run: tar -C target -cf rust-target-debug.tar debug .rustc_info.json
-      - name: Upload reusable Rust debug artifacts
+      # The broker jobs need only these compiled test executables, not Cargo's entire
+      # target directory. The Java 6 packaging job already transfers modernlink.jar
+      # to its aarch64 consumer; coverage remains an independent instrumented build.
+      - name: Package reusable broker test binaries
+        run: |
+          mkdir -p ci-rust-broker-tests
+          find target/debug/deps -maxdepth 1 -type f -perm -111 \( \
+            -name 'broker_backed-*' -o \
+            -name 'broker_backed_kafka-*' -o \
+            -name 'broker_backed_pulsar-*' \
+          \) -exec cp {} ci-rust-broker-tests/ \;
+          test "$(find ci-rust-broker-tests -type f | wc -l)" -eq 3
+      - name: Upload reusable broker test binaries
         uses: actions/upload-artifact@v7
         with:
-          name: rust-target-debug
-          path: rust-target-debug.tar
+          name: rust-broker-test-binaries
+          path: ci-rust-broker-tests
           retention-days: 1
-          compression-level: 0
 
   rust-coverage:
     name: Rust behavior-crate line coverage (90%)
@@ -231,15 +236,11 @@ jobs:
     needs: rust-coverage
     steps:
       - uses: actions/checkout@v7
-      - name: Restore reusable Rust debug artifacts
+      - name: Restore reusable broker test binaries
         uses: actions/download-artifact@v8
         with:
-          name: rust-target-debug
+          name: rust-broker-test-binaries
           path: .ci-artifacts
-      - name: Unpack reusable Rust debug artifacts
-        run: |
-          mkdir -p target
-          tar -C target -xf .ci-artifacts/rust-target-debug.tar
       # VER-01. Until now the three broker-backed tests existed but ran nowhere: they
       # are #[ignore]d, so every green CI run asserted exactly nothing about a real
       # broker, and the only evidence was one operator's manual run on one machine.
@@ -280,7 +281,8 @@ jobs:
           MODERNLINK_RABBITMQ_URL: amqp://guest:guest@127.0.0.1:5672/%2f
         run: |
           set -o pipefail
-          cargo test -p messaging --test broker_backed             --no-default-features --features nats,rabbitmq             -- --ignored --test-threads=1 2>&1 | tee broker-result.txt
+          test_binary=$(find .ci-artifacts -type f -name 'broker_backed-*' -perm -111 | head -n 1)
+          "$test_binary" --ignored --test-threads=1 2>&1 | tee broker-result.txt
       # A gate that can pass having run nothing is worse than no gate. cargo already
       # errors if the required features are missing, but this also catches a test being
       # renamed or dropped, which would otherwise shrink the gate silently.
@@ -303,15 +305,11 @@ jobs:
     needs: rust-coverage
     steps:
       - uses: actions/checkout@v7
-      - name: Restore reusable Rust debug artifacts
+      - name: Restore reusable broker test binaries
         uses: actions/download-artifact@v8
         with:
-          name: rust-target-debug
+          name: rust-broker-test-binaries
           path: .ci-artifacts
-      - name: Unpack reusable Rust debug artifacts
-        run: |
-          mkdir -p target
-          tar -C target -xf .ci-artifacts/rust-target-debug.tar
       # Deliberately a SEPARATE job from `broker-backed`: Kafka and Pulsar need cmake,
       # librdkafka and protoc, while NATS/RabbitMQ do not. Keeping the native dependency
       # surface separate also makes each broker result easier to interpret.
@@ -347,7 +345,8 @@ jobs:
           MODERNLINK_KAFKA_BROKERS: 127.0.0.1:9092
         run: |
           set -o pipefail
-          cargo test -p messaging --test broker_backed_kafka             --no-default-features --features kafka             -- --ignored --test-threads=1 2>&1 | tee kafka-result.txt
+          test_binary=$(find .ci-artifacts -type f -name 'broker_backed_kafka-*' -perm -111 | head -n 1)
+          "$test_binary" --ignored --test-threads=1 2>&1 | tee kafka-result.txt
           grep -q 'test result: ok. 1 passed' kafka-result.txt || {
             echo "::error::the Kafka broker-backed test did not run"; exit 1; }
       - name: Pulsar send/receive/ack
@@ -355,7 +354,8 @@ jobs:
           MODERNLINK_PULSAR_URL: pulsar://127.0.0.1:6650
         run: |
           set -o pipefail
-          cargo test -p messaging --test broker_backed_pulsar             --no-default-features --features pulsar             -- --ignored --test-threads=1 2>&1 | tee pulsar-result.txt
+          test_binary=$(find .ci-artifacts -type f -name 'broker_backed_pulsar-*' -perm -111 | head -n 1)
+          "$test_binary" --ignored --test-threads=1 2>&1 | tee pulsar-result.txt
           grep -q 'test result: ok. 1 passed' pulsar-result.txt || {
             echo "::error::the Pulsar broker-backed test did not run"; exit 1; }
       - name: Broker logs on failure
