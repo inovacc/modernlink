@@ -2058,6 +2058,7 @@ dependencies = [
  "model",
  "modernlink-analyzer",
  "runtime-observer",
+ "serde",
  "serde_json",
  "sha2",
  "state",

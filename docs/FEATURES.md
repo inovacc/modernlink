@@ -68,6 +68,7 @@ host product remains outside every recorded run. See [ISSUES.md](ISSUES.md) I-01
 | Decomposed modernization seam report | `modernlink seams` | Scores observed vendor-coupled external imports with evidence-linked components; broader seam families are pending. |
 | Target-runtime compatibility review | `modernlink compatibility --target <major>` | Emits evidence-linked review findings for observed internal-JDK, Java EE, and application-server imports; it does not claim a readiness percentage or inspect resolved dependencies/runtime behavior yet. |
 | Lifecycle status | `modernlink status --journal <events.jsonl> --run-id <id>` | Replays an append-only journal into a machine-readable state snapshot; setup/workspace state creation is still pending. |
+| Safe local workspace setup | `modernlink setup [repo] --tools <ids\|all\|none>` | Creates only `.modernlink/` state/cache directories and its owned manifest; tool selection/detection is recorded, while harness files are intentionally untouched pending approved adapter ownership contracts. |
 | Local Git evolution evidence | `cli/crates/git`, `modernlink history` | Uses structured `gix` APIs; default artifacts fingerprint commit messages instead of storing message text. |
 | Path deltas, bounded co-change, and knowledge signals | `modernlink.git-history/v1alpha1` | Co-change expansion and commit traversal report caps explicitly; no contributor productivity ranking. |
 | Repository-local Git cache | `.modernlink/cache/git/` | Cache is ignored, input-keyed, and local only. |

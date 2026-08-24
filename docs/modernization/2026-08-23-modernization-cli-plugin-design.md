@@ -15,7 +15,9 @@ vendor-coupled external-import boundaries with decomposed components and an expl
 mode; transaction, messaging, data, and runtime seam families remain pending. `modernlink compatibility --target <major>` emits evidence-linked review findings for observed internal-JDK, Java EE, and vendor-server imports; it intentionally does not claim readiness or infer resolved dependencies and runtime behavior. The state kernel now persists/replays append-only JSONL events but has no workspace snapshot,
 approval-latch records, or physical-artifact reconciliation yet. A descriptor registry exposes conservative
 Codex and Claude capability records but deliberately has no installation paths; setup,
-distribution, verified harness adapters, and the full lifecycle remain planned.
+distribution, verified harness adapters, and the full lifecycle remain planned. `modernlink setup`
+now creates only ModernLink-owned `.modernlink/` local metadata/cache directories and records
+explicit harness selections; it does not modify harness instructions or claim adapter installation.
 
 ## Goal
 
