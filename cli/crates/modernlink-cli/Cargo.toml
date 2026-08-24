@@ -19,6 +19,7 @@ inference = { path = "../inference" }
 model = { path = "../model" }
 modernlink-analyzer = { path = "../analyzer" }
 runtime-observer = { path = "../runtime-observer" }
+state = { path = "../state" }
 serde_json.workspace = true
 sha2.workspace = true
 tempfile.workspace = true

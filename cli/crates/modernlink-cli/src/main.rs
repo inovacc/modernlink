@@ -27,6 +27,15 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Recover and display a modernization lifecycle snapshot from its journal.
+    Status {
+        /// Append-only lifecycle journal JSON Lines path.
+        #[arg(long)]
+        journal: PathBuf,
+        /// Stable identifier for the modernization run.
+        #[arg(long)]
+        run_id: String,
+    },
     /// Assess target-runtime risks from a shared evidence graph.
     Compatibility {
         /// Shared evidence graph JSON path.
@@ -149,6 +158,23 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<(), CommandError> {
     match cli.command {
+        Command::Status { journal, run_id } => {
+            let snapshot = state::recover_journal(&run_id, &journal).map_err(|error| {
+                CommandError::invalid_input(format!(
+                    "cannot recover lifecycle journal {}: {error}",
+                    journal.display()
+                ))
+            })?;
+            println!(
+                "{}",
+                serde_json::json!({
+                    "schema_version": "modernlink.lifecycle-status/v1alpha1",
+                    "journal": journal,
+                    "snapshot": snapshot,
+                })
+            );
+            Ok(())
+        }
         Command::Compatibility {
             evidence,
             target,
