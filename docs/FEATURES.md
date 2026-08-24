@@ -1,5 +1,5 @@
 # Features
-<!-- rev:014 (RFC 3339) 2026-08-24T00:00:00Z -->
+<!-- rev:016 (RFC 3339) 2026-08-24T00:00:00Z -->
 
 What exists in the current tree, and what is proposed. "Implemented" means the code is present;
 it does **not** mean the behavior satisfies the intended runtime contract. See
@@ -70,11 +70,11 @@ host product remains outside every recorded run. See [ISSUES.md](ISSUES.md) I-01
 | Decomposed modernization seam report | `modernlink seams` | Scores observed vendor, JMS, JNDI, JDBC/persistence, and SOAP import boundaries with evidence-linked components; call/data-flow-specific seam families are pending. |
 | Legacy infrastructure inventory | `modernlink inspect` | Emits deterministic import-derived signals for JMS, JNDI, JDBC/persistence, EJB, JTA, JAX-WS, JAXB, JMX, Servlet, RMI, Spring, and server APIs; imports do not prove runtime use. |
 | Declared Java build levels | `modernlink inspect` | Cites literal Maven `maven.compiler.{source,target,release}` properties and Gradle `sourceCompatibility`/`targetCompatibility` assignments. It does not resolve properties, inheritance, toolchains, plugins, or execute builds. |
-| Deployment-descriptor boundary references | `modernlink inspect` | Streams recognized repository XML descriptors to cite JNDI/data-source and JMS queue/topic values; malformed XML is labeled `xml-malformed` and contributes no partial content facts. It also detects recognized descriptor paths inside JAR/WAR/EAR archives, but does not interpret nested descriptor content. |
+| Deployment-descriptor boundary references | `modernlink inspect` | Streams recognized repository XML descriptors and bounded recognized XML entries inside JAR/WAR/EAR archives to cite JNDI/data-source, JMS queue/topic, and declarative-transaction values. Malformed XML contributes no partial content facts. It does not traverse archives nested inside an EAR/WAR. |
 | Static boundary annotations | `modernlink inspect` | Emits cited, derived signals for recognized transaction, messaging-consumer, SOAP, HTTP, and scheduled-batch annotations; annotation use does not prove an active runtime entry point. |
 | Target-runtime compatibility review | `modernlink compatibility --target <major>` | Emits evidence-linked review findings for observed internal-JDK, Java EE, and application-server imports; it does not claim a readiness percentage or inspect resolved dependencies/runtime behavior yet. |
-| Lifecycle status | `modernlink status --journal <events.jsonl> --run-id <id>` | Replays an append-only journal into a machine-readable state snapshot; workspace setup owns only local metadata and does not create migration journals automatically. |
-| Lifecycle transition | `modernlink lifecycle advance --journal … --run-id …` | Appends only the next valid phase, requires `--approve` for Modernize/Cutover/Detach, and records explicit artifact digests. |
+| Lifecycle status | `modernlink status --run-id <id>` | Replays the setup-owned `.modernlink/state/migrations/<id>.jsonl` journal into a machine-readable snapshot; an explicit `--journal` remains available for externally managed journals. An absent default journal reports the initial state without writing. |
+| Lifecycle transition | `modernlink lifecycle advance --run-id <id>` | Appends only the next valid phase to the setup-owned journal, requires `--approve` for Modernize/Cutover/Detach, and records explicit artifact digests. Run IDs are constrained so the default journal cannot escape its workspace directory. |
 | Evidence-linked migration DAG | `modernlink plan --seams … --compatibility …` | Turns existing seam and compatibility evidence into prerequisite tasks; it proposes no target technology or automatic cutover. |
 | Static migration-plan verification | `modernlink verify --plan …` | Checks task uniqueness, dependency references, and declared migration approval gates; it explicitly does not verify behavior, tests, runtime safety, or cutover readiness. |
 | Command receipt formats | `modernlink --format json\|yaml\|human <command>` | Emits JSON by default, YAML for machine consumers that prefer it, or a compact human receipt. Explicit report files remain canonical JSON, so their schema and overwrite behavior do not vary by terminal format. |

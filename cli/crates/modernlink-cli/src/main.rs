@@ -101,9 +101,12 @@ enum Command {
     },
     /// Recover and display a modernization lifecycle snapshot from its journal.
     Status {
-        /// Append-only lifecycle journal JSON Lines path.
+        /// Append-only lifecycle journal JSON Lines path. Defaults to the setup-owned workspace journal.
         #[arg(long)]
-        journal: PathBuf,
+        journal: Option<PathBuf>,
+        /// Repository root used only when --journal is omitted.
+        #[arg(long, default_value = ".")]
+        repository: PathBuf,
         /// Stable identifier for the modernization run.
         #[arg(long)]
         run_id: String,
@@ -274,9 +277,12 @@ enum HarnessCommand {
 enum LifecycleCommand {
     /// Append the sole valid next lifecycle transition.
     Advance {
-        /// Append-only lifecycle journal JSON Lines path.
+        /// Append-only lifecycle journal JSON Lines path. Defaults to the setup-owned workspace journal.
         #[arg(long)]
-        journal: PathBuf,
+        journal: Option<PathBuf>,
+        /// Repository root used only when --journal is omitted.
+        #[arg(long, default_value = ".")]
+        repository: PathBuf,
         /// Stable identifier for the modernization run.
         #[arg(long)]
         run_id: String,
@@ -394,32 +400,28 @@ fn run(cli: Cli) -> Result<(), CommandError> {
             dry_run,
             force,
         } => setup_workspace(repository, tools, dry_run, force, format),
-        Command::Status { journal, run_id } => {
-            let snapshot = state::recover_journal(&run_id, &journal).map_err(|error| {
-                CommandError::invalid_input(format!(
-                    "cannot recover lifecycle journal {}: {error}",
-                    journal.display()
-                ))
-            })?;
-            emit_receipt(
-                format,
-                &serde_json::json!({
-                    "schema_version": "modernlink.lifecycle-status/v1alpha1",
-                    "journal": journal,
-                    "snapshot": snapshot,
-                }),
-            );
-            Ok(())
-        }
+        Command::Status {
+            journal,
+            repository,
+            run_id,
+        } => status_lifecycle(journal, repository, run_id, format),
         Command::Lifecycle {
             command:
                 LifecycleCommand::Advance {
                     journal,
+                    repository,
                     run_id,
                     approve,
                     artifact_hashes,
                 },
-        } => advance_lifecycle(journal, run_id, approve, artifact_hashes, format),
+        } => advance_lifecycle(
+            journal,
+            repository,
+            run_id,
+            approve,
+            artifact_hashes,
+            format,
+        ),
         Command::Compatibility {
             evidence,
             target,
@@ -736,13 +738,44 @@ fn program_check(program: &str, version_flag: &str) -> DoctorCheck {
     }
 }
 
+fn status_lifecycle(
+    journal: Option<PathBuf>,
+    repository: PathBuf,
+    run_id: String,
+    format: OutputFormat,
+) -> Result<(), CommandError> {
+    let (journal, journal_source) = resolve_lifecycle_journal(journal, repository, &run_id)?;
+    let snapshot = if journal.exists() {
+        state::recover_journal(&run_id, &journal).map_err(|error| {
+            CommandError::invalid_input(format!(
+                "cannot recover lifecycle journal {}: {error}",
+                journal.display()
+            ))
+        })?
+    } else {
+        state::LifecycleSnapshot::new(&run_id)
+    };
+    emit_receipt(
+        format,
+        &serde_json::json!({
+            "schema_version": "modernlink.lifecycle-status/v1alpha1",
+            "journal": journal,
+            "journal_source": journal_source,
+            "snapshot": snapshot,
+        }),
+    );
+    Ok(())
+}
+
 fn advance_lifecycle(
-    journal: PathBuf,
+    journal: Option<PathBuf>,
+    repository: PathBuf,
     run_id: String,
     approve: bool,
     mut artifact_hashes: Vec<String>,
     format: OutputFormat,
 ) -> Result<(), CommandError> {
+    let (journal, journal_source) = resolve_lifecycle_journal(journal, repository, &run_id)?;
     let mut snapshot = if journal.exists() {
         state::recover_journal(&run_id, &journal).map_err(|error| {
             CommandError::invalid_input(format!(
@@ -784,11 +817,51 @@ fn advance_lifecycle(
         &serde_json::json!({
             "schema_version": "modernlink.lifecycle-transition/v1alpha1",
             "journal": journal,
+            "journal_source": journal_source,
             "event": event,
             "snapshot": snapshot,
         }),
     );
     Ok(())
+}
+
+fn resolve_lifecycle_journal(
+    explicit_journal: Option<PathBuf>,
+    repository: PathBuf,
+    run_id: &str,
+) -> Result<(PathBuf, &'static str), CommandError> {
+    validate_lifecycle_run_id(run_id)?;
+    if let Some(journal) = explicit_journal {
+        return Ok((journal, "explicit"));
+    }
+    let repository = canonical_repository(repository)?;
+    let workspace_manifest = repository.join(".modernlink").join("workspace.json");
+    let _ = read_workspace_manifest(&workspace_manifest)?;
+    Ok((
+        repository
+            .join(".modernlink")
+            .join("state")
+            .join("migrations")
+            .join(format!("{run_id}.jsonl")),
+        "workspace-default",
+    ))
+}
+
+fn validate_lifecycle_run_id(run_id: &str) -> Result<(), CommandError> {
+    let valid = !run_id.is_empty()
+        && run_id != "."
+        && run_id != ".."
+        && run_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'));
+    if valid {
+        Ok(())
+    } else {
+        Err(CommandError::invalid_input(
+            "--run-id must be a non-empty identifier containing only ASCII letters, digits, '-', '_', or '.'"
+                .to_owned(),
+        ))
+    }
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
