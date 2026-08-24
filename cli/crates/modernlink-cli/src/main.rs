@@ -23,8 +23,17 @@ use runtime_command::RuntimeCommand;
     about = "Deterministic modernization analyzer"
 )]
 struct Cli {
+    /// Terminal receipt format. Report artifacts remain canonical JSON.
+    #[arg(long, global = true, value_enum, default_value_t = OutputFormat::Json)]
+    format: OutputFormat,
     #[command(subcommand)]
     command: Command,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum OutputFormat {
+    Json,
+    Human,
 }
 
 #[derive(Debug, Subcommand)]
@@ -256,6 +265,7 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<(), CommandError> {
+    let format = cli.format;
     match cli.command {
         Command::Verify { plan, output } => {
             let plan = read_json::<inference::MigrationPlan>(&plan, "migration plan")?;
@@ -265,13 +275,13 @@ fn run(cli: Cli) -> Result<(), CommandError> {
                 .map_err(|error| CommandError::internal(error.to_string()))?;
             ensure_report_absent(&output)?;
             write_report(&output, json)?;
-            println!(
-                "{}",
-                serde_json::json!({
+            emit_receipt(
+                format,
+                &serde_json::json!({
                     "report": output,
                     "schema_version": report.schema_version,
                     "summary": { "checks": report.checks.len(), "gaps": report.checks.iter().filter(|check| check.status == "GAP").count() },
-                })
+                }),
             );
             Ok(())
         }
@@ -284,13 +294,13 @@ fn run(cli: Cli) -> Result<(), CommandError> {
                 .map_err(|error| CommandError::internal(error.to_string()))?;
             ensure_report_absent(&output)?;
             write_report(&output, json)?;
-            println!(
-                "{}",
-                serde_json::json!({
+            emit_receipt(
+                format,
+                &serde_json::json!({
                     "report": output,
                     "schema_version": report.schema_version,
                     "summary": { "boundaries": report.boundaries.len() },
-                })
+                }),
             );
             Ok(())
         }
@@ -302,17 +312,17 @@ fn run(cli: Cli) -> Result<(), CommandError> {
                 .map_err(|error| CommandError::internal(error.to_string()))?;
             ensure_report_absent(&output)?;
             write_report(&output, json)?;
-            println!(
-                "{}",
-                serde_json::json!({
+            emit_receipt(
+                format,
+                &serde_json::json!({
                     "report": output,
                     "schema_version": report.schema_version,
                     "summary": { "hotspots": report.hotspots.len(), "co_changes": report.co_changes.len(), "contributors": report.contributors.len() },
-                })
+                }),
             );
             Ok(())
         }
-        Command::Doctor { repository } => doctor(repository),
+        Command::Doctor { repository } => doctor(repository, format),
         Command::Plan {
             seams,
             compatibility,
@@ -329,13 +339,13 @@ fn run(cli: Cli) -> Result<(), CommandError> {
                 .map_err(|error| CommandError::internal(error.to_string()))?;
             ensure_report_absent(&output)?;
             write_report(&output, json)?;
-            println!(
-                "{}",
-                serde_json::json!({
+            emit_receipt(
+                format,
+                &serde_json::json!({
                     "report": output,
                     "schema_version": report.schema_version,
                     "summary": { "target_version": report.target_version, "tasks": report.tasks.len() },
-                })
+                }),
             );
             Ok(())
         }
@@ -344,7 +354,7 @@ fn run(cli: Cli) -> Result<(), CommandError> {
             tools,
             dry_run,
             force,
-        } => setup_workspace(repository, tools, dry_run, force),
+        } => setup_workspace(repository, tools, dry_run, force, format),
         Command::Status { journal, run_id } => {
             let snapshot = state::recover_journal(&run_id, &journal).map_err(|error| {
                 CommandError::invalid_input(format!(
@@ -352,13 +362,13 @@ fn run(cli: Cli) -> Result<(), CommandError> {
                     journal.display()
                 ))
             })?;
-            println!(
-                "{}",
-                serde_json::json!({
+            emit_receipt(
+                format,
+                &serde_json::json!({
                     "schema_version": "modernlink.lifecycle-status/v1alpha1",
                     "journal": journal,
                     "snapshot": snapshot,
-                })
+                }),
             );
             Ok(())
         }
@@ -370,7 +380,7 @@ fn run(cli: Cli) -> Result<(), CommandError> {
                     approve,
                     artifact_hashes,
                 },
-        } => advance_lifecycle(journal, run_id, approve, artifact_hashes),
+        } => advance_lifecycle(journal, run_id, approve, artifact_hashes, format),
         Command::Compatibility {
             evidence,
             target,
@@ -389,16 +399,16 @@ fn run(cli: Cli) -> Result<(), CommandError> {
                 .map_err(|error| CommandError::internal(error.to_string()))?;
             ensure_report_absent(&output)?;
             write_report(&output, json)?;
-            println!(
-                "{}",
-                serde_json::json!({
+            emit_receipt(
+                format,
+                &serde_json::json!({
                     "report": output,
                     "schema_version": report.schema_version,
                     "summary": {
                         "target_version": report.target_version,
                         "findings": report.findings.len(),
                     },
-                })
+                }),
             );
             Ok(())
         }
@@ -411,13 +421,13 @@ fn run(cli: Cli) -> Result<(), CommandError> {
                 .map_err(|error| CommandError::internal(error.to_string()))?;
             ensure_report_absent(&output)?;
             write_report(&output, json)?;
-            println!(
-                "{}",
-                serde_json::json!({
+            emit_receipt(
+                format,
+                &serde_json::json!({
                     "report": output,
                     "schema_version": report.schema_version,
                     "summary": { "seams": report.seams.len() },
-                })
+                }),
             );
             Ok(())
         }
@@ -430,16 +440,16 @@ fn run(cli: Cli) -> Result<(), CommandError> {
                 .map_err(|error| CommandError::internal(error.to_string()))?;
             ensure_report_absent(&output)?;
             write_report(&output, json)?;
-            println!(
-                "{}",
-                serde_json::json!({
+            emit_receipt(
+                format,
+                &serde_json::json!({
                     "report": output,
                     "schema_version": report.schema_version,
                     "summary": {
                         "layers": report.layers.len(),
                         "candidate_contexts": report.contexts.len(),
                     },
-                })
+                }),
             );
             Ok(())
         }
@@ -471,9 +481,9 @@ fn run(cli: Cli) -> Result<(), CommandError> {
                 .map_err(|error| CommandError::internal(error.to_string()))?;
             ensure_report_absent(&output)?;
             write_report(&output, json)?;
-            println!(
-                "{}",
-                serde_json::json!({
+            emit_receipt(
+                format,
+                &serde_json::json!({
                     "report": output,
                     "schema_version": graph.schema_version,
                     "summary": {
@@ -482,7 +492,7 @@ fn run(cli: Cli) -> Result<(), CommandError> {
                         "edges": graph.edges.len(),
                         "claims": graph.claims.len(),
                     },
-                })
+                }),
             );
             Ok(())
         }
@@ -523,14 +533,14 @@ fn run(cli: Cli) -> Result<(), CommandError> {
             if let Some(history_json) = history_json {
                 write_report(&history_output, history_json)?;
             }
-            println!(
-                "{}",
-                serde_json::json!({
+            emit_receipt(
+                format,
+                &serde_json::json!({
                     "report": output,
                     "repository_digest": report.repository_digest,
                     "summary": report.summary,
                     "history_report": history.then_some(history_output),
-                })
+                }),
             );
             Ok(())
         }
@@ -549,9 +559,9 @@ fn run(cli: Cli) -> Result<(), CommandError> {
                 .canonical_json()
                 .map_err(|error| CommandError::internal(error.to_string()))?;
             write_report(&output, json)?;
-            println!(
-                "{}",
-                serde_json::json!({
+            emit_receipt(
+                format,
+                &serde_json::json!({
                     "report": output,
                     "repository_digest": report.repository.repository_digest,
                     "summary": {
@@ -560,25 +570,25 @@ fn run(cli: Cli) -> Result<(), CommandError> {
                         "co_changes": report.co_changes.len(),
                         "completeness": report.completeness,
                     },
-                })
+                }),
             );
             Ok(())
         }
         Command::Plugin {
             command: PluginCommand::Install { destination },
-        } => install_plugin(destination),
+        } => install_plugin(destination, format),
         Command::Plugin {
             command:
                 PluginCommand::Bind {
                     plugin_root,
                     binary,
                 },
-        } => bind_plugin(plugin_root, binary),
+        } => bind_plugin(plugin_root, binary, format),
         Command::Harness {
             command: HarnessCommand::List,
         } => {
             let registry = HarnessRegistry::builtin();
-            println!("{}", serde_json::json!({ "harnesses": registry.all() }));
+            emit_receipt(format, &serde_json::json!({ "harnesses": registry.all() }));
             Ok(())
         }
         Command::Runtime { command } => {
@@ -593,7 +603,7 @@ struct DoctorCheck {
     detail: String,
 }
 
-fn doctor(repository: PathBuf) -> Result<(), CommandError> {
+fn doctor(repository: PathBuf, format: OutputFormat) -> Result<(), CommandError> {
     let repository = repository.canonicalize().map_err(|error| {
         CommandError::io(format!(
             "cannot resolve repository {}: {error}",
@@ -643,13 +653,13 @@ fn doctor(repository: PathBuf) -> Result<(), CommandError> {
         "gradle": program_check("gradle", "--version"),
         "harnesses": { "detected": detected_harnesses, "registry": registry.all() },
     });
-    println!(
-        "{}",
-        serde_json::json!({
+    emit_receipt(
+        format,
+        &serde_json::json!({
             "schema_version": "modernlink.doctor/v1alpha1",
             "repository": repository,
             "checks": checks,
-        })
+        }),
     );
     Ok(())
 }
@@ -675,6 +685,7 @@ fn advance_lifecycle(
     run_id: String,
     approve: bool,
     mut artifact_hashes: Vec<String>,
+    format: OutputFormat,
 ) -> Result<(), CommandError> {
     let mut snapshot = if journal.exists() {
         state::recover_journal(&run_id, &journal).map_err(|error| {
@@ -712,14 +723,14 @@ fn advance_lifecycle(
             journal.display()
         ))
     })?;
-    println!(
-        "{}",
-        serde_json::json!({
+    emit_receipt(
+        format,
+        &serde_json::json!({
             "schema_version": "modernlink.lifecycle-transition/v1alpha1",
             "journal": journal,
             "event": event,
             "snapshot": snapshot,
-        })
+        }),
     );
     Ok(())
 }
@@ -738,6 +749,7 @@ fn setup_workspace(
     tools: Option<String>,
     dry_run: bool,
     force: bool,
+    format: OutputFormat,
 ) -> Result<(), CommandError> {
     let repository = repository.canonicalize().map_err(|error| {
         CommandError::io(format!(
@@ -805,15 +817,15 @@ fn setup_workspace(
             ))
         })?;
     }
-    println!(
-        "{}",
-        serde_json::json!({
+    emit_receipt(
+        format,
+        &serde_json::json!({
             "schema_version": "modernlink.setup-result/v1alpha1",
             "repository": repository,
             "dry_run": dry_run,
             "workspace_manifest": manifest_path,
             "workspace": manifest,
-        })
+        }),
     );
     Ok(())
 }
@@ -1020,6 +1032,50 @@ fn write_report(output: &Path, json: String) -> Result<(), CommandError> {
     Ok(())
 }
 
+/// Emits only the command receipt. Durable analyzer artifacts are always written as canonical
+/// JSON at their explicit output path, so agent integrations never need to parse this display.
+fn emit_receipt(format: OutputFormat, receipt: &serde_json::Value) {
+    match format {
+        OutputFormat::Json => println!("{receipt}"),
+        OutputFormat::Human => {
+            println!("ModernLink");
+            for key in [
+                "report",
+                "schema_version",
+                "repository",
+                "journal",
+                "pointer",
+                "binary",
+            ] {
+                if let Some(value) = receipt.get(key) {
+                    println!("{}: {}", humanize_key(key), human_value(value));
+                }
+            }
+            if let Some(summary) = receipt
+                .get("summary")
+                .and_then(serde_json::Value::as_object)
+            {
+                println!("Summary:");
+                for (key, value) in summary {
+                    println!("  {}: {}", humanize_key(key), human_value(value));
+                }
+            }
+        }
+    }
+}
+
+fn humanize_key(key: &str) -> String {
+    key.replace('_', " ")
+}
+
+fn human_value(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(value) => value.clone(),
+        serde_json::Value::Null => "none".to_owned(),
+        _ => value.to_string(),
+    }
+}
+
 fn ensure_report_absent(output: &Path) -> Result<(), CommandError> {
     if output.exists() {
         return Err(CommandError::io(format!(
@@ -1030,7 +1086,11 @@ fn ensure_report_absent(output: &Path) -> Result<(), CommandError> {
     Ok(())
 }
 
-fn bind_plugin(plugin_root: PathBuf, binary: PathBuf) -> Result<(), CommandError> {
+fn bind_plugin(
+    plugin_root: PathBuf,
+    binary: PathBuf,
+    format: OutputFormat,
+) -> Result<(), CommandError> {
     if !plugin_root.is_dir() {
         return Err(CommandError::invalid_input(format!(
             "plugin root is not a directory: {}",
@@ -1073,14 +1133,14 @@ fn bind_plugin(plugin_root: PathBuf, binary: PathBuf) -> Result<(), CommandError
     fs::write(&pointer_path, json).map_err(|error| {
         CommandError::io(format!("cannot write {}: {error}", pointer_path.display()))
     })?;
-    println!(
-        "{}",
-        serde_json::json!({"pointer": pointer_path, "binary": binary})
+    emit_receipt(
+        format,
+        &serde_json::json!({"pointer": pointer_path, "binary": binary}),
     );
     Ok(())
 }
 
-fn install_plugin(destination: PathBuf) -> Result<(), CommandError> {
+fn install_plugin(destination: PathBuf, format: OutputFormat) -> Result<(), CommandError> {
     if destination.exists() {
         return Err(CommandError::io(format!(
             "refusing to install into existing path {}; choose a new explicit destination",
@@ -1119,14 +1179,14 @@ fn install_plugin(destination: PathBuf) -> Result<(), CommandError> {
         Ok(())
     })();
     result?;
-    println!(
-        "{}",
-        serde_json::json!({
+    emit_receipt(
+        format,
+        &serde_json::json!({
             "schema_version": "modernlink.plugin-install/v1alpha1",
             "plugin_root": destination,
             "binary_pointer": "not-created; run modernlink plugin bind with this plugin_root and the intended binary",
             "harness_materialization": "not-attempted; adapter paths require an explicit harness ownership contract",
-        })
+        }),
     );
     Ok(())
 }
