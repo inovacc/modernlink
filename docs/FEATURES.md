@@ -1,5 +1,5 @@
 # Features
-<!-- rev:016 (RFC 3339) 2026-08-24T00:00:00Z -->
+<!-- rev:017 (RFC 3339) 2026-08-24T00:00:00Z -->
 
 What exists in the current tree, and what is proposed. "Implemented" means the code is present;
 it does **not** mean the behavior satisfies the intended runtime contract. See
@@ -75,6 +75,7 @@ host product remains outside every recorded run. See [ISSUES.md](ISSUES.md) I-01
 | Target-runtime compatibility review | `modernlink compatibility --target <major>` | Emits evidence-linked review findings for observed internal-JDK, Java EE, and application-server imports; it does not claim a readiness percentage or inspect resolved dependencies/runtime behavior yet. |
 | Lifecycle status | `modernlink status --run-id <id>` | Replays the setup-owned `.modernlink/state/migrations/<id>.jsonl` journal into a machine-readable snapshot; an explicit `--journal` remains available for externally managed journals. An absent default journal reports the initial state without writing. |
 | Lifecycle transition | `modernlink lifecycle advance --run-id <id>` | Appends only the next valid phase to the setup-owned journal, requires `--approve` for Modernize/Cutover/Detach, and records explicit artifact digests. Run IDs are constrained so the default journal cannot escape its workspace directory. |
+| Reviewable migration record | `modernlink migration create --id <id> --plan <plan.json>` | Requires a setup-owned workspace and a plan that passes static integrity checks. It writes an immutable canonical plan plus `status.json` under `modernlink/migrations/<id>/`, hashes the plan, records approval-gated task IDs, and links the mutable local journal. It does not authorize implementation or cutover. |
 | Evidence-linked migration DAG | `modernlink plan --seams … --compatibility …` | Turns existing seam and compatibility evidence into prerequisite tasks; it proposes no target technology or automatic cutover. |
 | Static migration-plan verification | `modernlink verify --plan …` | Checks task uniqueness, dependency references, and declared migration approval gates; it explicitly does not verify behavior, tests, runtime safety, or cutover readiness. |
 | Command receipt formats | `modernlink --format json\|yaml\|human <command>` | Emits JSON by default, YAML for machine consumers that prefer it, or a compact human receipt. Explicit report files remain canonical JSON, so their schema and overwrite behavior do not vary by terminal format. |

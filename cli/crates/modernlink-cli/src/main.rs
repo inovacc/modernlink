@@ -116,6 +116,12 @@ enum Command {
         #[command(subcommand)]
         command: LifecycleCommand,
     },
+    /// Create a reviewable migration record from a validated evidence-linked plan.
+    #[command(alias = "migrate")]
+    Migration {
+        #[command(subcommand)]
+        command: MigrationCommand,
+    },
     /// Assess target-runtime risks from a shared evidence graph.
     Compatibility {
         /// Shared evidence graph JSON path.
@@ -295,6 +301,22 @@ enum LifecycleCommand {
     },
 }
 
+#[derive(Debug, Subcommand)]
+enum MigrationCommand {
+    /// Create a new immutable migration record beneath modernlink/migrations/.
+    Create {
+        /// Repository that already has a ModernLink workspace.
+        #[arg(long, default_value = ".")]
+        repository: PathBuf,
+        /// Stable migration identifier used for the reviewed record and lifecycle journal.
+        #[arg(long)]
+        id: String,
+        /// Validated migration plan JSON path.
+        #[arg(long)]
+        plan: PathBuf,
+    },
+}
+
 fn main() -> ExitCode {
     match run(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,
@@ -422,6 +444,14 @@ fn run(cli: Cli) -> Result<(), CommandError> {
             artifact_hashes,
             format,
         ),
+        Command::Migration {
+            command:
+                MigrationCommand::Create {
+                    repository,
+                    id,
+                    plan,
+                },
+        } => create_migration_record(repository, id, plan, format),
         Command::Compatibility {
             evidence,
             target,
@@ -862,6 +892,119 @@ fn validate_lifecycle_run_id(run_id: &str) -> Result<(), CommandError> {
                 .to_owned(),
         ))
     }
+}
+
+#[derive(Debug, serde::Serialize)]
+struct MigrationRecord {
+    schema_version: String,
+    id: String,
+    status: String,
+    plan_schema_version: String,
+    target_version: u16,
+    task_count: usize,
+    approval_required_task_ids: Vec<String>,
+    plan_sha256: String,
+    lifecycle_journal: String,
+}
+
+fn create_migration_record(
+    repository: PathBuf,
+    id: String,
+    plan_path: PathBuf,
+    format: OutputFormat,
+) -> Result<(), CommandError> {
+    validate_lifecycle_run_id(&id)?;
+    let repository = canonical_repository(repository)?;
+    let workspace_manifest = repository.join(".modernlink").join("workspace.json");
+    let _ = read_workspace_manifest(&workspace_manifest)?;
+    let plan = read_json::<inference::MigrationPlan>(&plan_path, "migration plan")?;
+    if plan.schema_version != inference::MIGRATION_PLAN_SCHEMA_VERSION {
+        return Err(CommandError::invalid_input(format!(
+            "migration plan {} has unsupported schema {}; expected {}",
+            plan_path.display(),
+            plan.schema_version,
+            inference::MIGRATION_PLAN_SCHEMA_VERSION
+        )));
+    }
+    let verification = inference::verify_plan(&plan);
+    let gaps = verification
+        .checks
+        .iter()
+        .filter(|check| check.status == "GAP")
+        .map(|check| check.id.as_str())
+        .collect::<Vec<_>>();
+    if !gaps.is_empty() {
+        return Err(CommandError::invalid_input(format!(
+            "refusing to create migration record from an invalid plan; failing checks: {}",
+            gaps.join(", ")
+        )));
+    }
+    let plan_json = plan
+        .canonical_json()
+        .map_err(|error| CommandError::internal(error.to_string()))?;
+    let plan_sha256 = format!(
+        "sha256:{}",
+        hex::encode(Sha256::digest(plan_json.as_bytes()))
+    );
+    let mut approval_required_task_ids = plan
+        .tasks
+        .iter()
+        .filter(|task| task.approval_required)
+        .map(|task| task.id.clone())
+        .collect::<Vec<_>>();
+    approval_required_task_ids.sort();
+    let record = MigrationRecord {
+        schema_version: "modernlink.migration-record/v1alpha1".to_owned(),
+        id: id.clone(),
+        status: "PLANNED".to_owned(),
+        plan_schema_version: plan.schema_version.clone(),
+        target_version: plan.target_version,
+        task_count: plan.tasks.len(),
+        approval_required_task_ids,
+        plan_sha256,
+        lifecycle_journal: format!(".modernlink/state/migrations/{id}.jsonl"),
+    };
+    let records_root = repository.join("modernlink").join("migrations");
+    fs::create_dir_all(&records_root).map_err(|error| {
+        CommandError::io(format!(
+            "cannot create ModernLink migration records directory {}: {error}",
+            records_root.display()
+        ))
+    })?;
+    let record_root = records_root.join(&id);
+    fs::create_dir(&record_root).map_err(|error| {
+        CommandError::io(format!(
+            "refusing to overwrite existing ModernLink migration record {}: {error}",
+            record_root.display()
+        ))
+    })?;
+    let result = (|| -> Result<(), CommandError> {
+        fs::write(record_root.join("plan.json"), plan_json).map_err(|error| {
+            CommandError::io(format!("cannot write migration plan artifact: {error}"))
+        })?;
+        let mut record_json = serde_json::to_string_pretty(&record)
+            .map_err(|error| CommandError::internal(error.to_string()))?;
+        record_json.push('\n');
+        fs::write(record_root.join("status.json"), record_json).map_err(|error| {
+            CommandError::io(format!("cannot write migration status artifact: {error}"))
+        })?;
+        Ok(())
+    })();
+    if let Err(error) = result {
+        let _ = fs::remove_dir_all(&record_root);
+        return Err(error);
+    }
+    emit_receipt(
+        format,
+        &serde_json::json!({
+            "schema_version": "modernlink.migration-create/v1alpha1",
+            "repository": repository,
+            "migration": record,
+            "record_root": record_root,
+            "plan_source": plan_path,
+        }),
+    );
+    Ok(())
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

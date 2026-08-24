@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:033 (RFC 3339) 2026-08-24T00:00:00Z -->
+<!-- rev:034 (RFC 3339) 2026-08-24T00:00:00Z -->
 
 Reconciled 2026-08-21 against the current tree. Phases follow the M1/M2 structure in
 [BACKLOG.md](BACKLOG.md); tasks are broken out in [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md).
@@ -154,7 +154,7 @@ runtime, transaction, or cutover behavior.
 - [~] Lifecycle transition/replay plus append-only JSONL journal; snapshots, approval records, and reconciliation remain pending
 - [~] `modernlink status` can recover a read-only lifecycle snapshot from an explicit or setup-owned workspace journal; artifact reconciliation and migration-specific state remain pending
 - [~] `modernlink lifecycle advance` appends the sole valid next transition to an explicit or setup-owned workspace journal and enforces explicit approvals; artifact reconciliation and migration-specific state remain pending
-- [~] `modernlink plan` emits an evidence-linked prerequisite DAG from seam and compatibility reports; seam-specific strategies, verification gates, and stateful migration plans remain pending
+- [~] `modernlink plan` emits an evidence-linked prerequisite DAG from seam and compatibility reports, and `modernlink migration create` preserves a validated plan as an immutable reviewed record linked to its workspace journal; seam-specific strategies, verification gates, and stateful migration-task updates remain pending
 - [~] `modernlink verify` checks static plan integrity and declared approval gates; behavioral, contract, security, observability, performance, rollback, and runtime verification remain pending
 - [~] `modernlink setup` creates rerunnable `.modernlink/` metadata/cache state with protected local-state ignore rules, interactive Space/Enter selection or `--tools`, `--dry-run`, and explicit `--force`; adapter materialization remains pending
 - [~] Canonical lifecycle plugin bundle with core skills, specialist roles, command contracts, and Codex/Claude adapter descriptors; installation/manifests and additional specialists remain pending
