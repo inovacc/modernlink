@@ -8,7 +8,8 @@
   },
   "files": [
     "bin/",
-    "README.md"
+    "README.md",
+    "NATIVE-INTEGRITY-MANIFEST.md"
   ],
   "optionalDependencies": {
     "@inovacc/modernlink-win32-x64": "0.1.0",
