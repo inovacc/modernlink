@@ -199,6 +199,7 @@ pub struct StaticBoundary {
     pub state: ClaimState,
     pub kind: String,
     pub annotation: String,
+    pub source_kind: String,
     pub source_path: String,
     pub evidence_ids: Vec<String>,
     pub reasoning: String,
@@ -532,10 +533,17 @@ pub fn infer_boundaries(graph: &EvidenceGraph) -> Result<BoundaryReport, Inferen
     graph.validate()?;
     let mut boundaries = Vec::new();
     for evidence in &graph.evidence {
-        if evidence.kind != "annotation" {
-            continue;
-        }
-        let Some((kind, reasoning)) = annotation_boundary(&evidence.value) else {
+        let (kind, reasoning) = if evidence.kind == "annotation" {
+            let Some((kind, reasoning)) = annotation_boundary(&evidence.value) else {
+                continue;
+            };
+            (kind, reasoning)
+        } else if evidence.kind == "transaction-descriptor-reference" {
+            (
+                "transaction",
+                "inferred from a recognized deployment transaction descriptor value",
+            )
+        } else {
             continue;
         };
         boundaries.push(StaticBoundary {
@@ -543,6 +551,7 @@ pub fn infer_boundaries(graph: &EvidenceGraph) -> Result<BoundaryReport, Inferen
             state: ClaimState::Inference,
             kind: kind.to_owned(),
             annotation: evidence.value.clone(),
+            source_kind: evidence.kind.clone(),
             source_path: evidence.source.path.clone(),
             evidence_ids: vec![evidence.id.clone()],
             reasoning: reasoning.to_owned(),
@@ -551,7 +560,7 @@ pub fn infer_boundaries(graph: &EvidenceGraph) -> Result<BoundaryReport, Inferen
     Ok(BoundaryReport {
         schema_version: BOUNDARIES_SCHEMA_VERSION.to_owned(),
         boundaries,
-        limitations: vec!["Annotation presence is source evidence only; this report does not establish runtime activation, entry ownership, transaction resources, or message destinations.".to_owned()],
+        limitations: vec!["Annotation and deployment-descriptor evidence are static only; this report does not establish runtime activation, entry ownership, transaction resources, transaction propagation, or message destinations.".to_owned()],
     })
 }
 

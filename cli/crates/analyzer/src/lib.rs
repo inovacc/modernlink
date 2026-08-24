@@ -598,6 +598,12 @@ fn add_descriptor_content_facts(
                     None
                 };
                 if let Some(rule) = rule.filter(|_| !value.is_empty()) {
+                    let observation_kind = if rule.rule_id == "descriptor.xml.transaction-boundary"
+                    {
+                        "transaction-descriptor-reference"
+                    } else {
+                        "descriptor-reference"
+                    };
                     let start = source
                         .windows(value.len())
                         .position(|window| window == value.as_bytes())
@@ -608,7 +614,7 @@ fn add_descriptor_content_facts(
                         end_byte: start + value.len(),
                     };
                     let evidence_id = push_evidence_with_collector(
-                        "descriptor-reference",
+                        observation_kind,
                         &fact,
                         path,
                         artifact_id,

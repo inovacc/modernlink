@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:039 (RFC 3339) 2026-08-24T11:36:31Z -->
+<!-- rev:040 (RFC 3339) 2026-08-24T11:39:01Z -->
 
 Reconciled 2026-08-21 against the current tree. Phases follow the M1/M2 structure in
 [BACKLOG.md](BACKLOG.md); tasks are broken out in [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md).
@@ -148,7 +148,7 @@ runtime, transaction, or cutover behavior.
 - [~] `modernlink seams` decomposed vendor/JMS/JNDI/database/SOAP import-boundary scoring plus lower-confidence lexical SQL table read/write candidates; transaction, message-flow, resolved data-flow, ownership, and runtime seam detectors remain pending
 - [~] Deterministic import-derived legacy infrastructure inventory (JMS, JNDI, JDBC/persistence, EJB, JTA, JAX-WS, JAXB, JMX, Servlet, RMI, Spring), plus XML descriptor JNDI/JMS references; call/data-flow confirmation remains pending
 - [~] Deterministic recognized annotation signals for transaction, messaging, SOAP, HTTP, and batch boundaries; method ownership, transaction resources, and runtime activation remain pending
-- [~] `modernlink boundaries` emits annotation-backed boundary candidates with explicit limitations; source call graphs, destination/resource mapping, and runtime confirmation remain pending
+- [~] `modernlink boundaries` emits annotation-backed candidates plus recognized transaction-descriptor values with explicit source kinds and limitations; source call graphs, destination/resource mapping, transaction resources/propagation, and runtime confirmation remain pending
 - [~] Compiled `.class` and bounded JAR/WAR/EAR-entry constant-pool reference inventory with cited classfile major versions, known Java mappings, recognized archive descriptor paths, and bounded streamed XML reference extraction; semantic bytecode traversal and nested archive traversal remain pending
 - [~] Repository `.sql` and unescaped static Java-literal table-access evidence for DML, DDL, `FROM`, and `JOIN`, emitted as cited database-table nodes and `reads`/`writes` graph edges; dynamic/concatenated/escaped/runtime-loaded SQL, dialect semantics, resource mapping, and table ownership remain pending
 - [~] `modernlink compatibility --target` evidence-linked import review for Java EE, internal-JDK, server APIs, bytecode references, and literal Maven/Gradle Java-level declarations; dependency resolution, property/toolchain evaluation, and runtime analysis remain pending

@@ -1,4 +1,6 @@
-use inference::{assess_compatibility, infer_seams, infer_structure, plan_migration};
+use inference::{
+    assess_compatibility, infer_boundaries, infer_seams, infer_structure, plan_migration,
+};
 use model::{Evidence, EvidenceGraph, GraphEdge, GraphNode, SourceLocation};
 
 #[test]
@@ -37,6 +39,34 @@ fn structural_inference_labels_layers_and_candidate_contexts_as_inferences() {
             && context.state == model::ClaimState::Hypothesis
             && context.evidence_ids == vec!["evidence:service"]
     }));
+}
+
+#[test]
+fn boundary_inference_distinguishes_transaction_descriptor_evidence() {
+    let graph = EvidenceGraph {
+        schema_version: "modernlink.evidence/v1alpha1".to_owned(),
+        evidence: vec![Evidence {
+            id: "evidence:jta-descriptor".to_owned(),
+            kind: "transaction-descriptor-reference".to_owned(),
+            value: "JTA".to_owned(),
+            source: SourceLocation {
+                path: "WEB-INF/weblogic.xml".to_owned(),
+                start_byte: 20,
+                end_byte: 23,
+            },
+        }],
+        nodes: Vec::new(),
+        edges: Vec::new(),
+        claims: Vec::new(),
+    };
+
+    let boundary = infer_boundaries(&graph)
+        .expect("boundary inference")
+        .boundaries
+        .remove(0);
+    assert_eq!(boundary.kind, "transaction");
+    assert_eq!(boundary.source_kind, "transaction-descriptor-reference");
+    assert_eq!(boundary.annotation, "JTA");
 }
 
 #[test]
