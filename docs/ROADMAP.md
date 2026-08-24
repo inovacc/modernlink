@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:034 (RFC 3339) 2026-08-24T00:00:00Z -->
+<!-- rev:035 (RFC 3339) 2026-08-24T00:00:00Z -->
 
 Reconciled 2026-08-21 against the current tree. Phases follow the M1/M2 structure in
 [BACKLOG.md](BACKLOG.md); tasks are broken out in [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md).
@@ -152,8 +152,8 @@ runtime, transaction, or cutover behavior.
 - [~] Compiled `.class` and bounded JAR/WAR/EAR-entry constant-pool reference inventory with cited classfile major versions, known Java mappings, recognized archive descriptor paths, and bounded streamed XML reference extraction; semantic bytecode traversal and nested archive traversal remain pending
 - [~] `modernlink compatibility --target` evidence-linked import review for Java EE, internal-JDK, server APIs, bytecode references, and literal Maven/Gradle Java-level declarations; dependency resolution, property/toolchain evaluation, and runtime analysis remain pending
 - [~] Lifecycle transition/replay plus append-only JSONL journal; snapshots, approval records, and reconciliation remain pending
-- [~] `modernlink status` can recover a read-only lifecycle snapshot from an explicit or setup-owned workspace journal; artifact reconciliation and migration-specific state remain pending
-- [~] `modernlink lifecycle advance` appends the sole valid next transition to an explicit or setup-owned workspace journal and enforces explicit approvals; artifact reconciliation and migration-specific state remain pending
+- [~] `modernlink status` can recover a read-only lifecycle snapshot from an explicit or setup-owned workspace journal, while `modernlink migration status` reconciles the workspace record, immutable plan hash, and linked journal; migration-specific state remains pending
+- [~] `modernlink lifecycle advance` appends the sole valid next transition to an explicit or setup-owned workspace journal and enforces explicit approvals; task-level lifecycle state remains pending
 - [~] `modernlink plan` emits an evidence-linked prerequisite DAG from seam and compatibility reports, and `modernlink migration create` preserves a validated plan as an immutable reviewed record linked to its workspace journal; seam-specific strategies, verification gates, and stateful migration-task updates remain pending
 - [~] `modernlink verify` checks static plan integrity and declared approval gates; behavioral, contract, security, observability, performance, rollback, and runtime verification remain pending
 - [~] `modernlink setup` creates rerunnable `.modernlink/` metadata/cache state with protected local-state ignore rules, interactive Space/Enter selection or `--tools`, `--dry-run`, and explicit `--force`; adapter materialization remains pending

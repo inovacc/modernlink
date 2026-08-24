@@ -315,6 +315,15 @@ enum MigrationCommand {
         #[arg(long)]
         plan: PathBuf,
     },
+    /// Reconcile an immutable migration record with its plan and lifecycle journal without writing.
+    Status {
+        /// Repository that owns the ModernLink workspace and migration record.
+        #[arg(long, default_value = ".")]
+        repository: PathBuf,
+        /// Stable migration identifier.
+        #[arg(long)]
+        id: String,
+    },
 }
 
 fn main() -> ExitCode {
@@ -452,6 +461,9 @@ fn run(cli: Cli) -> Result<(), CommandError> {
                     plan,
                 },
         } => create_migration_record(repository, id, plan, format),
+        Command::Migration {
+            command: MigrationCommand::Status { repository, id },
+        } => migration_status(repository, id, format),
         Command::Compatibility {
             evidence,
             target,
@@ -894,7 +906,7 @@ fn validate_lifecycle_run_id(run_id: &str) -> Result<(), CommandError> {
     }
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct MigrationRecord {
     schema_version: String,
     id: String,
@@ -905,6 +917,13 @@ struct MigrationRecord {
     approval_required_task_ids: Vec<String>,
     plan_sha256: String,
     lifecycle_journal: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct ReconciliationCheck {
+    id: String,
+    status: String,
+    summary: String,
 }
 
 fn create_migration_record(
@@ -1002,6 +1021,137 @@ fn create_migration_record(
             "migration": record,
             "record_root": record_root,
             "plan_source": plan_path,
+        }),
+    );
+    Ok(())
+}
+
+fn migration_status(
+    repository: PathBuf,
+    id: String,
+    format: OutputFormat,
+) -> Result<(), CommandError> {
+    validate_lifecycle_run_id(&id)?;
+    let repository = canonical_repository(repository)?;
+    let workspace_manifest = repository.join(".modernlink").join("workspace.json");
+    let _ = read_workspace_manifest(&workspace_manifest)?;
+    let record_root = repository.join("modernlink").join("migrations").join(&id);
+    let record_path = record_root.join("status.json");
+    let record = read_json::<MigrationRecord>(&record_path, "migration record")?;
+    if record.schema_version != "modernlink.migration-record/v1alpha1" || record.id != id {
+        return Err(CommandError::invalid_input(format!(
+            "migration record {} does not match the requested v1alpha1 record for {id}",
+            record_path.display()
+        )));
+    }
+    let plan_path = record_root.join("plan.json");
+    let plan = read_json::<inference::MigrationPlan>(&plan_path, "recorded migration plan")?;
+    let plan_json = plan
+        .canonical_json()
+        .map_err(|error| CommandError::internal(error.to_string()))?;
+    let actual_plan_sha256 = format!(
+        "sha256:{}",
+        hex::encode(Sha256::digest(plan_json.as_bytes()))
+    );
+    let plan_verification = inference::verify_plan(&plan);
+    let plan_valid = plan.schema_version == inference::MIGRATION_PLAN_SCHEMA_VERSION
+        && plan_verification
+            .checks
+            .iter()
+            .all(|check| check.status == "OBSERVED");
+    let mut expected_approval_task_ids = plan
+        .tasks
+        .iter()
+        .filter(|task| task.approval_required)
+        .map(|task| task.id.clone())
+        .collect::<Vec<_>>();
+    expected_approval_task_ids.sort();
+    let metadata_matches = record.plan_schema_version == plan.schema_version
+        && record.target_version == plan.target_version
+        && record.task_count == plan.tasks.len()
+        && record.approval_required_task_ids == expected_approval_task_ids;
+    let expected_journal = format!(".modernlink/state/migrations/{id}.jsonl");
+    let journal_matches = record.lifecycle_journal == expected_journal;
+    let journal_path = repository
+        .join(".modernlink")
+        .join("state")
+        .join("migrations")
+        .join(format!("{id}.jsonl"));
+    let (journal_status, snapshot) = if journal_path.exists() {
+        match state::recover_journal(&id, &journal_path) {
+            Ok(snapshot) => (
+                ReconciliationCheck {
+                    id: "lifecycle-journal".to_owned(),
+                    status: "OBSERVED".to_owned(),
+                    summary: format!(
+                        "Lifecycle journal replays to {:?} at sequence {}.",
+                        snapshot.phase, snapshot.last_sequence
+                    ),
+                },
+                Some(snapshot),
+            ),
+            Err(error) => (
+                ReconciliationCheck {
+                    id: "lifecycle-journal".to_owned(),
+                    status: "GAP".to_owned(),
+                    summary: format!("Lifecycle journal cannot be replayed: {error}"),
+                },
+                None,
+            ),
+        }
+    } else {
+        (
+            ReconciliationCheck {
+                id: "lifecycle-journal".to_owned(),
+                status: "NOT_STARTED".to_owned(),
+                summary: "No lifecycle event has been recorded yet.".to_owned(),
+            },
+            Some(state::LifecycleSnapshot::new(&id)),
+        )
+    };
+    let checks = vec![
+        ReconciliationCheck {
+            id: "plan-sha256".to_owned(),
+            status: if record.plan_sha256 == actual_plan_sha256 {
+                "OBSERVED"
+            } else {
+                "GAP"
+            }
+            .to_owned(),
+            summary: "Recorded plan SHA-256 matches the canonical plan artifact.".to_owned(),
+        },
+        ReconciliationCheck {
+            id: "plan-contract".to_owned(),
+            status: if plan_valid { "OBSERVED" } else { "GAP" }.to_owned(),
+            summary: "Recorded plan retains its supported schema and static integrity checks."
+                .to_owned(),
+        },
+        ReconciliationCheck {
+            id: "record-metadata".to_owned(),
+            status: if metadata_matches { "OBSERVED" } else { "GAP" }.to_owned(),
+            summary: "Record target, task count, and approval-gated task IDs match its plan."
+                .to_owned(),
+        },
+        ReconciliationCheck {
+            id: "journal-link".to_owned(),
+            status: if journal_matches { "OBSERVED" } else { "GAP" }.to_owned(),
+            summary: "Record lifecycle-journal link matches the setup-owned migration journal."
+                .to_owned(),
+        },
+        journal_status,
+    ];
+    let gaps = checks.iter().filter(|check| check.status == "GAP").count();
+    emit_receipt(
+        format,
+        &serde_json::json!({
+            "schema_version": "modernlink.migration-status/v1alpha1",
+            "repository": repository,
+            "record_root": record_root,
+            "migration": record,
+            "plan": plan_path,
+            "checks": checks,
+            "snapshot": snapshot,
+            "summary": { "gaps": gaps },
         }),
     );
     Ok(())

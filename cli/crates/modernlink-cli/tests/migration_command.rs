@@ -74,6 +74,45 @@ fn migration_create_preserves_a_validated_plan_with_its_lifecycle_link() {
             .expect("plan JSON");
     assert_eq!(saved_plan["tasks"].as_array().unwrap().len(), 2);
 
+    let status = Command::new(binary)
+        .args(["migration", "status", "--repository"])
+        .arg(repository.path())
+        .args(["--id", "MIG-100"])
+        .output()
+        .expect("reconcile migration record");
+    assert!(
+        status.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+    let reconciliation: serde_json::Value =
+        serde_json::from_slice(&status.stdout).expect("reconciliation JSON");
+    assert_eq!(reconciliation["summary"]["gaps"], 0);
+    assert_eq!(reconciliation["snapshot"]["phase"], "SETUP");
+
+    let saved_plan_path = record_root.join("plan.json");
+    let tampered = fs::read_to_string(&saved_plan_path)
+        .expect("saved plan")
+        .replace("\"target_version\": 21", "\"target_version\": 17");
+    fs::write(&saved_plan_path, tampered).expect("tamper plan");
+    let tampered_status = Command::new(binary)
+        .args(["migrate", "status", "--repository"])
+        .arg(repository.path())
+        .args(["--id", "MIG-100"])
+        .output()
+        .expect("reconcile tampered migration record");
+    assert!(tampered_status.status.success());
+    let tampered: serde_json::Value =
+        serde_json::from_slice(&tampered_status.stdout).expect("tampered reconciliation JSON");
+    assert_eq!(tampered["summary"]["gaps"], 2);
+    assert!(
+        tampered["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|check| { check["id"] == "plan-sha256" && check["status"] == "GAP" })
+    );
+
     let duplicate = Command::new(binary)
         .args(["migration", "create", "--repository"])
         .arg(repository.path())
