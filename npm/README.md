@@ -8,7 +8,7 @@ Packages publish only to GitHub Packages at `https://npm.pkg.github.com`. The re
 uses its repository-scoped `GITHUB_TOKEN` with `packages: write`; it does not use an npmjs token.
 
 `LATEST` is the release-version anchor. To bump every Rust crate, the npm wrapper and platform
-dependency pins, and managed plugin skills together, run:
+dependency pins, managed plugin skills, and harness plugin manifests together, run:
 
 ```sh
 node scripts/release_version.mjs set 0.2.0

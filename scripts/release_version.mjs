@@ -18,6 +18,10 @@ const skillFiles = [
   'cli/plugin/skills/modernlink-plan/SKILL.md',
   'cli/plugin/skills/modernlink-verify/SKILL.md'
 ];
+const pluginManifestFiles = [
+  'cli/plugin/.codex-plugin/plugin.json',
+  'cli/plugin/.claude-plugin/plugin.json'
+];
 const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 function readLatest() {
@@ -61,9 +65,14 @@ function writeVersion(version) {
   }
   const packagePath = resolve(root, 'npm/modernlink/package.json');
   const pkg = JSON.parse(readFileSync(packagePath, 'utf8'));
+  const packageNeedsUpdate = pkg.version !== version
+    || Object.values(pkg.optionalDependencies).some((dependencyVersion) => dependencyVersion !== version);
   pkg.version = version;
   for (const name of Object.keys(pkg.optionalDependencies)) pkg.optionalDependencies[name] = version;
-  writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
+  if (packageNeedsUpdate) writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
+  for (const path of pluginManifestFiles) {
+    replaceSingle(path, /^  "version": "[^"]+",\s*$/m, `  "version": "${version}",`);
+  }
   writeFileSync(latestPath, `${version}\n`);
 }
 
@@ -74,6 +83,10 @@ function checkVersion(version) {
   if (pkg.version !== version) throw new Error(`npm/modernlink/package.json does not match LATEST (${version}).`);
   for (const [name, dependencyVersion] of Object.entries(pkg.optionalDependencies)) {
     if (dependencyVersion !== version) throw new Error(`${name} does not match LATEST (${version}).`);
+  }
+  for (const path of pluginManifestFiles) {
+    const manifest = JSON.parse(readFileSync(resolve(root, path), 'utf8'));
+    if (manifest.version !== version) throw new Error(`${path} does not match LATEST (${version}).`);
   }
 }
 
