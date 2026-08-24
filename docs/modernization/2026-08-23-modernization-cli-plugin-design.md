@@ -23,6 +23,10 @@ Codex and Claude capability records but deliberately has no installation paths; 
 distribution, verified harness adapters, and the full lifecycle remain planned. `modernlink setup`
 now creates only ModernLink-owned `.modernlink/` local metadata/cache directories and records
 explicit harness selections; it does not modify harness instructions or claim adapter installation.
+The canonical `cli/plugin/` bundle now contains the evidence/approval lifecycle rules, core
+analyze/plan/modernize/verify/migrate/status command contracts, focused skills, and bounded
+orchestrator/archaeologist/verification agent roles. Its Codex and Claude descriptors still
+state `pending-ownership-contract`: no user-managed harness file is materialized yet.
 
 ## Goal
 

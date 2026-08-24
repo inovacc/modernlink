@@ -72,6 +72,7 @@ host product remains outside every recorded run. See [ISSUES.md](ISSUES.md) I-01
 | Lifecycle transition | `modernlink lifecycle advance --journal … --run-id …` | Appends only the next valid phase, requires `--approve` for Modernize/Cutover/Detach, and records explicit artifact digests. |
 | Evidence-linked migration DAG | `modernlink plan --seams … --compatibility …` | Turns existing seam and compatibility evidence into prerequisite tasks; it proposes no target technology or automatic cutover. |
 | Safe local workspace setup | `modernlink setup [repo] --tools <ids\|all\|none>` | Creates only `.modernlink/` state/cache directories and its owned manifest; tool selection/detection is recorded, while harness files are intentionally untouched pending approved adapter ownership contracts. |
+| Canonical lifecycle plugin bundle | `cli/plugin/` | Includes harness-neutral analyze/plan/modernize/verify/migrate/status command contracts, focused skills, specialist-role descriptors, and lifecycle rules; Codex/Claude materialization remains intentionally pending ownership contracts. |
 | Local Git evolution evidence | `cli/crates/git`, `modernlink history` | Uses structured `gix` APIs; default artifacts fingerprint commit messages instead of storing message text. |
 | Path deltas, bounded co-change, and knowledge signals | `modernlink.git-history/v1alpha1` | Co-change expansion and commit traversal report caps explicitly; no contributor productivity ranking. |
 | Repository-local Git cache | `.modernlink/cache/git/` | Cache is ignored, input-keyed, and local only. |

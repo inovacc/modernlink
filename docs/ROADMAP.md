@@ -151,6 +151,7 @@ stateful agent modernization lifecycle.
 - [~] `modernlink lifecycle advance` appends the sole valid next transition and enforces explicit approvals; artifact reconciliation and migration-specific state remain pending
 - [~] `modernlink plan` emits an evidence-linked prerequisite DAG from seam and compatibility reports; seam-specific strategies, verification gates, and stateful migration plans remain pending
 - [~] `modernlink setup` creates rerunnable `.modernlink/` metadata/cache state with `--tools`, `--dry-run`, and explicit `--force`; interactive selection and adapter materialization remain pending
+- [~] Canonical lifecycle plugin bundle with core skills, specialist roles, command contracts, and Codex/Claude adapter descriptors; installation/manifests and additional specialists remain pending
 - [~] Descriptor-driven Codex/Claude registry and `modernlink harness list`; verified installation adapters remain pending
 - [ ] Java/application-server/transaction/messaging/database boundary detectors
 - [ ] Architecture, candidate-domain, and modernization-seam inference
