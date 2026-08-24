@@ -9,8 +9,9 @@ the documentation lifecycle, and the Tree-sitter extraction architecture. Implem
 underway in controlled slices: the analyzer, plugin-pointer contract, runtime-observation
 preparation, Git-evolution artifact, shared evidence-model kernel, and lifecycle transition/replay
 kernel exist. The analyzer and Git artifacts now adapt into that shared graph through
-`modernlink inspect [--history]`; broader detector families and graph-backed inference remain
-pending. The state kernel now persists/replays append-only JSONL events but has no workspace snapshot,
+`modernlink inspect [--history]`; `modernlink architecture` produces deliberately labeled layer
+inferences and candidate-context hypotheses from it. Broader detector families, domain evidence,
+and seam inference remain pending. The state kernel now persists/replays append-only JSONL events but has no workspace snapshot,
 approval-latch records, or physical-artifact reconciliation yet. A descriptor registry exposes conservative
 Codex and Claude capability records but deliberately has no installation paths; setup,
 distribution, verified harness adapters, and the full lifecycle remain planned.

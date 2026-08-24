@@ -3,6 +3,7 @@ members = [
     "crates/analyzer",
     "crates/git",
     "crates/harness",
+    "crates/inference",
     "crates/model",
     "crates/modernlink-cli",
     "crates/runtime-observer",

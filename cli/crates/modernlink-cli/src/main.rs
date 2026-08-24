@@ -27,6 +27,15 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Infer architectural layers and candidate contexts from a shared evidence graph.
+    Architecture {
+        /// Shared evidence graph JSON path.
+        #[arg(long)]
+        evidence: PathBuf,
+        /// Structural inference JSON output path.
+        #[arg(long, short)]
+        output: PathBuf,
+    },
     /// Collect deterministic repository facts into the shared evidence graph.
     Inspect {
         /// Repository root to inspect.
@@ -119,6 +128,32 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<(), CommandError> {
     match cli.command {
+        Command::Architecture { evidence, output } => {
+            let input = fs::read_to_string(&evidence).map_err(|error| {
+                CommandError::io(format!("cannot read {}: {error}", evidence.display()))
+            })?;
+            let graph = model::EvidenceGraph::from_json(&input)
+                .map_err(|error| CommandError::invalid_input(error.to_string()))?;
+            let report = inference::infer_structure(&graph)
+                .map_err(|error| CommandError::internal(error.to_string()))?;
+            let json = report
+                .canonical_json()
+                .map_err(|error| CommandError::internal(error.to_string()))?;
+            ensure_report_absent(&output)?;
+            write_report(&output, json)?;
+            println!(
+                "{}",
+                serde_json::json!({
+                    "report": output,
+                    "schema_version": report.schema_version,
+                    "summary": {
+                        "layers": report.layers.len(),
+                        "candidate_contexts": report.contexts.len(),
+                    },
+                })
+            );
+            Ok(())
+        }
         Command::Inspect {
             repository,
             output,

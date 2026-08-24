@@ -1852,6 +1852,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "inference"
+version = "0.1.0"
+dependencies = [
+ "model",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "io-close"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2044,6 +2054,8 @@ dependencies = [
  "gix",
  "harness",
  "hex",
+ "inference",
+ "model",
  "modernlink-analyzer",
  "runtime-observer",
  "serde_json",
