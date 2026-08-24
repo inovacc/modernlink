@@ -7,9 +7,11 @@ metadata:
 
 # Modernize One Approved Seam
 
-Work only on an identified migration task. First read its seam evidence, compatibility findings,
+Work only on an identified migration task. First reconcile its migration record with
+`modernlink migration status --id <id>`, then read its seam evidence, compatibility findings,
 plan prerequisites, current lifecycle state, contract tests, and rollback condition. Stop when
-the task lacks explicit approval, a behavior oracle, or a bounded file/component scope.
+the record reports a gap or the task lacks explicit approval, a behavior oracle, or a bounded
+file/component scope.
 
 Do not perform unrelated cleanup. Preserve ordering, acknowledgement, transaction, security,
 and error semantics unless the approved migration specification explicitly changes them. Record

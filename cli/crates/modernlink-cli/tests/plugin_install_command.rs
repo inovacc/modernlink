@@ -30,6 +30,7 @@ fn plugin_install_materializes_the_canonical_bundle_only_at_an_explicit_new_dest
     assert!(destination.join("commands/domains.md").is_file());
     assert!(destination.join("commands/assess.md").is_file());
     assert!(destination.join("commands/prepare.md").is_file());
+    assert!(destination.join("commands/migrate.md").is_file());
     assert!(
         destination
             .join("skills/modernlink-architecture/SKILL.md")
@@ -74,5 +75,10 @@ fn plugin_install_materializes_the_canonical_bundle_only_at_an_explicit_new_dest
         fs::read_to_string(destination.join("WORKFLOWS.md"))
             .expect("workflow")
             .contains("MODERNIZE")
+    );
+    assert!(
+        fs::read_to_string(destination.join("commands/migrate.md"))
+            .expect("migrate command")
+            .contains("migration status")
     );
 }

@@ -242,6 +242,7 @@ const PLUGIN_BOUNDARIES_COMMAND: &[u8] = include_bytes!("../../../plugin/command
 const PLUGIN_DOMAINS_COMMAND: &[u8] = include_bytes!("../../../plugin/commands/domains.md");
 const PLUGIN_ASSESS_COMMAND: &[u8] = include_bytes!("../../../plugin/commands/assess.md");
 const PLUGIN_PREPARE_COMMAND: &[u8] = include_bytes!("../../../plugin/commands/prepare.md");
+const PLUGIN_MIGRATE_COMMAND: &[u8] = include_bytes!("../../../plugin/commands/migrate.md");
 const PLUGIN_ARCHITECTURE_SKILL: &[u8] =
     include_bytes!("../../../plugin/skills/modernlink-architecture/SKILL.md");
 const PLUGIN_DOMAINS_SKILL: &[u8] =
@@ -1714,6 +1715,7 @@ fn install_plugin(destination: PathBuf, format: OutputFormat) -> Result<(), Comm
         PLUGIN_DOMAINS_COMMAND,
         PLUGIN_ASSESS_COMMAND,
         PLUGIN_PREPARE_COMMAND,
+        PLUGIN_MIGRATE_COMMAND,
         PLUGIN_ARCHITECTURE_SKILL,
         PLUGIN_DOMAINS_SKILL,
         PLUGIN_ASSESS_SKILL,
