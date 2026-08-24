@@ -29,6 +29,15 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Check static migration-plan integrity and declared approval gates.
+    Verify {
+        /// Migration plan JSON path.
+        #[arg(long)]
+        plan: PathBuf,
+        /// Verification report JSON output path.
+        #[arg(long, short)]
+        output: PathBuf,
+    },
     /// List annotation-backed static boundary candidates from a shared evidence graph.
     Boundaries {
         /// Shared evidence graph JSON path.
@@ -248,6 +257,24 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<(), CommandError> {
     match cli.command {
+        Command::Verify { plan, output } => {
+            let plan = read_json::<inference::MigrationPlan>(&plan, "migration plan")?;
+            let report = inference::verify_plan(&plan);
+            let json = report
+                .canonical_json()
+                .map_err(|error| CommandError::internal(error.to_string()))?;
+            ensure_report_absent(&output)?;
+            write_report(&output, json)?;
+            println!(
+                "{}",
+                serde_json::json!({
+                    "report": output,
+                    "schema_version": report.schema_version,
+                    "summary": { "checks": report.checks.len(), "gaps": report.checks.iter().filter(|check| check.status == "GAP").count() },
+                })
+            );
+            Ok(())
+        }
         Command::Boundaries { evidence, output } => {
             let graph = read_evidence_graph(&evidence)?;
             let report = inference::infer_boundaries(&graph)

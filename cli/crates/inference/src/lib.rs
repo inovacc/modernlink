@@ -122,6 +122,35 @@ pub struct CompatibilityReport {
 
 pub const MIGRATION_PLAN_SCHEMA_VERSION: &str = "modernlink.migration-plan/v1alpha1";
 pub const BOUNDARIES_SCHEMA_VERSION: &str = "modernlink.boundaries/v1alpha1";
+pub const VERIFICATION_SCHEMA_VERSION: &str = "modernlink.verification/v1alpha1";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VerificationReport {
+    pub schema_version: String,
+    pub checks: Vec<VerificationCheck>,
+    pub limitations: Vec<String>,
+}
+
+impl VerificationReport {
+    pub fn canonical_json(&self) -> Result<String, InferenceError> {
+        let mut normalized = self.clone();
+        normalized
+            .checks
+            .sort_by(|left, right| left.id.cmp(&right.id));
+        normalized.limitations.sort();
+        let mut json = serde_json::to_string_pretty(&normalized)?;
+        json.push('\n');
+        Ok(json)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VerificationCheck {
+    pub id: String,
+    pub status: String,
+    pub summary: String,
+    pub task_ids: Vec<String>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoundaryReport {
@@ -447,6 +476,44 @@ pub fn infer_boundaries(graph: &EvidenceGraph) -> Result<BoundaryReport, Inferen
         boundaries,
         limitations: vec!["Annotation presence is source evidence only; this report does not establish runtime activation, entry ownership, transaction resources, or message destinations.".to_owned()],
     })
+}
+
+/// Checks only the static migration-plan contract. It deliberately has no authority
+/// to assess runtime behavior or approve a lifecycle transition.
+pub fn verify_plan(plan: &MigrationPlan) -> VerificationReport {
+    let mut ids = std::collections::BTreeSet::new();
+    let mut duplicate_ids = Vec::new();
+    for task in &plan.tasks {
+        if !ids.insert(task.id.clone()) {
+            duplicate_ids.push(task.id.clone());
+        }
+    }
+    let mut missing_dependencies = Vec::new();
+    for task in &plan.tasks {
+        for dependency in &task.depends_on {
+            if !ids.contains(dependency) {
+                missing_dependencies.push(task.id.clone());
+            }
+        }
+    }
+    let migration_without_gate = plan
+        .tasks
+        .iter()
+        .filter(|task| task.kind == "seam-migration" && !task.approval_required)
+        .map(|task| task.id.clone())
+        .collect::<Vec<_>>();
+    VerificationReport {
+        schema_version: VERIFICATION_SCHEMA_VERSION.to_owned(),
+        checks: vec![
+            VerificationCheck { id: "plan-unique-task-ids".to_owned(), status: if duplicate_ids.is_empty() { "OBSERVED" } else { "GAP" }.to_owned(), summary: "Every migration-plan task ID is unique.".to_owned(), task_ids: duplicate_ids },
+            VerificationCheck { id: "plan-dependency-references".to_owned(), status: if missing_dependencies.is_empty() { "OBSERVED" } else { "GAP" }.to_owned(), summary: "Every listed prerequisite refers to a task in this migration plan.".to_owned(), task_ids: missing_dependencies },
+            VerificationCheck { id: "migration-approval-gates".to_owned(), status: if migration_without_gate.is_empty() { "OBSERVED" } else { "GAP" }.to_owned(), summary: "Every seam-migration task declares human approval as required.".to_owned(), task_ids: migration_without_gate },
+        ],
+        limitations: vec![
+            "This static report does not verify code behavior, tests, contracts, security, observability, performance, rollback, or production cutover safety.".to_owned(),
+            "An OBSERVED plan check is not authorization to change lifecycle state or deploy a migration.".to_owned(),
+        ],
+    }
 }
 
 fn layer_for(name: &str) -> Option<&'static str> {

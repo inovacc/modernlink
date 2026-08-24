@@ -619,7 +619,7 @@ modernlink seams
 modernlink readiness          # planned
 modernlink plan
 modernlink prepare            # planned
-modernlink verify             # planned
+modernlink verify             # static plan-integrity report; runtime verification remains planned
 modernlink migrate            # planned as root command; lifecycle guidance exists in plugin
 modernlink cutover            # planned
 modernlink detach             # planned
