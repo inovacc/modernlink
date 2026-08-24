@@ -619,7 +619,7 @@ fn derives_static_boundary_signals_from_recognized_annotations() {
     fs::create_dir_all(&java_dir).expect("Java package");
     fs::write(
         java_dir.join("Endpoints.java"),
-        "package com.acme; @Transactional public class PaymentService {} @MessageDriven public class Consumer {} @WebService public class LegacySoap {} @Path(\"/payments\") public class PaymentEndpoint {}",
+        "package com.acme; @Transactional public class PaymentService {} @MessageDriven public class Consumer {} @JmsListener(destination = \"jms/Orders\") public class Listener {} @WebService public class LegacySoap {} @Path(\"/payments\") public class PaymentEndpoint {}",
     )
     .expect("Java fixture");
     let report = analyze_repository(repository.path()).expect("analysis");
@@ -653,6 +653,12 @@ fn derives_static_boundary_signals_from_recognized_annotations() {
             "src/main/java/com/acme/Endpoints.java",
         );
     }
+    assert!(
+        report
+            .edges
+            .iter()
+            .any(|edge| edge.kind == "consumes" && edge.target_name == "jms:jms/Orders")
+    );
 }
 
 fn assert_signal(

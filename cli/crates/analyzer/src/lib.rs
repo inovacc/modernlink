@@ -221,6 +221,7 @@ struct FileFacts {
     types: Vec<Fact>,
     method_calls: Vec<Fact>,
     sql_literals: Vec<Fact>,
+    jms_destinations: Vec<Fact>,
     type_relations: Vec<TypeRelation>,
 }
 
@@ -1316,6 +1317,17 @@ fn collect_facts(node: Node<'_>, source: &[u8], facts: &mut FileFacts) {
                         start_byte: node.start_byte(),
                         end_byte: node.end_byte(),
                     });
+                    if name.rsplit('.').next() == Some("JmsListener") {
+                        if let Some(destination) = annotation_destination(text) {
+                            facts.jms_destinations.push(Fact {
+                                name: destination.to_owned(),
+                                start_byte: node.start_byte() + text.find(destination).unwrap_or(0),
+                                end_byte: node.start_byte()
+                                    + text.find(destination).unwrap_or(0)
+                                    + destination.len(),
+                            });
+                        }
+                    }
                 }
             }
         }
@@ -1373,6 +1385,18 @@ fn collect_facts(node: Node<'_>, source: &[u8], facts: &mut FileFacts) {
     for child in node.children(&mut cursor) {
         collect_facts(child, source, facts);
     }
+}
+
+fn annotation_destination(annotation: &str) -> Option<&str> {
+    let marker = "destination";
+    let start = annotation.find(marker)? + marker.len();
+    let value = annotation[start..]
+        .trim_start()
+        .strip_prefix('=')?
+        .trim_start();
+    let value = value.strip_prefix('"')?;
+    let end = value.find('"')?;
+    (!value[..end].contains('\\')).then_some(&value[..end])
 }
 
 fn collect_type_relations(node: Node<'_>, source: &[u8], source_type: &str, facts: &mut FileFacts) {
@@ -1446,6 +1470,7 @@ fn add_file_facts(
     facts.types.sort_by(|a, b| a.name.cmp(&b.name));
     facts.method_calls.sort_by(|a, b| a.name.cmp(&b.name));
     facts.sql_literals.sort_by(|a, b| a.name.cmp(&b.name));
+    facts.jms_destinations.sort_by(|a, b| a.name.cmp(&b.name));
     facts.type_relations.sort_by(|a, b| {
         (&a.source_type, a.kind, &a.target.name).cmp(&(&b.source_type, b.kind, &b.target.name))
     });
@@ -1518,6 +1543,38 @@ fn add_file_facts(
                 signals,
             );
         }
+    }
+
+    for destination in facts.jms_destinations {
+        let evidence_id = push_evidence(
+            "jms-listener-destination",
+            &destination,
+            path,
+            artifact_id,
+            evidence,
+        );
+        edges.push(GraphEdge {
+            id: stable_id("edge", ["consumes", artifact_id, destination.name.as_str()]),
+            kind: "consumes".to_owned(),
+            source_id: artifact_id.to_owned(),
+            target_name: format!("jms:{}", destination.name),
+            evidence_ids: vec![evidence_id.clone()],
+        });
+        signals.push(TechnologySignal {
+            id: stable_id(
+                "signal",
+                [
+                    "integration-boundary",
+                    "jms",
+                    "java.annotation.jms-listener-destination",
+                ],
+            ),
+            category: "integration-boundary".to_owned(),
+            technology: "jms".to_owned(),
+            rule_id: "java.annotation.jms-listener-destination".to_owned(),
+            epistemic_state: "derived".to_owned(),
+            evidence_ids: vec![evidence_id],
+        });
     }
 
     for relation in facts.type_relations {
