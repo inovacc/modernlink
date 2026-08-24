@@ -283,7 +283,7 @@ pub fn infer_seams(graph: &EvidenceGraph) -> Result<SeamReport, InferenceError> 
         .collect::<BTreeMap<_, _>>();
     let mut seams = Vec::new();
     for edge in &graph.edges {
-        if edge.kind != "imports" {
+        if !matches!(edge.kind.as_str(), "imports" | "bytecode-references") {
             continue;
         }
         let Some(target) = nodes.get(edge.target_id.as_str()) else {
@@ -314,7 +314,12 @@ pub fn infer_seams(graph: &EvidenceGraph) -> Result<SeamReport, InferenceError> 
             state: ClaimState::Inference,
             location_node_id: edge.source_id.clone(),
             location_name: source.name.clone(),
-            seam_type: "outbound-import-dependency".to_owned(),
+            seam_type: if edge.kind == "imports" {
+                "outbound-import-dependency"
+            } else {
+                "outbound-bytecode-dependency"
+            }
+            .to_owned(),
             current_technology: technology.to_owned(),
             leverage_score,
             migration_risk_score: boundary_risk(technology),

@@ -138,6 +138,49 @@ fn seam_inference_identifies_a_jms_boundary_and_its_migration_mode() {
 }
 
 #[test]
+fn seam_inference_uses_validated_bytecode_references_when_source_is_unavailable() {
+    let graph = EvidenceGraph {
+        schema_version: "modernlink.evidence/v1alpha1".to_owned(),
+        evidence: vec![Evidence {
+            id: "evidence:bytecode-jms".to_owned(),
+            kind: "bytecode-class-reference".to_owned(),
+            value: "javax.jms.Queue".to_owned(),
+            source: SourceLocation {
+                path: "legacy.war!WEB-INF/classes/QueueAdapter.class".to_owned(),
+                start_byte: 0,
+                end_byte: 0,
+            },
+        }],
+        nodes: vec![
+            GraphNode {
+                id: "node:archive".to_owned(),
+                kind: "artifact".to_owned(),
+                name: "legacy.war".to_owned(),
+                evidence_ids: Vec::new(),
+            },
+            GraphNode {
+                id: "node:jms".to_owned(),
+                kind: "external-reference".to_owned(),
+                name: "javax.jms.Queue".to_owned(),
+                evidence_ids: Vec::new(),
+            },
+        ],
+        edges: vec![GraphEdge {
+            id: "edge:bytecode-jms".to_owned(),
+            kind: "bytecode-references".to_owned(),
+            source_id: "node:archive".to_owned(),
+            target_id: "node:jms".to_owned(),
+            evidence_ids: vec!["evidence:bytecode-jms".to_owned()],
+        }],
+        claims: Vec::new(),
+    };
+    let seam = infer_seams(&graph).expect("bytecode seam").seams.remove(0);
+    assert_eq!(seam.seam_type, "outbound-bytecode-dependency");
+    assert_eq!(seam.current_technology, "jms");
+    assert_eq!(seam.confidence_percent, 80);
+}
+
+#[test]
 fn compatibility_assessment_links_target_reviews_to_import_evidence() {
     let graph = EvidenceGraph {
         schema_version: "modernlink.evidence/v1alpha1".to_owned(),
