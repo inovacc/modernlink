@@ -89,7 +89,7 @@ host product remains outside every recorded run. See [ISSUES.md](ISSUES.md) I-01
 | `analyze --history` sibling artifact | `cli/crates/modernlink-cli` | Writes `analysis.json` and `git-history.json` without merging schemas; publication refuses to replace reviewed outputs. |
 | Plugin binary pointer binding | `modernlink plugin bind`, `cli/plugin/` | Binds an explicitly materialized plugin bundle to one local binary without overwriting a pointer; harness-path installation remains pending. |
 | Native npm/Bun launcher scaffold | `npm/modernlink/` | Private, non-published wrapper resolves only an exact platform package, validates a release-owned SHA-256 manifest, then hands execution to Rust; native artifact generation and npm publication remain pending. |
-| npm distribution CI | `.github/workflows/npm.yml` | Validates wrapper syntax/package contents on changes; an explicit versioned dispatch builds supported native packages, creates manifests, and requires `NPM_TOKEN` before publication. |
+| npm distribution CI | `.github/workflows/npm.yml` | Validates wrapper syntax/package contents on changes; an explicit versioned dispatch builds supported native packages, creates manifests, and publishes the `@inovacc` scope to GitHub Packages with the workflow-scoped `GITHUB_TOKEN` (`packages: write`). The workflow has not yet been dispatched against a release version. |
 
 ## Proposed
 

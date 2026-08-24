@@ -15,6 +15,13 @@ writeFileSync(join(output, 'package.json'), `${JSON.stringify({
   name: packageName,
   version,
   private: true,
+  repository: {
+    type: 'git',
+    url: 'git+https://github.com/inovacc/modernlink.git'
+  },
+  publishConfig: {
+    registry: 'https://npm.pkg.github.com'
+  },
   os: [platform],
   cpu: [arch],
   files: ['bin/', 'modernlink-native.json']

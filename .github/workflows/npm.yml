@@ -70,26 +70,26 @@ jobs:
     needs: build-platform
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
+          registry-url: https://npm.pkg.github.com
+          scope: '@inovacc'
       - uses: actions/download-artifact@v8
         with: { path: dist/platforms }
       - name: Publish platform packages
-        env: { NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }} }
+        env: { NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
         run: |
-          test -n "$NODE_AUTH_TOKEN" || { echo "NPM_TOKEN is required for publication"; exit 1; }
           for package in dist/platforms/*; do
             npm pkg set private=false --prefix "$package"
-            npm publish "$package" --access public --provenance
+            npm publish "$package"
           done
       - name: Publish wrapper after platform packages
-        env: { NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }} }
+        env: { NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
         run: |
           VERSION="${{ inputs.version }}" node -e 'const fs=require("fs"); const p="npm/modernlink/package.json"; const j=JSON.parse(fs.readFileSync(p)); j.version=process.env.VERSION; j.private=false; for (const k of Object.keys(j.optionalDependencies)) j.optionalDependencies[k]=process.env.VERSION; fs.writeFileSync(p, JSON.stringify(j, null, 2)+"\n")'
-          npm publish npm/modernlink --access public --provenance
+          npm publish npm/modernlink
