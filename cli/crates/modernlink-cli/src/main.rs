@@ -51,6 +51,11 @@ enum Command {
         #[arg(long)]
         run_id: String,
     },
+    /// Advance an append-only modernization lifecycle journal by exactly one phase.
+    Lifecycle {
+        #[command(subcommand)]
+        command: LifecycleCommand,
+    },
     /// Assess target-runtime risks from a shared evidence graph.
     Compatibility {
         /// Shared evidence graph JSON path.
@@ -157,6 +162,25 @@ enum HarnessCommand {
     List,
 }
 
+#[derive(Debug, Subcommand)]
+enum LifecycleCommand {
+    /// Append the sole valid next lifecycle transition.
+    Advance {
+        /// Append-only lifecycle journal JSON Lines path.
+        #[arg(long)]
+        journal: PathBuf,
+        /// Stable identifier for the modernization run.
+        #[arg(long)]
+        run_id: String,
+        /// Explicitly approve a protected transition into MODERNIZE, CUTOVER, or DETACH.
+        #[arg(long)]
+        approve: bool,
+        /// SHA-256 artifact digest associated with this transition; repeat as needed.
+        #[arg(long = "artifact")]
+        artifact_hashes: Vec<String>,
+    },
+}
+
 fn main() -> ExitCode {
     match run(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,
@@ -196,6 +220,15 @@ fn run(cli: Cli) -> Result<(), CommandError> {
             );
             Ok(())
         }
+        Command::Lifecycle {
+            command:
+                LifecycleCommand::Advance {
+                    journal,
+                    run_id,
+                    approve,
+                    artifact_hashes,
+                },
+        } => advance_lifecycle(journal, run_id, approve, artifact_hashes),
         Command::Compatibility {
             evidence,
             target,
@@ -407,6 +440,60 @@ fn run(cli: Cli) -> Result<(), CommandError> {
             runtime_command::run(command).map_err(runtime_command::into_command_error)
         }
     }
+}
+
+fn advance_lifecycle(
+    journal: PathBuf,
+    run_id: String,
+    approve: bool,
+    mut artifact_hashes: Vec<String>,
+) -> Result<(), CommandError> {
+    let mut snapshot = if journal.exists() {
+        state::recover_journal(&run_id, &journal).map_err(|error| {
+            CommandError::invalid_input(format!(
+                "cannot recover lifecycle journal {}: {error}",
+                journal.display()
+            ))
+        })?
+    } else {
+        state::LifecycleSnapshot::new(&run_id)
+    };
+    let mut event = snapshot
+        .next_event(approve)
+        .map_err(|error| CommandError::invalid_input(error.to_string()))?;
+    artifact_hashes.sort();
+    artifact_hashes.dedup();
+    event.artifact_hashes = artifact_hashes;
+    snapshot
+        .apply(&event)
+        .map_err(|error| CommandError::invalid_input(error.to_string()))?;
+    if let Some(parent) = journal
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent).map_err(|error| {
+            CommandError::io(format!(
+                "cannot create lifecycle journal directory {}: {error}",
+                parent.display()
+            ))
+        })?;
+    }
+    state::append_event(&journal, &event).map_err(|error| {
+        CommandError::io(format!(
+            "cannot append lifecycle journal {}: {error}",
+            journal.display()
+        ))
+    })?;
+    println!(
+        "{}",
+        serde_json::json!({
+            "schema_version": "modernlink.lifecycle-transition/v1alpha1",
+            "journal": journal,
+            "event": event,
+            "snapshot": snapshot,
+        })
+    );
+    Ok(())
 }
 
 #[derive(Debug, serde::Serialize)]

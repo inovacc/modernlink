@@ -32,6 +32,15 @@ fn lifecycle_rejects_skipped_or_unapproved_transitions() {
 }
 
 #[test]
+fn snapshot_creates_only_the_next_transition_event() {
+    let snapshot = LifecycleSnapshot::new("run:fixture");
+    let event = snapshot.next_event(false).expect("discover event");
+    assert_eq!(event.sequence, 1);
+    assert_eq!(event.from, LifecyclePhase::Setup);
+    assert_eq!(event.to, LifecyclePhase::Discover);
+}
+
+#[test]
 fn replay_recovers_the_same_snapshot_from_append_only_events() {
     let events = vec![
         LifecycleEvent::new(1, LifecyclePhase::Setup, LifecyclePhase::Discover, false),

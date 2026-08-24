@@ -147,6 +147,7 @@ stateful agent modernization lifecycle.
 - [~] `modernlink compatibility --target` evidence-linked import review for Java EE, internal-JDK, and server APIs; dependency-resolution, bytecode, configuration, and runtime analysis remain pending
 - [~] Lifecycle transition/replay plus append-only JSONL journal; snapshots, approval records, and reconciliation remain pending
 - [~] `modernlink status` can recover a read-only lifecycle snapshot from a supplied journal; workspace-owned journal creation and transition orchestration remain pending
+- [~] `modernlink lifecycle advance` appends the sole valid next transition and enforces explicit approvals; artifact reconciliation and migration-specific state remain pending
 - [~] `modernlink setup` creates rerunnable `.modernlink/` metadata/cache state with `--tools`, `--dry-run`, and explicit `--force`; interactive selection and adapter materialization remain pending
 - [~] Descriptor-driven Codex/Claude registry and `modernlink harness list`; verified installation adapters remain pending
 - [ ] Java/application-server/transaction/messaging/database boundary detectors

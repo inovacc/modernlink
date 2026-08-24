@@ -139,6 +139,23 @@ impl LifecycleSnapshot {
         }
         Ok(snapshot)
     }
+
+    pub fn next_phase(&self) -> Option<LifecyclePhase> {
+        next_phase(self.phase)
+    }
+
+    pub fn next_event(&self, approved: bool) -> Result<LifecycleEvent, StateError> {
+        let to = self.next_phase().ok_or(StateError::InvalidTransition {
+            from: self.phase,
+            to: self.phase,
+        })?;
+        Ok(LifecycleEvent::new(
+            self.last_sequence + 1,
+            self.phase,
+            to,
+            approved,
+        ))
+    }
 }
 
 pub fn event_json_line(event: &LifecycleEvent) -> Result<String, StateError> {
