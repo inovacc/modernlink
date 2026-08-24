@@ -575,8 +575,10 @@ name = "git"
 version = "0.1.0"
 dependencies = [
  "gix",
+ "hex",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror",
 ]

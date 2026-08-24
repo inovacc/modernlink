@@ -9,6 +9,8 @@ pub enum GitHistoryError {
     Repository(String),
     #[error("cannot resolve Git reference: {0}")]
     Reference(String),
+    #[error("cannot traverse Git history: {0}")]
+    Traversal(String),
     #[error("cannot serialize Git history snapshot: {0}")]
     Serialization(#[from] serde_json::Error),
 }
