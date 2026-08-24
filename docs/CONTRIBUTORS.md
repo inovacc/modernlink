@@ -1,5 +1,5 @@
 # Contributors and Contributing Guide
-<!-- rev:008 (RFC 3339) 2026-08-21T19:20:00Z -->
+<!-- rev:010 (RFC 3339) 2026-08-24T00:00:00Z -->
 
 ## Maintainers
 
@@ -8,6 +8,15 @@
 | Dyam Marcano | dyam.marcano@gmail.com | Maintainer |
 
 Repository: <https://github.com/inovacc/modernlink> · License: Apache-2.0
+
+GitHub surfaces the concise [root contribution guide](../CONTRIBUTING.md); this document is
+the authoritative detailed setup and validation reference. The root guide is informed by
+GitHub's contributor-guideline documentation and go-github's contribution practices, adapted
+to ModernLink rather than copied from either project.
+
+The repository's public community policies are [SECURITY.md](../SECURITY.md) and
+[CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md). Keep vulnerability reports private; do not place
+credentials, production endpoints, or sensitive behavior details in issues.
 
 ## Toolchain
 

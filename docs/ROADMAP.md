@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:024 (RFC 3339) 2026-08-21T20:41:35Z -->
+<!-- rev:041 (RFC 3339) 2026-08-24T11:41:31Z -->
 
 Reconciled 2026-08-21 against the current tree. Phases follow the M1/M2 structure in
 [BACKLOG.md](BACKLOG.md); tasks are broken out in [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md).
@@ -128,6 +128,58 @@ until then this file is written against the production bar because that is the s
 - [ ] Migration controls: shadow, dual delivery, cutover, pause/resume, rollback — **RT-08**
 - [ ] Cutover and rollback observable through JMX — **RT-09**
 
+## Modernization CLI and agent-plugin track · `[FOUNDATION IN PROGRESS]`
+
+This is a separate Rust workspace under `cli/`, not a dependency of the Java 6 runtime. Its
+canonical design and staged plan live under [modernization](modernization/). The code provides
+local-first static and Git evidence, a shared evidence graph, bounded structural inference and
+seam scoring, an append-only lifecycle foundation, rerunnable workspace setup, a descriptor-driven
+Codex/Claude selection registry, a canonical agent-plugin bundle, and an npm/GitHub Packages
+release scaffold. These are controlled local facts and contracts, not proof of vendor-host,
+runtime, transaction, or cutover behavior.
+
+- [x] Private Rust CLI workspace and thin binary-pointer plugin binding
+- [x] Deterministic local Git history artifact (`modernlink.git-history/v1alpha1`), structured
+      ref/commit/tree evidence, bounded co-change, local cache, and `modernlink history`
+- [~] `modernlink evolution` x-ray of changed-path hotspots, co-change, and contributor continuity; semantic code-change attribution and review ownership remain pending
+- [x] Optional `modernlink analyze --history` sibling artifact with unchanged analysis schema
+- [~] Shared evidence model plus Java and Git adapters through `modernlink inspect [--history]`, including parser-derived inheritance and method-call edges; deeper detectors remain pending
+- [~] `modernlink architecture` deterministic layer inference and candidate-context hypotheses; richer domain evidence remains pending
+- [~] `modernlink seams` decomposed vendor/JMS/JNDI/database/SOAP import-boundary scoring plus lower-confidence lexical SQL table read/write candidates; transaction, message-flow, resolved data-flow, ownership, and runtime seam detectors remain pending
+- [~] Deterministic import-derived legacy infrastructure inventory (JMS, JNDI, JDBC/persistence, EJB, JTA, JAX-WS, JAXB, JMX, Servlet, RMI, Spring), plus XML descriptor JNDI/JMS references; call/data-flow confirmation remains pending
+- [~] Deterministic recognized annotation signals for transaction, messaging, SOAP, HTTP, and batch boundaries; method ownership, transaction resources, and runtime activation remain pending
+- [~] `modernlink boundaries` emits annotation-backed candidates plus recognized transaction-descriptor values with explicit source kinds and limitations; source call graphs, destination/resource mapping, transaction resources/propagation, and runtime confirmation remain pending
+- [~] Compiled `.class` and bounded JAR/WAR/EAR-entry constant-pool reference inventory with cited classfile major versions, known Java mappings, recognized archive descriptor paths, and bounded streamed XML reference extraction; semantic bytecode traversal and nested archive traversal remain pending
+- [~] Repository `.sql` and unescaped static Java-literal table-access evidence for DML, DDL, `FROM`, and `JOIN`, emitted as cited database-table nodes and `reads`/`writes` graph edges; dynamic/concatenated/escaped/runtime-loaded SQL, dialect semantics, resource mapping, and table ownership remain pending
+- [~] `modernlink compatibility --target` evidence-linked import review for Java EE, internal-JDK, server APIs, bytecode references, and literal Maven/Gradle Java-level declarations; dependency resolution, property/toolchain evaluation, and runtime analysis remain pending
+- [~] Lifecycle transition/replay plus append-only JSONL journal; snapshots, approval records, and reconciliation remain pending
+- [~] `modernlink status` can recover a read-only lifecycle snapshot from an explicit or setup-owned workspace journal, while `modernlink migration status` reconciles the workspace record, immutable plan hash, and linked journal; migration-specific state remains pending
+- [~] `modernlink lifecycle advance` appends the sole valid next transition to an explicit or setup-owned workspace journal and enforces explicit approvals; task-level lifecycle state remains pending
+- [~] `modernlink plan` emits an evidence-linked prerequisite DAG from seam and compatibility reports, and `modernlink migration create` preserves a validated plan as an immutable reviewed record linked to its workspace journal; seam-specific strategies, verification gates, and stateful migration-task updates remain pending
+- [~] `modernlink verify` checks static plan integrity and declared approval gates; behavioral, contract, security, observability, performance, rollback, and runtime verification remain pending
+- [~] `modernlink setup` creates rerunnable `.modernlink/` metadata/cache state with protected local-state ignore rules, interactive Space/Enter selection or `--tools`, `--dry-run`, and explicit `--force`; adapter materialization remains pending
+- [~] Canonical lifecycle plugin bundle with core skills, specialist roles, command contracts, and Codex/Claude adapter descriptors; installation/manifests and additional specialists remain pending
+- [~] `modernlink plugin install --destination` materializes the embedded canonical bundle to a new explicit directory; harness-path adapters, ownership manifests, refresh, and uninstall remain pending
+- [~] `modernlink doctor` read-only prerequisite report using structured Git opening and launchability probes; JDK/build-tool version and deployment-runtime detection remain pending
+- [~] Descriptor-driven Codex/Claude registry plus safe `modernlink harness add|remove|refresh|doctor` workspace selection management; verified installation adapters remain pending
+- [~] Java/application-server/transaction/messaging/database boundary detectors: explicit
+      WebLogic/JBoss/WildFly/WebSphere/Tomcat import or descriptor evidence, selected
+      repository/archive descriptor paths, descriptor-to-named-boundary graph edges, and JMS/JNDI/declarative-transaction content,
+      annotations, and bounded bytecode references
+      are covered; resolved calls, resource/destination mapping, transaction resources, nested
+      descriptor content, and runtime activation remain pending
+- [~] Architecture, candidate-domain, and modernization-seam inference: structural layers,
+      candidate contexts, and import-boundary seams are cited hypotheses; semantic domain,
+      data-flow, message-flow, and operational confirmation remain pending
+- [~] Compatibility targets, migration DAG/state, verification and cutover lifecycle: static
+      target findings, a prerequisite DAG, journal replay/advance, and plan integrity checks exist;
+      resolved dependencies, artifacts reconciliation, behavioral verification, and real cutover
+      orchestration remain pending
+- [~] Safe rerunnable setup, harness registry/adapters, npm/native release distribution:
+      workspace selection, explicit canonical-plugin materialization, descriptor registry, native
+      package build/publish workflow, and integrity manifests exist; verified harness-path adapters,
+      refresh/uninstall ownership manifests, and a dispatched published release remain pending
+
 ## Engineering hygiene · `[PARTIAL]`
 
 - [x] Apache-2.0 LICENSE
@@ -181,8 +233,11 @@ percentage establishes.
 | 2 — Messaging transports | implemented, limited happy-path runtime evidence |
 | 3 — M1 compatibility scope | not started |
 | 4 — M2 routing and migration | not started |
+| Modernization CLI / agent plugin | foundation in progress; controlled local evidence only |
 
-Roughly **two of five phases** are code-complete; none is validated against the vendor product.
+The runtime remains roughly **two of five phases** code-complete; the separate CLI/product track
+is a foundation, not a replacement for runtime validation. Neither product surface is validated
+against the vendor host.
 The single highest-value next step is a current-branch run of the newly wired Rust and Java line
 gates. After that machine result is recorded, B-003 delivery-mode enforcement and vendor-host
 JMS compatibility remain the highest-value contract work.

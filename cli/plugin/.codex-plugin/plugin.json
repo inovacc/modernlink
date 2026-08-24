@@ -1,0 +1,21 @@
+{
+  "name": "modernlink",
+  "version": "0.1.0",
+  "description": "Evidence-first repository modernization preparation backed by the deterministic ModernLink Rust CLI",
+  "author": {
+    "name": "Inovacc"
+  },
+  "license": "Apache-2.0",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "ModernLink",
+    "shortDescription": "Prepare legacy Java systems for modernization",
+    "longDescription": "Collect deterministic repository evidence, question migration assumptions, and prepare coherent modernization decisions.",
+    "developerName": "Inovacc",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "defaultPrompt": [
+      "Analyze this Java repository for modernization evidence."
+    ]
+  }
+}

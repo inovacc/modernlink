@@ -1,0 +1,32 @@
+[package]
+name = "modernlink-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "modernlink"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+dialoguer.workspace = true
+git = { path = "../git" }
+harness = { path = "../harness" }
+hex.workspace = true
+include_dir.workspace = true
+inference = { path = "../inference" }
+model = { path = "../model" }
+modernlink-analyzer = { path = "../analyzer" }
+runtime-observer = { path = "../runtime-observer" }
+serde.workspace = true
+state = { path = "../state" }
+serde_json.workspace = true
+serde_yaml.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+
+[dev-dependencies]
+gix.workspace = true

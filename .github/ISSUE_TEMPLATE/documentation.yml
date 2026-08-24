@@ -1,0 +1,31 @@
+name: Documentation issue
+description: Report missing, inaccurate, or confusing ModernLink documentation.
+title: "docs: "
+labels: [documentation, needs-triage]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Documentation problem
+      options:
+        - Missing documentation
+        - Incorrect documentation
+        - Confusing documentation
+        - Broken example or command
+        - Missing verification caveat
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: location
+    attributes:
+      label: Location
+      description: Provide a repository path, heading, URL, or command output.
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: What should change?
+    validations:
+      required: true

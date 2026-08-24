@@ -1,0 +1,31 @@
+{
+  "name": "@inovacc/modernlink",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Thin npm/Bun launcher for the ModernLink Rust CLI.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inovacc/modernlink.git"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "bin": {
+    "modernlink": "bin/modernlink.js"
+  },
+  "files": [
+    "bin/",
+    "README.md",
+    "NATIVE-INTEGRITY-MANIFEST.md"
+  ],
+  "optionalDependencies": {
+    "@inovacc/modernlink-win32-x64": "0.1.0",
+    "@inovacc/modernlink-linux-x64": "0.1.0",
+    "@inovacc/modernlink-linux-arm64": "0.1.0",
+    "@inovacc/modernlink-darwin-x64": "0.1.0",
+    "@inovacc/modernlink-darwin-arm64": "0.1.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
