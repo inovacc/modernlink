@@ -6,6 +6,7 @@ use std::{
 };
 
 use ignore::WalkBuilder;
+use quick_xml::{Reader, events::Event};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -381,6 +382,13 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
                     &mut evidence,
                 );
                 signals.push(signal_from_rule(rule, evidence_id));
+                add_descriptor_content_facts(
+                    &relative,
+                    &artifact_id,
+                    &source,
+                    &mut evidence,
+                    &mut signals,
+                );
             }
         }
     }
@@ -431,6 +439,79 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
         edges,
         signals,
     })
+}
+
+fn add_descriptor_content_facts(
+    path: &str,
+    artifact_id: &str,
+    source: &[u8],
+    evidence: &mut Vec<Evidence>,
+    signals: &mut Vec<TechnologySignal>,
+) {
+    let mut reader = Reader::from_reader(source);
+    reader.config_mut().trim_text(true);
+    let mut tag = None::<String>;
+    let mut buffer = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buffer) {
+            Ok(Event::Start(element)) => {
+                tag = std::str::from_utf8(element.name().as_ref())
+                    .ok()
+                    .map(|name| name.to_ascii_lowercase())
+            }
+            Ok(Event::End(_)) => tag = None,
+            Ok(Event::Text(text)) => {
+                let Some(tag) = &tag else {
+                    buffer.clear();
+                    continue;
+                };
+                let Ok(value) = text.decode() else {
+                    buffer.clear();
+                    continue;
+                };
+                let value = value.trim();
+                let rule = if tag.contains("queue") || tag.contains("topic") || tag.contains("jms")
+                {
+                    Some(SignalRule {
+                        category: "integration-boundary",
+                        technology: "jms",
+                        rule_id: "descriptor.xml.jms-destination",
+                    })
+                } else if tag.contains("jndi") || tag.contains("datasource") {
+                    Some(SignalRule {
+                        category: "integration-boundary",
+                        technology: "jndi",
+                        rule_id: "descriptor.xml.jndi-reference",
+                    })
+                } else {
+                    None
+                };
+                if let Some(rule) = rule.filter(|_| !value.is_empty()) {
+                    let start = source
+                        .windows(value.len())
+                        .position(|window| window == value.as_bytes())
+                        .unwrap_or(0);
+                    let fact = Fact {
+                        name: value.to_owned(),
+                        start_byte: start,
+                        end_byte: start + value.len(),
+                    };
+                    let evidence_id = push_evidence_with_collector(
+                        "descriptor-reference",
+                        &fact,
+                        path,
+                        artifact_id,
+                        "xml-stream",
+                        evidence,
+                    );
+                    signals.push(signal_from_rule(rule, evidence_id));
+                }
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buffer.clear();
+    }
 }
 
 fn add_classfile_facts(

@@ -27,7 +27,7 @@ fn derives_build_and_application_server_signals_from_cited_artifacts() {
     .expect("JBoss descriptor");
     fs::write(
         meta_inf.join("weblogic-application.xml"),
-        "<weblogic-application/>",
+        "<weblogic-application><connection-factory-jndi-name>jms/Orders</connection-factory-jndi-name><queue-jndi-name>jms/OrdersQueue</queue-jndi-name></weblogic-application>",
     )
     .expect("WebLogic descriptor");
     fs::write(
@@ -46,6 +46,20 @@ fn derives_build_and_application_server_signals_from_cited_artifacts() {
         "maven",
         "descriptor.filename.pom-xml",
         "pom.xml",
+    );
+    assert_signal(
+        &report,
+        "integration-boundary",
+        "jndi",
+        "descriptor.xml.jndi-reference",
+        "orders/src/main/application/META-INF/weblogic-application.xml",
+    );
+    assert_signal(
+        &report,
+        "integration-boundary",
+        "jms",
+        "descriptor.xml.jms-destination",
+        "orders/src/main/application/META-INF/weblogic-application.xml",
     );
     assert_signal(
         &report,
