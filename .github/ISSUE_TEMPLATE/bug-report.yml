@@ -1,0 +1,60 @@
+name: Bug report
+description: Report reproducible incorrect behavior in the runtime, CLI, or agent plugin.
+title: "bug: "
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a problem. Do not include credentials, production endpoints,
+        proprietary source, message payloads, or security-sensitive details. For a suspected
+        vulnerability, use the private process in SECURITY.md instead of this form.
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      options:
+        - Java 6 runtime bridge
+        - Rust native library / JNI
+        - Messaging transport
+        - ModernLink CLI analyzer
+        - AI harness plugin or setup
+        - npm/Bun launcher or native package
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: ModernLink version or commit
+      placeholder: 0.1.0 or abc1234
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS, architecture, Java version, Rust version if building, and broker/provider where relevant. Redact endpoints and credentials.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction steps
+      description: Provide commands, configuration shape, and a minimal sanitized example.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include sanitized error output or logs where useful.
+    validations:
+      required: true

@@ -1,26 +1,57 @@
 name: npm distribution
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 on:
   pull_request:
-    paths: ["npm/**", ".github/workflows/npm.yml", ".github/scripts/package_npm_platform.mjs"]
+    paths:
+      - "npm/**"
+      - "LATEST"
+      - "scripts/release_version.mjs"
+      - "cli/Cargo.toml"
+      - "cli/plugin/skills/**"
+      - "crates/**/Cargo.toml"
+      - "hacks/messaging-demo/Cargo.toml"
+      - ".github/workflows/npm.yml"
+      - ".github/scripts/package_npm_platform.mjs"
   push:
     branches: [main]
-    paths: ["npm/**", ".github/workflows/npm.yml", ".github/scripts/package_npm_platform.mjs"]
+    paths:
+      - "npm/**"
+      - "LATEST"
+      - "scripts/release_version.mjs"
+      - "cli/Cargo.toml"
+      - "cli/plugin/skills/**"
+      - "crates/**/Cargo.toml"
+      - "hacks/messaging-demo/Cargo.toml"
+      - ".github/workflows/npm.yml"
+      - ".github/scripts/package_npm_platform.mjs"
   workflow_dispatch:
-    inputs:
-      version:
-        description: Exact npm version to publish for every platform package and wrapper.
-        required: true
-        type: string
 
 permissions:
   contents: read
 
 jobs:
+  resolve-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@v6
+        with: { node-version: 22 }
+      - run: node scripts/release_version.mjs check
+      - id: version
+        run: node scripts/release_version.mjs print >> "$GITHUB_OUTPUT"
+
   validate-wrapper:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with: { persist-credentials: false }
       - uses: actions/setup-node@v6
         with: { node-version: 22 }
       - run: node --check npm/modernlink/bin/modernlink.js
@@ -29,7 +60,7 @@ jobs:
 
   build-platform:
     if: github.event_name == 'workflow_dispatch'
-    needs: validate-wrapper
+    needs: [resolve-version, validate-wrapper]
     strategy:
       fail-fast: false
       matrix:
@@ -53,13 +84,14 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
+        with: { persist-credentials: false }
       - uses: actions/setup-node@v6
         with: { node-version: 22 }
       - name: Build Rust CLI
         working-directory: cli
         run: cargo build -p modernlink-cli --release
       - name: Build platform npm package
-        run: node .github/scripts/package_npm_platform.mjs ${{ matrix.platform }} ${{ matrix.arch }} ${{ inputs.version }} ${{ matrix.executable }} dist/npm-platform
+        run: node .github/scripts/package_npm_platform.mjs ${{ matrix.platform }} ${{ matrix.arch }} ${{ needs.resolve-version.outputs.version }} ${{ matrix.executable }} dist/npm-platform
       - uses: actions/upload-artifact@v7
         with:
           name: npm-${{ matrix.platform }}-${{ matrix.arch }}
@@ -67,13 +99,14 @@ jobs:
 
   publish:
     if: github.event_name == 'workflow_dispatch'
-    needs: build-platform
+    needs: [build-platform, resolve-version]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v7
+        with: { persist-credentials: false }
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -82,14 +115,16 @@ jobs:
       - uses: actions/download-artifact@v8
         with: { path: dist/platforms }
       - name: Publish platform packages
-        env: { NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           for package in dist/platforms/*; do
             npm pkg set private=false --prefix "$package"
             npm publish "$package"
           done
       - name: Publish wrapper after platform packages
-        env: { NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="${{ inputs.version }}" node -e 'const fs=require("fs"); const p="npm/modernlink/package.json"; const j=JSON.parse(fs.readFileSync(p)); j.version=process.env.VERSION; j.private=false; for (const k of Object.keys(j.optionalDependencies)) j.optionalDependencies[k]=process.env.VERSION; fs.writeFileSync(p, JSON.stringify(j, null, 2)+"\n")'
+          VERSION="${{ needs.resolve-version.outputs.version }}" node -e 'const fs=require("fs"); const p="npm/modernlink/package.json"; const j=JSON.parse(fs.readFileSync(p)); j.version=process.env.VERSION; j.private=false; for (const k of Object.keys(j.optionalDependencies)) j.optionalDependencies[k]=process.env.VERSION; fs.writeFileSync(p, JSON.stringify(j, null, 2)+"\n")'
           npm publish npm/modernlink

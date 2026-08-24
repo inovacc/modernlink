@@ -1,0 +1,32 @@
+name: Feature request
+description: Propose an improvement to ModernLink's runtime, CLI, or agent lifecycle.
+title: "feat: "
+labels: [enhancement, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Explain the problem before proposing an implementation. ModernLink must preserve its
+        Java 6 boundary, evidence-first analysis model, and fail-closed compatibility contract.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed outcome
+      description: Describe the user-visible result and affected runtime, CLI, or plugin surface.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and constraints
+      description: Note Java/application-server versions, protocols, migration constraints, or repository evidence that motivates the request.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

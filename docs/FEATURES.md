@@ -1,5 +1,5 @@
 # Features
-<!-- rev:005 (RFC 3339) 2026-08-24T01:11:47Z -->
+<!-- rev:006 (RFC 3339) 2026-08-24T00:00:00Z -->
 
 What exists in the current tree, and what is proposed. "Implemented" means the code is present;
 it does **not** mean the behavior satisfies the intended runtime contract. See
@@ -89,7 +89,9 @@ host product remains outside every recorded run. See [ISSUES.md](ISSUES.md) I-01
 | `analyze --history` sibling artifact | `cli/crates/modernlink-cli` | Writes `analysis.json` and `git-history.json` without merging schemas; publication refuses to replace reviewed outputs. |
 | Plugin binary pointer binding | `modernlink plugin bind`, `cli/plugin/` | Binds an explicitly materialized plugin bundle to one local binary without overwriting a pointer; harness-path installation remains pending. |
 | Native npm/Bun launcher scaffold | `npm/modernlink/` | Private, non-published wrapper resolves only an exact platform package, validates a release-owned SHA-256 manifest, then hands execution to Rust; native artifact generation and npm publication remain pending. |
-| npm distribution CI | `.github/workflows/npm.yml` | Validates wrapper syntax/package contents on changes; an explicit versioned dispatch builds supported native packages, creates manifests, and publishes the `@inovacc` scope to GitHub Packages with the workflow-scoped `GITHUB_TOKEN` (`packages: write`). The workflow has not yet been dispatched against a release version. |
+| Release-version anchor | `LATEST`, `scripts/release_version.mjs` | `LATEST` is the single semantic-version anchor. The tool atomically updates or verifies shipped Rust package manifests, npm wrapper/platform pins, and managed plugin-skill versions; CI refuses release drift. |
+| npm distribution CI | `.github/workflows/npm.yml` | Validates wrapper syntax/package contents and release-version alignment on changes; an explicit dispatch reads `LATEST`, builds supported native packages, creates manifests, and publishes the `@inovacc` scope to GitHub Packages with the workflow-scoped `GITHUB_TOKEN` (`packages: write`). The workflow has not yet been dispatched against a release version. |
+| Structured issue intake | `.github/ISSUE_TEMPLATE/` | Bug, feature, and documentation forms capture reproducible evidence and route sensitive reports to `SECURITY.md`; public issues are disabled outside those forms. |
 
 ## Proposed
 
