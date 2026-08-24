@@ -27,6 +27,12 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Inspect local CLI, repository, workspace, Git, and harness prerequisites without changing them.
+    Doctor {
+        /// Repository root; defaults to the current directory.
+        #[arg(default_value = ".")]
+        repository: PathBuf,
+    },
     /// Build an evidence-linked migration dependency DAG from seam and compatibility reports.
     Plan {
         /// Modernization seam report JSON path.
@@ -209,6 +215,7 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<(), CommandError> {
     match cli.command {
+        Command::Doctor { repository } => doctor(repository),
         Command::Plan {
             seams,
             compatibility,
@@ -477,6 +484,89 @@ fn run(cli: Cli) -> Result<(), CommandError> {
         Command::Runtime { command } => {
             runtime_command::run(command).map_err(runtime_command::into_command_error)
         }
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+struct DoctorCheck {
+    status: &'static str,
+    detail: String,
+}
+
+fn doctor(repository: PathBuf) -> Result<(), CommandError> {
+    let repository = repository.canonicalize().map_err(|error| {
+        CommandError::io(format!(
+            "cannot resolve repository {}: {error}",
+            repository.display()
+        ))
+    })?;
+    if !repository.is_dir() {
+        return Err(CommandError::invalid_input(format!(
+            "repository path is not a directory: {}",
+            repository.display()
+        )));
+    }
+    let binary = env::current_exe().map_err(|error| {
+        CommandError::io(format!("cannot resolve current ModernLink binary: {error}"))
+    })?;
+    let repository_readable = fs::read_dir(&repository).is_ok();
+    let git = match git::open_repository(&repository) {
+        Ok(_) => DoctorCheck {
+            status: "OK",
+            detail: "opened through the structured Rust Git engine".to_owned(),
+        },
+        Err(error) => DoctorCheck {
+            status: "UNAVAILABLE",
+            detail: format!("not available to ModernLink: {error}"),
+        },
+    };
+    let registry = HarnessRegistry::builtin();
+    let detected_harnesses = registry
+        .all()
+        .iter()
+        .filter(|definition| {
+            definition
+                .detection_markers
+                .iter()
+                .any(|marker| repository.join(marker).exists())
+        })
+        .map(|definition| definition.id.clone())
+        .collect::<Vec<_>>();
+    let workspace = repository.join(".modernlink").join("workspace.json");
+    let checks = serde_json::json!({
+        "cli": DoctorCheck { status: "OK", detail: binary.display().to_string() },
+        "repository": DoctorCheck { status: if repository_readable { "OK" } else { "UNAVAILABLE" }, detail: repository.display().to_string() },
+        "git": git,
+        "workspace": DoctorCheck { status: if workspace.is_file() { "OK" } else { "MISSING" }, detail: workspace.display().to_string() },
+        "java": program_check("java", "-version"),
+        "maven": program_check("mvn", "--version"),
+        "gradle": program_check("gradle", "--version"),
+        "harnesses": { "detected": detected_harnesses, "registry": registry.all() },
+    });
+    println!(
+        "{}",
+        serde_json::json!({
+            "schema_version": "modernlink.doctor/v1alpha1",
+            "repository": repository,
+            "checks": checks,
+        })
+    );
+    Ok(())
+}
+
+fn program_check(program: &str, version_flag: &str) -> DoctorCheck {
+    match std::process::Command::new(program)
+        .arg(version_flag)
+        .output()
+    {
+        Ok(_) => DoctorCheck {
+            status: "AVAILABLE",
+            detail: "command launched; version text is intentionally not parsed".to_owned(),
+        },
+        Err(error) => DoctorCheck {
+            status: "UNAVAILABLE",
+            detail: format!("cannot launch {program}: {error}"),
+        },
     }
 }
 
