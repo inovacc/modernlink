@@ -606,25 +606,25 @@ that authorization.
 
 The plugin is a control and interpretation layer, not a second analyzer.
 
-Initial commands:
+Initial command intentions (an intention marked **planned** is not an executable CLI command):
 
 ```text
 modernlink setup
-modernlink interview
+modernlink interview          # planned
 modernlink analyze
 modernlink status
 modernlink architecture
-modernlink domains
+modernlink domains            # planned
 modernlink seams
-modernlink readiness
+modernlink readiness          # planned
 modernlink plan
-modernlink prepare
-modernlink verify
-modernlink migrate
-modernlink cutover
-modernlink detach
-modernlink cleanup
-modernlink docs update
+modernlink prepare            # planned
+modernlink verify             # planned
+modernlink migrate            # planned as root command; lifecycle guidance exists in plugin
+modernlink cutover            # planned
+modernlink detach             # planned
+modernlink cleanup            # planned
+modernlink docs update        # planned
 ```
 
 Initial skills:

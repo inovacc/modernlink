@@ -80,7 +80,7 @@ host product remains outside every recorded run. See [ISSUES.md](ISSUES.md) I-01
 | Git evolution x-ray | `modernlink evolution --history …` | Produces changed-path hotspots, co-change relationships, and contributor continuity from structured Git facts; it deliberately avoids productivity/quality rankings. |
 | Repository-local Git cache | `.modernlink/cache/git/` | Cache is ignored, input-keyed, and local only. |
 | `analyze --history` sibling artifact | `cli/crates/modernlink-cli` | Writes `analysis.json` and `git-history.json` without merging schemas; publication refuses to replace reviewed outputs. |
-| Plugin binary pointer binding | `modernlink plugin bind`, `cli/plugin/` | Foundation adapter only; the full harness registry and lifecycle bundle are not implemented. |
+| Plugin binary pointer binding | `modernlink plugin bind`, `cli/plugin/` | Binds an explicitly materialized plugin bundle to one local binary without overwriting a pointer; harness-path installation remains pending. |
 
 ## Proposed
 
