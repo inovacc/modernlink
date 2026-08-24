@@ -142,7 +142,7 @@ stateful agent modernization lifecycle.
       ref/commit/tree evidence, bounded co-change, local cache, and `modernlink history`
 - [x] Optional `modernlink analyze --history` sibling artifact with unchanged analysis schema
 - [~] Shared evidence-model kernel; static-analysis and Git adapters remain pending
-- [~] Lifecycle transition/replay kernel; persistent journal, approvals, and reconciliation remain pending
+- [~] Lifecycle transition/replay plus append-only JSONL journal; snapshots, approval records, and reconciliation remain pending
 - [~] Descriptor-driven Codex/Claude registry and `modernlink harness list`; verified installation adapters remain pending
 - [ ] Java/application-server/transaction/messaging/database boundary detectors
 - [ ] Architecture, candidate-domain, and modernization-seam inference

@@ -2596,6 +2596,7 @@ dependencies = [
  "model",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
 ]
 

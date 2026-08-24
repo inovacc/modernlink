@@ -1,3 +1,5 @@
+use std::{fs::OpenOptions, io::Write, path::Path};
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -17,6 +19,8 @@ pub enum StateError {
     },
     #[error("cannot serialize lifecycle state: {0}")]
     Serialization(#[from] serde_json::Error),
+    #[error("cannot access lifecycle journal: {0}")]
+    Journal(#[from] std::io::Error),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -148,6 +152,22 @@ pub fn parse_event_json_lines(input: &str) -> Result<Vec<LifecycleEvent>, StateE
         .map(serde_json::from_str)
         .collect::<Result<Vec<_>, _>>()
         .map_err(StateError::Serialization)
+}
+
+pub fn append_event(path: &Path, event: &LifecycleEvent) -> Result<(), StateError> {
+    let mut journal = OpenOptions::new().append(true).create(true).open(path)?;
+    journal.write_all(event_json_line(event)?.as_bytes())?;
+    journal.sync_data()?;
+    Ok(())
+}
+
+pub fn recover_journal(
+    run_id: impl Into<String>,
+    path: &Path,
+) -> Result<LifecycleSnapshot, StateError> {
+    let journal = std::fs::read_to_string(path)?;
+    let events = parse_event_json_lines(&journal)?;
+    LifecycleSnapshot::replay(run_id, &events)
 }
 
 fn next_phase(phase: LifecyclePhase) -> Option<LifecyclePhase> {

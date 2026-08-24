@@ -1,4 +1,5 @@
 use state::{LifecycleEvent, LifecyclePhase, LifecycleSnapshot, StateError};
+use tempfile::tempdir;
 
 #[test]
 fn lifecycle_rejects_skipped_or_unapproved_transitions() {
@@ -46,4 +47,29 @@ fn replay_recovers_the_same_snapshot_from_append_only_events() {
     assert_eq!(recovered.phase, LifecyclePhase::Understand);
     assert_eq!(recovered.last_sequence, 2);
     assert_eq!(recovered.event_count, 2);
+}
+
+#[test]
+fn append_only_journal_recovers_a_snapshot_after_restart() {
+    let directory = tempdir().expect("temporary journal directory");
+    let journal = directory.path().join("events.jsonl");
+    state::append_event(
+        &journal,
+        &LifecycleEvent::new(1, LifecyclePhase::Setup, LifecyclePhase::Discover, false),
+    )
+    .expect("append first event");
+    state::append_event(
+        &journal,
+        &LifecycleEvent::new(
+            2,
+            LifecyclePhase::Discover,
+            LifecyclePhase::Understand,
+            false,
+        ),
+    )
+    .expect("append second event");
+
+    let recovered = state::recover_journal("run:fixture", &journal).expect("recover journal");
+    assert_eq!(recovered.phase, LifecyclePhase::Understand);
+    assert_eq!(recovered.last_sequence, 2);
 }
