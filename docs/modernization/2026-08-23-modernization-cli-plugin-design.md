@@ -9,8 +9,9 @@ the documentation lifecycle, and the Tree-sitter extraction architecture. Implem
 underway in controlled slices: the analyzer, plugin-pointer contract, runtime-observation
 preparation, Git-evolution artifact, shared evidence-model kernel, and lifecycle transition/replay
 kernel exist. The analyzer and Git artifacts have not yet been adapted into that shared graph, and
-the state kernel has no persisted workspace journal yet; setup, distribution, harness adapters,
-and the full lifecycle remain planned.
+the state kernel has no persisted workspace journal yet. A descriptor registry exposes conservative
+Codex and Claude capability records but deliberately has no installation paths; setup,
+distribution, verified harness adapters, and the full lifecycle remain planned.
 
 ## Goal
 

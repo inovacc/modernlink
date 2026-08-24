@@ -7,6 +7,7 @@ use std::{
 
 use clap::{Parser, Subcommand, ValueEnum};
 use git::{HistoryOptions, MailmapMode, RefScope, collect_history_cached};
+use harness::HarnessRegistry;
 use modernlink_analyzer::analyze_repository;
 use sha2::{Digest, Sha256};
 
@@ -62,6 +63,11 @@ enum Command {
         #[command(subcommand)]
         command: PluginCommand,
     },
+    /// Inspect the descriptor-driven AI harness registry.
+    Harness {
+        #[command(subcommand)]
+        command: HarnessCommand,
+    },
     /// Validate and observe an operator-authorized runtime target.
     Runtime {
         #[command(subcommand)]
@@ -78,6 +84,12 @@ enum PluginCommand {
         #[arg(long)]
         binary: PathBuf,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum HarnessCommand {
+    /// List bundled harness descriptors as structured JSON.
+    List,
 }
 
 fn main() -> ExitCode {
@@ -181,6 +193,13 @@ fn run(cli: Cli) -> Result<(), CommandError> {
                     binary,
                 },
         } => bind_plugin(plugin_root, binary),
+        Command::Harness {
+            command: HarnessCommand::List,
+        } => {
+            let registry = HarnessRegistry::builtin();
+            println!("{}", serde_json::json!({ "harnesses": registry.all() }));
+            Ok(())
+        }
         Command::Runtime { command } => {
             runtime_command::run(command).map_err(runtime_command::into_command_error)
         }

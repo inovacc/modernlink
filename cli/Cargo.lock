@@ -1549,6 +1549,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "harness"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "hash32"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2031,6 +2040,7 @@ dependencies = [
  "clap",
  "git",
  "gix",
+ "harness",
  "hex",
  "modernlink-analyzer",
  "runtime-observer",
