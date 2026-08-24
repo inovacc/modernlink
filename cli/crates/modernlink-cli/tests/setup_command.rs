@@ -55,3 +55,16 @@ fn setup_dry_run_does_not_create_a_workspace() {
     assert!(output.status.success());
     assert!(!repository.path().join(".modernlink").exists());
 }
+
+#[test]
+fn setup_requires_explicit_tools_without_a_terminal() {
+    let repository = tempfile::tempdir().expect("temporary repository");
+    let output = Command::new(env!("CARGO_BIN_EXE_modernlink"))
+        .arg("setup")
+        .arg(repository.path())
+        .output()
+        .expect("run noninteractive setup");
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("requires --tools"));
+}

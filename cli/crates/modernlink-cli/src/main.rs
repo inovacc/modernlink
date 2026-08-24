@@ -1,11 +1,12 @@
 use std::{
     env, fs,
-    io::Write,
+    io::{IsTerminal, Write},
     path::{Path, PathBuf},
     process::ExitCode,
 };
 
 use clap::{Parser, Subcommand, ValueEnum};
+use dialoguer::MultiSelect;
 use git::{HistoryOptions, MailmapMode, RefScope, collect_history_cached};
 use harness::HarnessRegistry;
 use modernlink_analyzer::analyze_repository;
@@ -51,8 +52,8 @@ enum Command {
         #[arg(default_value = ".")]
         repository: PathBuf,
         /// Comma-separated harness IDs, `all`, or `none`.
-        #[arg(long, default_value = "none")]
-        tools: String,
+        #[arg(long)]
+        tools: Option<String>,
         /// Report the managed paths and detected harnesses without writing anything.
         #[arg(long)]
         dry_run: bool,
@@ -635,7 +636,7 @@ struct WorkspaceManifest {
 
 fn setup_workspace(
     repository: PathBuf,
-    tools: String,
+    tools: Option<String>,
     dry_run: bool,
     force: bool,
 ) -> Result<(), CommandError> {
@@ -652,7 +653,6 @@ fn setup_workspace(
         )));
     }
     let registry = HarnessRegistry::builtin();
-    let selected_harnesses = select_harnesses(&registry, &tools)?;
     let detected_harnesses = registry
         .all()
         .iter()
@@ -664,6 +664,8 @@ fn setup_workspace(
         })
         .map(|definition| definition.id.clone())
         .collect::<Vec<_>>();
+    let selected_harnesses =
+        select_setup_harnesses(&registry, tools.as_deref(), &detected_harnesses)?;
     let manifest = WorkspaceManifest {
         schema_version: "modernlink.workspace/v1alpha1",
         selected_harnesses,
@@ -712,6 +714,44 @@ fn setup_workspace(
         })
     );
     Ok(())
+}
+
+fn select_setup_harnesses(
+    registry: &HarnessRegistry,
+    tools: Option<&str>,
+    detected: &[String],
+) -> Result<Vec<String>, CommandError> {
+    if let Some(tools) = tools {
+        return select_harnesses(registry, tools);
+    }
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        return Err(CommandError::invalid_input(
+            "setup requires --tools in a non-interactive session (for example, --tools codex,claude or --tools none)".to_owned(),
+        ));
+    }
+    let definitions = registry.all();
+    let labels = definitions
+        .iter()
+        .map(|definition| format!("{} ({})", definition.display_name, definition.id))
+        .collect::<Vec<_>>();
+    let defaults = definitions
+        .iter()
+        .map(|definition| detected.contains(&definition.id))
+        .collect::<Vec<_>>();
+    let selected = MultiSelect::new()
+        .with_prompt("Which AI harnesses should ModernLink configure?")
+        .items(&labels)
+        .defaults(&defaults)
+        .interact()
+        .map_err(|error| {
+            CommandError::io(format!(
+                "cannot read interactive harness selection: {error}"
+            ))
+        })?;
+    Ok(selected
+        .into_iter()
+        .map(|index| definitions[index].id.clone())
+        .collect())
 }
 
 fn select_harnesses(registry: &HarnessRegistry, tools: &str) -> Result<Vec<String>, CommandError> {
