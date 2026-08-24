@@ -100,3 +100,58 @@ fn setup_requires_explicit_tools_without_a_terminal() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("requires --tools"));
 }
+
+#[test]
+fn harness_selection_can_add_remove_refresh_and_report_without_touching_user_files() {
+    let repository = tempfile::tempdir().expect("temporary repository");
+    fs::write(repository.path().join("AGENTS.md"), "user-owned\n").expect("user file");
+    let binary = env!("CARGO_BIN_EXE_modernlink");
+
+    let setup = Command::new(binary)
+        .args(["setup"])
+        .arg(repository.path())
+        .args(["--tools", "none"])
+        .output()
+        .expect("setup workspace");
+    assert!(setup.status.success());
+
+    let add = Command::new(binary)
+        .args(["harness", "add", "--repository"])
+        .arg(repository.path())
+        .arg("codex")
+        .output()
+        .expect("add harness");
+    assert!(
+        add.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&add.stderr)
+    );
+    let workspace: serde_json::Value = serde_json::from_slice(
+        &fs::read(repository.path().join(".modernlink/workspace.json")).expect("workspace"),
+    )
+    .expect("workspace JSON");
+    assert_eq!(
+        workspace["selected_harnesses"],
+        serde_json::json!(["codex"])
+    );
+
+    let doctor = Command::new(binary)
+        .args(["harness", "doctor"])
+        .arg(repository.path())
+        .output()
+        .expect("harness doctor");
+    assert!(doctor.status.success());
+    assert!(String::from_utf8_lossy(&doctor.stdout).contains("materialized"));
+
+    let remove = Command::new(binary)
+        .args(["harness", "remove", "--repository"])
+        .arg(repository.path())
+        .arg("codex")
+        .output()
+        .expect("remove harness");
+    assert!(remove.status.success());
+    assert_eq!(
+        fs::read_to_string(repository.path().join("AGENTS.md")).expect("user file"),
+        "user-owned\n"
+    );
+}

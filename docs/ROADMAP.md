@@ -159,7 +159,7 @@ stateful agent modernization lifecycle.
 - [~] Canonical lifecycle plugin bundle with core skills, specialist roles, command contracts, and Codex/Claude adapter descriptors; installation/manifests and additional specialists remain pending
 - [~] `modernlink plugin install --destination` materializes the embedded canonical bundle to a new explicit directory; harness-path adapters, ownership manifests, refresh, and uninstall remain pending
 - [~] `modernlink doctor` read-only prerequisite report using structured Git opening and launchability probes; JDK/build-tool version and deployment-runtime detection remain pending
-- [~] Descriptor-driven Codex/Claude registry and `modernlink harness list`; verified installation adapters remain pending
+- [~] Descriptor-driven Codex/Claude registry plus safe `modernlink harness add|remove|refresh|doctor` workspace selection management; verified installation adapters remain pending
 - [ ] Java/application-server/transaction/messaging/database boundary detectors
 - [ ] Architecture, candidate-domain, and modernization-seam inference
 - [ ] Compatibility targets, migration DAG/state, verification and cutover lifecycle

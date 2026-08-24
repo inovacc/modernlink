@@ -229,6 +229,28 @@ static PLUGIN_CLAUDE: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../plugin/.
 enum HarnessCommand {
     /// List bundled harness descriptors as structured JSON.
     List,
+    /// Add one known harness to an existing ModernLink workspace selection.
+    Add {
+        #[arg(long, default_value = ".")]
+        repository: PathBuf,
+        id: String,
+    },
+    /// Remove one selected harness from an existing ModernLink workspace selection.
+    Remove {
+        #[arg(long, default_value = ".")]
+        repository: PathBuf,
+        id: String,
+    },
+    /// Refresh detected harness markers without changing the selected harnesses.
+    Refresh {
+        #[arg(default_value = ".")]
+        repository: PathBuf,
+    },
+    /// Report workspace selection, detected markers, and adapter-contract state.
+    Doctor {
+        #[arg(default_value = ".")]
+        repository: PathBuf,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -591,6 +613,23 @@ fn run(cli: Cli) -> Result<(), CommandError> {
             emit_receipt(format, &serde_json::json!({ "harnesses": registry.all() }));
             Ok(())
         }
+        Command::Harness {
+            command: HarnessCommand::Add { repository, id },
+        } => update_harness_selection(repository, id, HarnessSelectionAction::Add, format),
+        Command::Harness {
+            command: HarnessCommand::Remove { repository, id },
+        } => update_harness_selection(repository, id, HarnessSelectionAction::Remove, format),
+        Command::Harness {
+            command: HarnessCommand::Refresh { repository },
+        } => update_harness_selection(
+            repository,
+            String::new(),
+            HarnessSelectionAction::Refresh,
+            format,
+        ),
+        Command::Harness {
+            command: HarnessCommand::Doctor { repository },
+        } => harness_doctor(repository, format),
         Command::Runtime { command } => {
             runtime_command::run(command).map_err(runtime_command::into_command_error)
         }
@@ -735,13 +774,13 @@ fn advance_lifecycle(
     Ok(())
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct WorkspaceManifest {
-    schema_version: &'static str,
+    schema_version: String,
     selected_harnesses: Vec<String>,
     detected_harnesses: Vec<String>,
-    managed_paths: Vec<&'static str>,
-    adapter_installation: &'static str,
+    managed_paths: Vec<String>,
+    adapter_installation: String,
 }
 
 fn setup_workspace(
@@ -778,17 +817,19 @@ fn setup_workspace(
     let selected_harnesses =
         select_setup_harnesses(&registry, tools.as_deref(), &detected_harnesses)?;
     let manifest = WorkspaceManifest {
-        schema_version: "modernlink.workspace/v1alpha1",
+        schema_version: "modernlink.workspace/v1alpha1".to_owned(),
         selected_harnesses,
         detected_harnesses,
         managed_paths: vec![
-            ".modernlink/workspace.json",
-            ".modernlink/.gitignore",
-            ".modernlink/cache/",
-            ".modernlink/local/",
-            ".modernlink/state/",
+            ".modernlink/workspace.json".to_owned(),
+            ".modernlink/.gitignore".to_owned(),
+            ".modernlink/cache/".to_owned(),
+            ".modernlink/local/".to_owned(),
+            ".modernlink/state/".to_owned(),
         ],
-        adapter_installation: "not-attempted: no harness adapter has an approved ownership/install contract",
+        adapter_installation:
+            "not-attempted: no harness adapter has an approved ownership/install contract"
+                .to_owned(),
     };
     let manifest_path = repository.join(".modernlink").join("workspace.json");
     if manifest_path.exists() && !force {
@@ -865,6 +906,144 @@ fn ensure_workspace_ignore(workspace_root: &Path) -> Result<(), CommandError> {
         "refusing to modify existing user-owned {} because it lacks ModernLink local-state ignore rules",
         ignore_path.display()
     )))
+}
+
+#[derive(Clone, Copy)]
+enum HarnessSelectionAction {
+    Add,
+    Remove,
+    Refresh,
+}
+
+fn update_harness_selection(
+    repository: PathBuf,
+    id: String,
+    action: HarnessSelectionAction,
+    format: OutputFormat,
+) -> Result<(), CommandError> {
+    let repository = canonical_repository(repository)?;
+    let manifest_path = repository.join(".modernlink").join("workspace.json");
+    let mut manifest = read_workspace_manifest(&manifest_path)?;
+    let registry = HarnessRegistry::builtin();
+    if !matches!(action, HarnessSelectionAction::Refresh) && registry.get(&id).is_none() {
+        return Err(CommandError::invalid_input(format!(
+            "unknown harness `{id}`; run `modernlink harness list` to inspect available IDs"
+        )));
+    }
+    match action {
+        HarnessSelectionAction::Add => {
+            if !manifest.selected_harnesses.contains(&id) {
+                manifest.selected_harnesses.push(id);
+            }
+        }
+        HarnessSelectionAction::Remove => manifest.selected_harnesses.retain(|item| item != &id),
+        HarnessSelectionAction::Refresh => {}
+    }
+    manifest.selected_harnesses.sort();
+    manifest.selected_harnesses.dedup();
+    manifest.detected_harnesses = detect_harnesses(&registry, &repository);
+    write_workspace_manifest(&manifest_path, &manifest)?;
+    emit_receipt(
+        format,
+        &serde_json::json!({
+            "schema_version": "modernlink.harness-selection/v1alpha1",
+            "repository": repository,
+            "workspace_manifest": manifest_path,
+            "selected_harnesses": manifest.selected_harnesses,
+            "detected_harnesses": manifest.detected_harnesses,
+            "adapter_installation": manifest.adapter_installation,
+        }),
+    );
+    Ok(())
+}
+
+fn harness_doctor(repository: PathBuf, format: OutputFormat) -> Result<(), CommandError> {
+    let repository = canonical_repository(repository)?;
+    let manifest_path = repository.join(".modernlink").join("workspace.json");
+    let manifest = read_workspace_manifest(&manifest_path)?;
+    let registry = HarnessRegistry::builtin();
+    let detected = detect_harnesses(&registry, &repository);
+    let harnesses = registry
+        .all()
+        .iter()
+        .map(|definition| {
+            serde_json::json!({
+                "id": definition.id,
+                "selected": manifest.selected_harnesses.contains(&definition.id),
+                "detected": detected.contains(&definition.id),
+                "adapter_status": definition.adapter_status,
+                "materialized": false,
+                "limitation": "no harness filesystem path is assumed or modified until its ownership contract is approved",
+            })
+        })
+        .collect::<Vec<_>>();
+    emit_receipt(
+        format,
+        &serde_json::json!({
+            "schema_version": "modernlink.harness-doctor/v1alpha1",
+            "repository": repository,
+            "workspace_manifest": manifest_path,
+            "harnesses": harnesses,
+        }),
+    );
+    Ok(())
+}
+
+fn canonical_repository(repository: PathBuf) -> Result<PathBuf, CommandError> {
+    let repository = repository.canonicalize().map_err(|error| {
+        CommandError::io(format!(
+            "cannot resolve repository {}: {error}",
+            repository.display()
+        ))
+    })?;
+    if !repository.is_dir() {
+        return Err(CommandError::invalid_input(format!(
+            "repository path is not a directory: {}",
+            repository.display()
+        )));
+    }
+    Ok(repository)
+}
+
+fn read_workspace_manifest(path: &Path) -> Result<WorkspaceManifest, CommandError> {
+    let contents = fs::read_to_string(path).map_err(|error| {
+        CommandError::io(format!(
+            "cannot read ModernLink-owned workspace manifest {}: {error}; run `modernlink setup` first",
+            path.display()
+        ))
+    })?;
+    serde_json::from_str(&contents).map_err(|error| {
+        CommandError::invalid_input(format!(
+            "cannot parse ModernLink-owned workspace manifest {}: {error}",
+            path.display()
+        ))
+    })
+}
+
+fn write_workspace_manifest(path: &Path, manifest: &WorkspaceManifest) -> Result<(), CommandError> {
+    let mut contents = serde_json::to_string_pretty(manifest)
+        .map_err(|error| CommandError::internal(error.to_string()))?;
+    contents.push('\n');
+    fs::write(path, contents).map_err(|error| {
+        CommandError::io(format!(
+            "cannot update ModernLink-owned workspace manifest {}: {error}",
+            path.display()
+        ))
+    })
+}
+
+fn detect_harnesses(registry: &HarnessRegistry, repository: &Path) -> Vec<String> {
+    registry
+        .all()
+        .iter()
+        .filter(|definition| {
+            definition
+                .detection_markers
+                .iter()
+                .any(|marker| repository.join(marker).exists())
+        })
+        .map(|definition| definition.id.clone())
+        .collect()
 }
 
 fn select_setup_harnesses(
