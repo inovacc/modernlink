@@ -1,5 +1,5 @@
 # ModernLink Git Evolution Intelligence Design
-<!-- rev:004 (RFC 3339) 2026-08-24T01:08:40Z -->
+<!-- rev:005 (RFC 3339) 2026-08-24T01:18:46Z -->
 
 ## Status
 
@@ -151,8 +151,8 @@ and avoids multiplying a merge's change count. The policy is recorded on every a
 
 Directory tree entries are excluded from file-level churn and co-change facts because they are not
 diffable blobs and would otherwise create false coupling. Nested file paths remain recorded. A
-merge-specific controlled fixture is still required before the first-parent policy is considered
-exercised beyond linear history.
+controlled two-parent merge fixture verifies the first-parent policy; it does not establish that
+merge semantics from a representative enterprise repository have been assessed.
 
 Rename/copy similarity is deliberately disabled in the first slice even though the selected
 backend can be configured to infer it. A delete and add remain distinct paths and the snapshot

@@ -36,8 +36,8 @@ architecture, domain, seam, or migration recommendation would be correct.
 - The project-local cache is ignored under `.modernlink/cache/git/`.
 - `--mailmap repo` currently emits `mailmap-not-applied`; it is not a claim of normalized identity.
 - Existing target report files are refused rather than overwritten silently.
-- Nested directory entries are excluded from file-level coupling; a controlled merge-parent
-  fixture is still pending.
+- Nested directory entries are excluded from file-level coupling; a controlled two-parent merge
+  fixture verifies first-parent delta selection.
 
 The corresponding design and remaining work are in
 [Git Evolution Intelligence Design](../modernization/2026-08-23-git-evolution-intelligence-design.md)

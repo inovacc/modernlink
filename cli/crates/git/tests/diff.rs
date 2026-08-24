@@ -155,6 +155,90 @@ fn history_ignores_directory_entries_and_records_nested_file_changes() {
     );
 }
 
+#[test]
+fn merge_path_delta_uses_only_the_first_parent() {
+    let directory = tempdir().expect("temporary directory");
+    let repository = gix::init(directory.path()).expect("initialize fixture repository");
+    let signature = signature();
+    let base_tree = repository.empty_tree().id().detach();
+    let base = repository
+        .commit_as(
+            signature,
+            signature,
+            "refs/heads/main",
+            "base\n",
+            base_tree,
+            std::iter::empty::<gix::ObjectId>(),
+        )
+        .expect("create base")
+        .detach();
+    let main_tree = tree(&repository, &[("Payment.java", b"class Payment {}")]);
+    let main = repository
+        .commit_as(
+            signature,
+            signature,
+            "refs/heads/main",
+            "main change\n",
+            main_tree,
+            std::iter::once(base),
+        )
+        .expect("create main")
+        .detach();
+    let feature_tree = tree(&repository, &[("Settlement.java", b"class Settlement {}")]);
+    let feature = repository
+        .commit_as(
+            signature,
+            signature,
+            "refs/heads/feature",
+            "feature change\n",
+            feature_tree,
+            std::iter::once(base),
+        )
+        .expect("create feature")
+        .detach();
+    let merge_tree = tree(
+        &repository,
+        &[
+            ("Payment.java", b"class Payment {}"),
+            ("Settlement.java", b"class Settlement {}"),
+        ],
+    );
+    let merge = repository
+        .commit_as(
+            signature,
+            signature,
+            "refs/heads/main",
+            "merge\n",
+            merge_tree,
+            [main, feature],
+        )
+        .expect("create merge")
+        .detach();
+
+    let report =
+        collect_history(directory.path(), &HistoryOptions::all()).expect("collect merge history");
+
+    let merge_fact = report
+        .commits
+        .iter()
+        .find(|commit| commit.object_id == merge)
+        .expect("merge fact");
+    assert_eq!(
+        merge_fact.parent_ids,
+        vec![main.to_string(), feature.to_string()]
+    );
+    assert_eq!(merge_fact.diff_parent_policy, "first-parent");
+    assert!(report.path_changes.iter().any(|change| {
+        change.commit_id == merge && change.path == "Settlement.java" && change.kind == "addition"
+    }));
+    assert!(
+        !report
+            .path_changes
+            .iter()
+            .any(|change| { change.commit_id == merge && change.path == "Payment.java" })
+    );
+}
+
 fn tree(repository: &gix::Repository, files: &[(&str, &[u8])]) -> gix::ObjectId {
     let mut entries = files
         .iter()

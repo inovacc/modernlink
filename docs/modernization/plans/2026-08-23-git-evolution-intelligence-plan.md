@@ -214,7 +214,7 @@ record. Store raw author/committer fields, compute comparison keys from normaliz
 and default `message_fingerprint` to SHA-256 of the raw message bytes without serializing the
 message itself.
 
-- [ ] **Step 4: Add merge-parent policy tests and implementation**
+- [x] **Step 4: Add merge-parent policy tests and implementation**
 
 Add a fixture merge commit and assert that all parent IDs remain present while
 `diff_parent_policy == "first-parent"`. Implement this literal policy in `CommitFact`; do not
