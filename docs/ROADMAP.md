@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:040 (RFC 3339) 2026-08-24T11:39:01Z -->
+<!-- rev:041 (RFC 3339) 2026-08-24T11:41:31Z -->
 
 Reconciled 2026-08-21 against the current tree. Phases follow the M1/M2 structure in
 [BACKLOG.md](BACKLOG.md); tasks are broken out in [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md).
@@ -164,7 +164,7 @@ runtime, transaction, or cutover behavior.
 - [~] Descriptor-driven Codex/Claude registry plus safe `modernlink harness add|remove|refresh|doctor` workspace selection management; verified installation adapters remain pending
 - [~] Java/application-server/transaction/messaging/database boundary detectors: explicit
       WebLogic/JBoss/WildFly/WebSphere/Tomcat import or descriptor evidence, selected
-      repository/archive descriptor paths and JMS/JNDI/declarative-transaction content,
+      repository/archive descriptor paths, descriptor-to-named-boundary graph edges, and JMS/JNDI/declarative-transaction content,
       annotations, and bounded bytecode references
       are covered; resolved calls, resource/destination mapping, transaction resources, nested
       descriptor content, and runtime activation remain pending

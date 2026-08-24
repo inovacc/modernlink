@@ -1,5 +1,5 @@
 # Features
-<!-- rev:027 (RFC 3339) 2026-08-24T11:39:01Z -->
+<!-- rev:028 (RFC 3339) 2026-08-24T11:41:31Z -->
 
 What exists in the current tree, and what is proposed. "Implemented" means the code is present;
 it does **not** mean the behavior satisfies the intended runtime contract. See
@@ -72,7 +72,7 @@ host product remains outside every recorded run. See [ISSUES.md](ISSUES.md) I-01
 | Legacy infrastructure inventory | `modernlink inspect` | Emits deterministic import-derived signals for JMS, JNDI, JDBC/persistence, EJB, JTA, JAX-WS, JAXB, JMX, Servlet, RMI, Spring, and server APIs; imports do not prove runtime use. |
 | Application-server detector | `modernlink inspect` | Detects explicit WebLogic, JBoss, WildFly, WebSphere, and Tomcat descriptors/API prefixes. Generic `web.xml`, Servlet APIs, and JBoss deployment descriptors are not misrepresented as proof of a specific newer server. |
 | Declared Java build levels | `modernlink inspect` | Cites literal Maven `maven.compiler.{source,target,release}` properties and Gradle `sourceCompatibility`/`targetCompatibility` assignments. It does not resolve properties, inheritance, toolchains, plugins, or execute builds. |
-| Deployment-descriptor boundary references | `modernlink inspect` | Streams recognized repository XML descriptors and bounded recognized XML entries inside JAR/WAR/EAR archives to cite JNDI/data-source, JMS queue/topic, and declarative-transaction values. Malformed XML contributes no partial content facts. It does not traverse archives nested inside an EAR/WAR. |
+| Deployment-descriptor boundary references | `modernlink inspect` | Streams recognized repository XML descriptors and bounded recognized XML entries inside JAR/WAR/EAR archives to cite JNDI/data-source, JMS queue/topic, and declarative-transaction values, and emits descriptor-to-named-boundary graph edges. Malformed XML contributes no partial content facts. It does not traverse archives nested inside an EAR/WAR. |
 | SQL table-access inventory | `modernlink inspect` | Lexes repository `.sql` artifacts and unescaped, self-contained Java SQL literals into cited `reads`/`writes` evidence and database-table nodes for `FROM`/`JOIN`, DML, and table DDL. It ignores quoted strings and SQL comments; dynamic, escaped, concatenated, or runtime-loaded queries, dialect semantics, and table ownership remain out of scope. |
 | Static boundary annotations | `modernlink inspect` | Emits cited, derived signals for recognized transaction, messaging-consumer, SOAP, HTTP, and scheduled-batch annotations; annotation use does not prove an active runtime entry point. |
 | Target-runtime compatibility review | `modernlink compatibility --target <major>` | Emits evidence-linked review findings for observed internal-JDK, Java EE, and application-server imports or validated bytecode references; it does not claim a readiness percentage or inspect resolved dependencies/runtime behavior yet. |

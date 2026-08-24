@@ -448,6 +448,7 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
                     &artifact_id,
                     &source,
                     &mut evidence,
+                    &mut edges,
                     &mut signals,
                 );
                 if is_maven_pom(&relative) {
@@ -541,9 +542,11 @@ fn add_descriptor_content_facts(
     artifact_id: &str,
     source: &[u8],
     evidence: &mut Vec<Evidence>,
+    edges: &mut Vec<GraphEdge>,
     signals: &mut Vec<TechnologySignal>,
 ) -> String {
     let evidence_start = evidence.len();
+    let edges_start = edges.len();
     let signals_start = signals.len();
     let mut reader = Reader::from_reader(source);
     reader.config_mut().trim_text(true);
@@ -621,6 +624,17 @@ fn add_descriptor_content_facts(
                         "xml-stream",
                         evidence,
                     );
+                    let target_name = descriptor_target_name(rule.technology, value);
+                    edges.push(GraphEdge {
+                        id: stable_id(
+                            "edge",
+                            ["descriptor-references", artifact_id, target_name.as_str()],
+                        ),
+                        kind: "descriptor-references".to_owned(),
+                        source_id: artifact_id.to_owned(),
+                        target_name,
+                        evidence_ids: vec![evidence_id.clone()],
+                    });
                     signals.push(signal_from_rule(rule, evidence_id));
                 }
             }
@@ -629,11 +643,13 @@ fn add_descriptor_content_facts(
                     return "xml-streamed".to_owned();
                 }
                 evidence.truncate(evidence_start);
+                edges.truncate(edges_start);
                 signals.truncate(signals_start);
                 return "xml-malformed".to_owned();
             }
             Err(_) => {
                 evidence.truncate(evidence_start);
+                edges.truncate(edges_start);
                 signals.truncate(signals_start);
                 return "xml-malformed".to_owned();
             }
@@ -641,6 +657,10 @@ fn add_descriptor_content_facts(
         }
         buffer.clear();
     }
+}
+
+fn descriptor_target_name(technology: &str, value: &str) -> String {
+    format!("{technology}:{value}")
 }
 
 fn add_classfile_facts(
@@ -1068,6 +1088,7 @@ fn add_archive_facts(
                         artifact_id,
                         &descriptor,
                         evidence,
+                        edges,
                         signals,
                     );
                 }

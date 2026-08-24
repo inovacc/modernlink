@@ -88,6 +88,12 @@ fn derives_build_and_application_server_signals_from_cited_artifacts() {
         "descriptor.xml.jms-destination",
         "orders/src/main/application/META-INF/weblogic-application.xml",
     );
+    assert!(report.edges.iter().any(|edge| {
+        edge.kind == "descriptor-references" && edge.target_name == "jms:jms/OrdersQueue"
+    }));
+    assert!(report.edges.iter().any(|edge| {
+        edge.kind == "descriptor-references" && edge.target_name == "jndi:jms/Orders"
+    }));
     assert_signal(
         &report,
         "application-server",
@@ -598,6 +604,12 @@ fn malformed_nested_descriptors_do_not_emit_partial_content_facts() {
         evidence.path == "broken.war!WEB-INF/weblogic.xml"
             && evidence.observation_kind == "descriptor-reference"
     }));
+    assert!(
+        !report
+            .edges
+            .iter()
+            .any(|edge| edge.kind == "descriptor-references")
+    );
 }
 
 #[test]
