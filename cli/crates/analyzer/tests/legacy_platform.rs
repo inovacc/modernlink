@@ -328,9 +328,12 @@ fn malformed_constant_pools_retain_only_header_evidence() {
 
     let report = analyze_repository(repository.path()).expect("analysis");
     let path = "target/classes/com/acme/Broken.class";
-    assert!(report.artifacts.iter().any(|artifact| {
-        artifact.path == path && artifact.parse_health == "header-only"
-    }));
+    assert!(
+        report
+            .artifacts
+            .iter()
+            .any(|artifact| { artifact.path == path && artifact.parse_health == "header-only" })
+    );
     assert!(!report.evidence.iter().any(|evidence| {
         evidence.path == path && evidence.observation_kind == "bytecode-class-reference"
     }));

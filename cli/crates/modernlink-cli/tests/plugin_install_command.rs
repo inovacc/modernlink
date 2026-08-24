@@ -35,11 +35,27 @@ fn plugin_install_materializes_the_canonical_bundle_only_at_an_explicit_new_dest
             .join("skills/modernlink-architecture/SKILL.md")
             .is_file()
     );
-    assert!(destination.join("skills/modernlink-domains/SKILL.md").is_file());
-    assert!(destination.join("skills/modernlink-assess/SKILL.md").is_file());
-    assert!(destination.join("skills/modernlink-prepare/SKILL.md").is_file());
+    assert!(
+        destination
+            .join("skills/modernlink-domains/SKILL.md")
+            .is_file()
+    );
+    assert!(
+        destination
+            .join("skills/modernlink-assess/SKILL.md")
+            .is_file()
+    );
+    assert!(
+        destination
+            .join("skills/modernlink-prepare/SKILL.md")
+            .is_file()
+    );
     assert!(destination.join("agents/domain-analyst.md").is_file());
-    assert!(destination.join("agents/compatibility-auditor.md").is_file());
+    assert!(
+        destination
+            .join("agents/compatibility-auditor.md")
+            .is_file()
+    );
     assert!(destination.join("agents/preparation-auditor.md").is_file());
     assert!(destination.join(".codex-plugin/plugin.json").is_file());
     assert!(

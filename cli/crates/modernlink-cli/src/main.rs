@@ -33,6 +33,7 @@ struct Cli {
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum OutputFormat {
     Json,
+    Yaml,
     Human,
 }
 
@@ -236,7 +237,8 @@ const PLUGIN_ARCHITECTURE_SKILL: &[u8] =
     include_bytes!("../../../plugin/skills/modernlink-architecture/SKILL.md");
 const PLUGIN_DOMAINS_SKILL: &[u8] =
     include_bytes!("../../../plugin/skills/modernlink-domains/SKILL.md");
-const PLUGIN_ASSESS_SKILL: &[u8] = include_bytes!("../../../plugin/skills/modernlink-assess/SKILL.md");
+const PLUGIN_ASSESS_SKILL: &[u8] =
+    include_bytes!("../../../plugin/skills/modernlink-assess/SKILL.md");
 const PLUGIN_PREPARE_SKILL: &[u8] =
     include_bytes!("../../../plugin/skills/modernlink-prepare/SKILL.md");
 
@@ -1231,6 +1233,11 @@ fn write_report(output: &Path, json: String) -> Result<(), CommandError> {
 fn emit_receipt(format: OutputFormat, receipt: &serde_json::Value) {
     match format {
         OutputFormat::Json => println!("{receipt}"),
+        OutputFormat::Yaml => print!(
+            "{}",
+            serde_yaml::to_string(receipt)
+                .expect("a JSON receipt must always be serializable as YAML")
+        ),
         OutputFormat::Human => {
             println!("ModernLink");
             for key in [

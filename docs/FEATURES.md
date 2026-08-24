@@ -1,5 +1,5 @@
 # Features
-<!-- rev:011 (RFC 3339) 2026-08-24T00:00:00Z -->
+<!-- rev:012 (RFC 3339) 2026-08-24T00:00:00Z -->
 
 What exists in the current tree, and what is proposed. "Implemented" means the code is present;
 it does **not** mean the behavior satisfies the intended runtime contract. See
@@ -77,7 +77,7 @@ host product remains outside every recorded run. See [ISSUES.md](ISSUES.md) I-01
 | Lifecycle transition | `modernlink lifecycle advance --journal … --run-id …` | Appends only the next valid phase, requires `--approve` for Modernize/Cutover/Detach, and records explicit artifact digests. |
 | Evidence-linked migration DAG | `modernlink plan --seams … --compatibility …` | Turns existing seam and compatibility evidence into prerequisite tasks; it proposes no target technology or automatic cutover. |
 | Static migration-plan verification | `modernlink verify --plan …` | Checks task uniqueness, dependency references, and declared migration approval gates; it explicitly does not verify behavior, tests, runtime safety, or cutover readiness. |
-| Human/operator command receipts | `modernlink --format human <command>` | Emits a compact terminal receipt while explicit report files remain canonical JSON for agents; `--format json` remains the default. |
+| Command receipt formats | `modernlink --format json\|yaml\|human <command>` | Emits JSON by default, YAML for machine consumers that prefer it, or a compact human receipt. Explicit report files remain canonical JSON, so their schema and overwrite behavior do not vary by terminal format. |
 | Safe local workspace setup | `modernlink setup [repo] [--tools <ids\|all\|none>]` | Interactive terminals get a Space/Enter multi-select with detected harnesses preselected; automated callers must specify `--tools`. Setup writes a nested `.modernlink/.gitignore` for machine-local state and refuses to alter incompatible existing ignore files. |
 | Harness selection management | `modernlink harness add|remove|refresh|doctor` | Changes only the ModernLink-owned workspace manifest, validates registry IDs, and reports adapter-materialization as absent rather than guessing harness paths or touching user-owned files. |
 | Local prerequisite report | `modernlink doctor [repo]` | Read-only structured report for binary, repository access, Rust Git availability, workspace state, Java/Maven/Gradle launchability, and known harness markers; it intentionally does not parse tool-version text. |

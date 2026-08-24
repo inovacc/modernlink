@@ -801,8 +801,14 @@ struct ClassReference {
 #[derive(Debug)]
 enum ConstantPoolEntry {
     Empty,
-    Utf8 { value: String },
-    Class { name_index: usize, start_byte: usize, end_byte: usize },
+    Utf8 {
+        value: String,
+    },
+    Class {
+        name_index: usize,
+        start_byte: usize,
+        end_byte: usize,
+    },
 }
 
 fn classfile_references(source: &[u8]) -> Result<Vec<ClassReference>, ()> {
@@ -864,7 +870,8 @@ fn classfile_references(source: &[u8]) -> Result<Vec<ClassReference>, ()> {
             name_index,
             start_byte,
             end_byte,
-        } = entry else {
+        } = entry
+        else {
             continue;
         };
         let Some(ConstantPoolEntry::Utf8 { value }) = entries.get(*name_index) else {
@@ -892,7 +899,7 @@ fn normalize_class_reference(value: &str) -> Option<String> {
         && !value.starts_with('[')
         && !value.ends_with("module-info")
         && !value.ends_with("package-info"))
-        .then(|| value.replace('/', "."))
+    .then(|| value.replace('/', "."))
 }
 
 fn classfile_java_version(major: u16) -> Option<u16> {
@@ -1258,7 +1265,9 @@ fn coalesce_signals(signals: Vec<TechnologySignal>) -> Vec<TechnologySignal> {
 }
 
 fn is_maven_pom(path: &str) -> bool {
-    path.rsplit('/').next().is_some_and(|name| name.eq_ignore_ascii_case("pom.xml"))
+    path.rsplit('/')
+        .next()
+        .is_some_and(|name| name.eq_ignore_ascii_case("pom.xml"))
 }
 
 fn is_gradle_build_file(path: &str) -> bool {
@@ -1266,6 +1275,13 @@ fn is_gradle_build_file(path: &str) -> bool {
         path.rsplit('/').next().map(|name| name.to_ascii_lowercase()),
         Some(name) if matches!(name.as_str(), "build.gradle" | "build.gradle.kts")
     )
+}
+
+struct JavaVersionFactContext<'a> {
+    path: &'a str,
+    artifact_id: &'a str,
+    evidence: &'a mut Vec<Evidence>,
+    signals: &'a mut Vec<TechnologySignal>,
 }
 
 fn add_maven_java_version_facts(
@@ -1278,6 +1294,12 @@ fn add_maven_java_version_facts(
     let Ok(text) = std::str::from_utf8(source) else {
         return;
     };
+    let mut context = JavaVersionFactContext {
+        path,
+        artifact_id,
+        evidence,
+        signals,
+    };
     for property in [
         "maven.compiler.source",
         "maven.compiler.target",
@@ -1289,18 +1311,18 @@ fn add_maven_java_version_facts(
             continue;
         };
         let value_start = start + open.len();
-        let Some(value_end) = text[value_start..].find(&close).map(|end| value_start + end) else {
+        let Some(value_end) = text[value_start..]
+            .find(&close)
+            .map(|end| value_start + end)
+        else {
             continue;
         };
         add_declared_java_version(
-            path,
-            artifact_id,
+            &mut context,
             property,
             &text[value_start..value_end],
             value_start,
             value_end,
-            evidence,
-            signals,
         );
     }
 }
@@ -1314,6 +1336,12 @@ fn add_gradle_java_version_facts(
 ) {
     let Ok(text) = std::str::from_utf8(source) else {
         return;
+    };
+    let mut context = JavaVersionFactContext {
+        path,
+        artifact_id,
+        evidence,
+        signals,
     };
     let mut offset = 0;
     for line in text.split_inclusive('\n') {
@@ -1334,14 +1362,11 @@ fn add_gradle_java_version_facts(
                 continue;
             };
             add_declared_java_version(
-                path,
-                artifact_id,
+                &mut context,
                 property,
                 value,
                 offset + relative_start,
                 offset + relative_start + value.len(),
-                evidence,
-                signals,
             );
         }
         offset += line.len();
@@ -1349,14 +1374,11 @@ fn add_gradle_java_version_facts(
 }
 
 fn add_declared_java_version(
-    path: &str,
-    artifact_id: &str,
+    context: &mut JavaVersionFactContext<'_>,
     rule_id: &str,
     value: &str,
     start_byte: usize,
     end_byte: usize,
-    evidence: &mut Vec<Evidence>,
-    signals: &mut Vec<TechnologySignal>,
 ) {
     let Some(version) = normalize_declared_java_version(value) else {
         return;
@@ -1369,14 +1391,17 @@ fn add_declared_java_version(
     let evidence_id = push_evidence_with_collector(
         "declared-java-version",
         &fact,
-        path,
-        artifact_id,
+        context.path,
+        context.artifact_id,
         DESCRIPTOR_COLLECTOR,
-        evidence,
+        context.evidence,
     );
     let technology = format!("java-{version}");
-    signals.push(TechnologySignal {
-        id: stable_id("signal", ["java-configuration", technology.as_str(), rule_id]),
+    context.signals.push(TechnologySignal {
+        id: stable_id(
+            "signal",
+            ["java-configuration", technology.as_str(), rule_id],
+        ),
         category: "java-configuration".to_owned(),
         technology,
         rule_id: rule_id.to_owned(),
