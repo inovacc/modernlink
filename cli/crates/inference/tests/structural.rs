@@ -138,6 +138,58 @@ fn seam_inference_identifies_a_jms_boundary_and_its_migration_mode() {
 }
 
 #[test]
+fn seam_inference_keeps_sql_table_writes_as_low_confidence_data_candidates() {
+    let graph = EvidenceGraph {
+        schema_version: "modernlink.evidence/v1alpha1".to_owned(),
+        evidence: vec![Evidence {
+            id: "evidence:sql-write".to_owned(),
+            kind: "sql-table-write".to_owned(),
+            value: "ledger.payment".to_owned(),
+            source: SourceLocation {
+                path: "db/migrations/V001.sql".to_owned(),
+                start_byte: 12,
+                end_byte: 26,
+            },
+        }],
+        nodes: vec![
+            GraphNode {
+                id: "node:sql".to_owned(),
+                kind: "artifact".to_owned(),
+                name: "db/migrations/V001.sql".to_owned(),
+                evidence_ids: Vec::new(),
+            },
+            GraphNode {
+                id: "node:table".to_owned(),
+                kind: "database-table".to_owned(),
+                name: "ledger.payment".to_owned(),
+                evidence_ids: vec!["evidence:sql-write".to_owned()],
+            },
+        ],
+        edges: vec![GraphEdge {
+            id: "edge:sql-write".to_owned(),
+            kind: "writes".to_owned(),
+            source_id: "node:sql".to_owned(),
+            target_id: "node:table".to_owned(),
+            evidence_ids: vec!["evidence:sql-write".to_owned()],
+        }],
+        claims: Vec::new(),
+    };
+
+    let seam = infer_seams(&graph).expect("SQL seam").seams.remove(0);
+
+    assert_eq!(seam.state, model::ClaimState::Inference);
+    assert_eq!(seam.seam_type, "database-table-writes");
+    assert_eq!(seam.current_technology, "database");
+    assert_eq!(seam.confidence_percent, 55);
+    assert_eq!(seam.isolation_score, 45);
+    assert!(
+        seam.score_components
+            .iter()
+            .any(|component| component.factor == "static-table-access")
+    );
+}
+
+#[test]
 fn seam_inference_uses_validated_bytecode_references_when_source_is_unavailable() {
     let graph = EvidenceGraph {
         schema_version: "modernlink.evidence/v1alpha1".to_owned(),

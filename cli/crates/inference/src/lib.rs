@@ -316,15 +316,51 @@ pub fn infer_seams(graph: &EvidenceGraph) -> Result<SeamReport, InferenceError> 
         .collect::<BTreeMap<_, _>>();
     let mut seams = Vec::new();
     for edge in &graph.edges {
-        if !matches!(edge.kind.as_str(), "imports" | "bytecode-references") {
-            continue;
-        }
         let Some(target) = nodes.get(edge.target_id.as_str()) else {
             continue;
         };
         let Some(source) = nodes.get(edge.source_id.as_str()) else {
             continue;
         };
+        if matches!(edge.kind.as_str(), "reads" | "writes") && target.kind == "database-table" {
+            let mut score_components = vec![ScoreComponent {
+                factor: "static-table-access".to_owned(),
+                points: 20,
+                reasoning:
+                    "a repository SQL artifact names this table in a lexical access statement"
+                        .to_owned(),
+            }];
+            score_components.push(ScoreComponent {
+                factor: "data-boundary".to_owned(),
+                points: if edge.kind == "writes" { 35 } else { 20 },
+                reasoning: if edge.kind == "writes" {
+                    "the SQL artifact records a write or schema-write against this table"
+                } else {
+                    "the SQL artifact records a read against this table"
+                }
+                .to_owned(),
+            });
+            let leverage_score = score_components.iter().map(|item| item.points).sum::<u8>();
+            seams.push(ModernizationSeam {
+                id: model::stable_id("modernization-seam", [edge.id.as_str()]),
+                state: ClaimState::Inference,
+                location_node_id: edge.source_id.clone(),
+                location_name: source.name.clone(),
+                seam_type: format!("database-table-{}", edge.kind),
+                current_technology: "database".to_owned(),
+                leverage_score,
+                migration_risk_score: if edge.kind == "writes" { 70 } else { 55 },
+                isolation_score: 45,
+                confidence_percent: 55,
+                score_components,
+                evidence_ids: edge.evidence_ids.clone(),
+                recommended_mode: "PASSTHROUGH -> SHADOW -> REDIRECT".to_owned(),
+            });
+            continue;
+        }
+        if !matches!(edge.kind.as_str(), "imports" | "bytecode-references") {
+            continue;
+        }
         if target.kind != "external-reference" {
             continue;
         }

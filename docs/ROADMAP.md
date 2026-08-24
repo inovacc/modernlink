@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:037 (RFC 3339) 2026-08-24T11:29:57Z -->
+<!-- rev:038 (RFC 3339) 2026-08-24T11:32:54Z -->
 
 Reconciled 2026-08-21 against the current tree. Phases follow the M1/M2 structure in
 [BACKLOG.md](BACKLOG.md); tasks are broken out in [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md).
@@ -145,7 +145,7 @@ runtime, transaction, or cutover behavior.
 - [x] Optional `modernlink analyze --history` sibling artifact with unchanged analysis schema
 - [~] Shared evidence model plus Java and Git adapters through `modernlink inspect [--history]`, including parser-derived inheritance and method-call edges; deeper detectors remain pending
 - [~] `modernlink architecture` deterministic layer inference and candidate-context hypotheses; richer domain evidence remains pending
-- [~] `modernlink seams` decomposed vendor/JMS/JNDI/database/SOAP import-boundary scoring; transaction, message-flow, data-flow, and runtime seam detectors remain pending
+- [~] `modernlink seams` decomposed vendor/JMS/JNDI/database/SOAP import-boundary scoring plus lower-confidence lexical SQL table read/write candidates; transaction, message-flow, resolved data-flow, ownership, and runtime seam detectors remain pending
 - [~] Deterministic import-derived legacy infrastructure inventory (JMS, JNDI, JDBC/persistence, EJB, JTA, JAX-WS, JAXB, JMX, Servlet, RMI, Spring), plus XML descriptor JNDI/JMS references; call/data-flow confirmation remains pending
 - [~] Deterministic recognized annotation signals for transaction, messaging, SOAP, HTTP, and batch boundaries; method ownership, transaction resources, and runtime activation remain pending
 - [~] `modernlink boundaries` emits annotation-backed boundary candidates with explicit limitations; source call graphs, destination/resource mapping, and runtime confirmation remain pending

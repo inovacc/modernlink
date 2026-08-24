@@ -1,5 +1,5 @@
 # Features
-<!-- rev:024 (RFC 3339) 2026-08-24T11:29:57Z -->
+<!-- rev:025 (RFC 3339) 2026-08-24T11:32:54Z -->
 
 What exists in the current tree, and what is proposed. "Implemented" means the code is present;
 it does **not** mean the behavior satisfies the intended runtime contract. See
@@ -68,7 +68,7 @@ host product remains outside every recorded run. See [ISSUES.md](ISSUES.md) I-01
 | Architectural layer and candidate-context report | `modernlink architecture` | Inference/hypothesis states, confidence, evidence IDs, and reasoning are explicit; not a DDD fact assertion. |
 | Candidate-domain report | `modernlink domains` | Emits only `CandidateContext` hypotheses plus explicit limitations for agents and reviewers; it is not a declaration of bounded contexts or business ownership. |
 | Static boundary report | `modernlink boundaries` | Lists annotation-backed transaction, messaging-consumer, SOAP, HTTP, and batch candidates with source locations and limitations; it does not establish runtime activation or transaction resources. |
-| Decomposed modernization seam report | `modernlink seams` | Scores observed vendor, JMS, JNDI, JDBC/persistence, and SOAP import boundaries, plus validated bytecode class references from partial-source deployments, with evidence-linked components; call/data-flow-specific seam families are pending. |
+| Decomposed modernization seam report | `modernlink seams` | Scores observed vendor, JMS, JNDI, JDBC/persistence, and SOAP import boundaries, validated bytecode class references, and lexical SQL table reads/writes, with evidence-linked components. SQL candidates deliberately use lower confidence and isolation scores: table ownership, runtime access, and shared-table coupling remain pending. |
 | Legacy infrastructure inventory | `modernlink inspect` | Emits deterministic import-derived signals for JMS, JNDI, JDBC/persistence, EJB, JTA, JAX-WS, JAXB, JMX, Servlet, RMI, Spring, and server APIs; imports do not prove runtime use. |
 | Application-server detector | `modernlink inspect` | Detects explicit WebLogic, JBoss, WildFly, WebSphere, and Tomcat descriptors/API prefixes. Generic `web.xml`, Servlet APIs, and JBoss deployment descriptors are not misrepresented as proof of a specific newer server. |
 | Declared Java build levels | `modernlink inspect` | Cites literal Maven `maven.compiler.{source,target,release}` properties and Gradle `sourceCompatibility`/`targetCompatibility` assignments. It does not resolve properties, inheritance, toolchains, plugins, or execute builds. |
