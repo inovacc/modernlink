@@ -56,6 +56,12 @@ public class OrderService extends BaseService implements ChargePort, AuditPort {
         first
             .edges
             .iter()
+            .any(|edge| { edge.kind == "calls" && edge.target_name == "payments.charge" })
+    );
+    assert!(
+        first
+            .edges
+            .iter()
             .any(|edge| { edge.kind == "extends" && edge.target_name == "BaseService" })
     );
     assert_eq!(

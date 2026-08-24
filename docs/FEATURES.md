@@ -62,7 +62,7 @@ host product remains outside every recorded run. See [ISSUES.md](ISSUES.md) I-01
 
 | Feature | Where | Scope / limitation |
 |---|---|---|
-| Rust-first deterministic Java repository analysis | `cli/crates/analyzer` | Static source facts include packages, imports, declarations, annotations, and parsed `extends`/`implements` relations; architecture and domain conclusions remain higher-layer inference. |
+| Rust-first deterministic Java repository analysis | `cli/crates/analyzer` | Static source facts include packages, imports, declarations, annotations, parsed `extends`/`implements`, and method-call candidates; dispatch and runtime call-graph resolution remain out of scope. |
 | Compiled class/archive inventory | `modernlink inspect` | Reads `.class` headers and indexes JAR/WAR/EAR entries for nested classfile major versions; it neither executes nor semantically decompiles bytecode, and bytecode-reference traversal remains pending. |
 | Unified static + evolution evidence graph | `modernlink inspect [--history]` | Merges versioned Java and Git adapters into `modernlink.evidence/v1alpha1`; deeper detectors remain pending. |
 | Architectural layer and candidate-context report | `modernlink architecture` | Inference/hypothesis states, confidence, evidence IDs, and reasoning are explicit; not a DDD fact assertion. |

@@ -215,6 +215,7 @@ struct FileFacts {
     imports: Vec<Fact>,
     annotations: Vec<Fact>,
     types: Vec<Fact>,
+    method_calls: Vec<Fact>,
     type_relations: Vec<TypeRelation>,
 }
 
@@ -723,6 +724,22 @@ fn collect_facts(node: Node<'_>, source: &[u8], facts: &mut FileFacts) {
                 }
             }
         }
+        "method_invocation" => {
+            if let Some(name_node) = node.child_by_field_name("name")
+                && let Ok(name) = name_node.utf8_text(source)
+            {
+                let target = node
+                    .child_by_field_name("object")
+                    .and_then(|object| object.utf8_text(source).ok())
+                    .map(|object| format!("{object}.{name}"))
+                    .unwrap_or_else(|| name.to_owned());
+                facts.method_calls.push(Fact {
+                    name: target,
+                    start_byte: node.start_byte(),
+                    end_byte: node.end_byte(),
+                });
+            }
+        }
         "class_declaration"
         | "interface_declaration"
         | "enum_declaration"
@@ -817,6 +834,7 @@ fn add_file_facts(
     facts.imports.sort_by(|a, b| a.name.cmp(&b.name));
     facts.annotations.sort_by(|a, b| a.name.cmp(&b.name));
     facts.types.sort_by(|a, b| a.name.cmp(&b.name));
+    facts.method_calls.sort_by(|a, b| a.name.cmp(&b.name));
     facts.type_relations.sort_by(|a, b| {
         (&a.source_type, a.kind, &a.target.name).cmp(&(&b.source_type, b.kind, &b.target.name))
     });
@@ -860,6 +878,18 @@ fn add_file_facts(
         if let Some(rule) = annotation_rule(&annotation.name) {
             signals.push(signal_from_rule(rule, evidence_id));
         }
+    }
+
+    for call in facts.method_calls {
+        let evidence_id = push_evidence("method-call", &call, path, artifact_id, evidence);
+        let source_id = package_id.clone().unwrap_or_else(|| artifact_id.to_owned());
+        edges.push(GraphEdge {
+            id: stable_id("edge", ["calls", source_id.as_str(), call.name.as_str()]),
+            kind: "calls".to_owned(),
+            source_id,
+            target_name: call.name,
+            evidence_ids: vec![evidence_id],
+        });
     }
 
     for relation in facts.type_relations {
