@@ -214,12 +214,19 @@ struct FileFacts {
     imports: Vec<Fact>,
     annotations: Vec<Fact>,
     types: Vec<Fact>,
+    type_relations: Vec<TypeRelation>,
 }
 
 struct Fact {
     name: String,
     start_byte: usize,
     end_byte: usize,
+}
+
+struct TypeRelation {
+    source_type: String,
+    kind: &'static str,
+    target: Fact,
 }
 
 struct SignalRule {
@@ -625,6 +632,7 @@ fn collect_facts(node: Node<'_>, source: &[u8], facts: &mut FileFacts) {
                     start_byte: name_node.start_byte(),
                     end_byte: name_node.end_byte(),
                 });
+                collect_type_relations(node, source, name, facts);
             }
         }
         _ => {}
@@ -633,6 +641,42 @@ fn collect_facts(node: Node<'_>, source: &[u8], facts: &mut FileFacts) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         collect_facts(child, source, facts);
+    }
+}
+
+fn collect_type_relations(node: Node<'_>, source: &[u8], source_type: &str, facts: &mut FileFacts) {
+    if let Some(superclass) = node.child_by_field_name("superclass")
+        && let Some(target) = superclass.named_child(0)
+        && let Ok(name) = target.utf8_text(source)
+    {
+        facts.type_relations.push(TypeRelation {
+            source_type: source_type.to_owned(),
+            kind: "extends",
+            target: Fact {
+                name: name.to_owned(),
+                start_byte: target.start_byte(),
+                end_byte: target.end_byte(),
+            },
+        });
+    }
+    if let Some(interfaces) = node.child_by_field_name("interfaces") {
+        let Some(type_list) = interfaces.named_child(0) else {
+            return;
+        };
+        let mut cursor = type_list.walk();
+        for target in type_list.named_children(&mut cursor) {
+            if let Ok(name) = target.utf8_text(source) {
+                facts.type_relations.push(TypeRelation {
+                    source_type: source_type.to_owned(),
+                    kind: "implements",
+                    target: Fact {
+                        name: name.to_owned(),
+                        start_byte: target.start_byte(),
+                        end_byte: target.end_byte(),
+                    },
+                });
+            }
+        }
     }
 }
 
@@ -669,6 +713,9 @@ fn add_file_facts(
     facts.imports.sort_by(|a, b| a.name.cmp(&b.name));
     facts.annotations.sort_by(|a, b| a.name.cmp(&b.name));
     facts.types.sort_by(|a, b| a.name.cmp(&b.name));
+    facts.type_relations.sort_by(|a, b| {
+        (&a.source_type, a.kind, &a.target.name).cmp(&(&b.source_type, b.kind, &b.target.name))
+    });
     let package_name = facts
         .package
         .as_ref()
@@ -709,6 +756,31 @@ fn add_file_facts(
         if let Some(rule) = annotation_rule(&annotation.name) {
             signals.push(signal_from_rule(rule, evidence_id));
         }
+    }
+
+    for relation in facts.type_relations {
+        let evidence_id =
+            push_evidence(relation.kind, &relation.target, path, artifact_id, evidence);
+        let source_name = if package_name == "<default>" {
+            relation.source_type
+        } else {
+            format!("{package_name}.{}", relation.source_type)
+        };
+        let source_id = stable_id("node", ["type", source_name.as_str()]);
+        edges.push(GraphEdge {
+            id: stable_id(
+                "edge",
+                [
+                    relation.kind,
+                    source_id.as_str(),
+                    relation.target.name.as_str(),
+                ],
+            ),
+            kind: relation.kind.to_owned(),
+            source_id,
+            target_name: relation.target.name,
+            evidence_ids: vec![evidence_id],
+        });
     }
 
     for declared_type in facts.types {

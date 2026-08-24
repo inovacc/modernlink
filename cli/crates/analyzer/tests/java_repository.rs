@@ -14,7 +14,7 @@ fn analyzes_java_repository_into_deterministic_evidence_graph() {
 import com.acme.payments.PaymentGateway;
 import weblogic.jndi.Environment;
 
-public class OrderService {
+public class OrderService extends BaseService implements ChargePort, AuditPort {
     private final PaymentGateway payments;
 
     public OrderService(PaymentGateway payments) {
@@ -52,6 +52,20 @@ public class OrderService {
     assert!(first.edges.iter().any(|edge| {
         edge.kind == "imports" && edge.target_name == "com.acme.payments.PaymentGateway"
     }));
+    assert!(
+        first
+            .edges
+            .iter()
+            .any(|edge| { edge.kind == "extends" && edge.target_name == "BaseService" })
+    );
+    assert_eq!(
+        first
+            .edges
+            .iter()
+            .filter(|edge| edge.kind == "implements")
+            .count(),
+        2
+    );
     assert!(first.evidence.iter().all(|evidence| {
         evidence.path == "src/main/java/com/acme/orders/OrderService.java"
             && evidence.start_byte < evidence.end_byte

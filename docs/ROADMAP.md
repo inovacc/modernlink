@@ -142,7 +142,7 @@ stateful agent modernization lifecycle.
       ref/commit/tree evidence, bounded co-change, local cache, and `modernlink history`
 - [~] `modernlink evolution` x-ray of changed-path hotspots, co-change, and contributor continuity; semantic code-change attribution and review ownership remain pending
 - [x] Optional `modernlink analyze --history` sibling artifact with unchanged analysis schema
-- [~] Shared evidence model plus Java and Git adapters through `modernlink inspect [--history]`; deeper detectors remain pending
+- [~] Shared evidence model plus Java and Git adapters through `modernlink inspect [--history]`, including parser-derived inheritance edges; deeper detectors remain pending
 - [~] `modernlink architecture` deterministic layer inference and candidate-context hypotheses; richer domain evidence remains pending
 - [~] `modernlink seams` decomposed vendor/JMS/JNDI/database/SOAP import-boundary scoring; transaction, message-flow, data-flow, and runtime seam detectors remain pending
 - [~] Deterministic import-derived legacy infrastructure inventory (JMS, JNDI, JDBC/persistence, EJB, JTA, JAX-WS, JAXB, JMX, Servlet, RMI, Spring); call/data-flow confirmation remains pending
