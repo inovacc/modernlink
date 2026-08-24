@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
+    io::{Cursor, Read},
     path::Path,
 };
 
@@ -148,6 +149,7 @@ impl AnalysisReport {
 pub struct AnalysisSummary {
     pub java_files: usize,
     pub class_files: usize,
+    pub archive_files: usize,
     pub configuration_files: usize,
     pub parse_errors: usize,
     pub evidence_items: usize,
@@ -245,6 +247,9 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
                 || path
                     .extension()
                     .is_some_and(|extension| extension == "class")
+                || path.extension().is_some_and(|extension| {
+                    matches!(extension.to_str(), Some("jar" | "war" | "ear"))
+                })
                 || descriptor_rule(&repository_relative(repository, path)).is_some()
         })
         .collect::<Vec<_>>();
@@ -263,6 +268,7 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
     let mut parse_errors = 0;
     let mut java_files = 0;
     let mut class_files = 0;
+    let mut archive_files = 0;
     let mut configuration_files = 0;
 
     for path in paths {
@@ -326,6 +332,23 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
                 &mut evidence,
                 &mut signals,
             );
+        } else if let Some(kind) = archive_type(&path) {
+            archive_files += 1;
+            let parse_health = add_archive_facts(
+                &relative,
+                &artifact_id,
+                &source,
+                kind,
+                &mut evidence,
+                &mut signals,
+            );
+            artifacts.push(Artifact {
+                id: artifact_id.clone(),
+                path: relative.clone(),
+                digest,
+                language: format!("java-{kind}"),
+                parse_health,
+            });
         } else if let Some(rule) = descriptor_rule(&relative) {
             configuration_files += 1;
             artifacts.push(Artifact {
@@ -381,6 +404,7 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
     let summary = AnalysisSummary {
         java_files,
         class_files,
+        archive_files,
         configuration_files,
         parse_errors,
         evidence_items: evidence.len(),
@@ -443,6 +467,101 @@ fn add_classfile_facts(
         epistemic_state: "derived".to_owned(),
         evidence_ids: vec![evidence_id],
     });
+}
+
+fn archive_type(path: &Path) -> Option<&'static str> {
+    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        "jar" => Some("jar"),
+        "war" => Some("war"),
+        "ear" => Some("ear"),
+        _ => None,
+    }
+}
+
+fn add_archive_facts(
+    path: &str,
+    artifact_id: &str,
+    source: &[u8],
+    archive_type: &str,
+    evidence: &mut Vec<Evidence>,
+    signals: &mut Vec<TechnologySignal>,
+) -> String {
+    let type_fact = Fact {
+        name: archive_type.to_owned(),
+        start_byte: 0,
+        end_byte: 0,
+    };
+    let evidence_id = push_evidence_with_collector(
+        "archive-type",
+        &type_fact,
+        path,
+        artifact_id,
+        "zip-central-directory",
+        evidence,
+    );
+    signals.push(TechnologySignal {
+        id: stable_id(
+            "signal",
+            ["deployment-archive", archive_type, "archive.extension"],
+        ),
+        category: "deployment-archive".to_owned(),
+        technology: archive_type.to_owned(),
+        rule_id: "archive.extension".to_owned(),
+        epistemic_state: "derived".to_owned(),
+        evidence_ids: vec![evidence_id],
+    });
+    let Ok(mut archive) = zip::ZipArchive::new(Cursor::new(source)) else {
+        return "unreadable".to_owned();
+    };
+    for index in 0..archive.len() {
+        let Ok(mut entry) = archive.by_index(index) else {
+            continue;
+        };
+        if entry.is_dir() || !entry.name().ends_with(".class") {
+            continue;
+        }
+        let entry_name = entry.name().to_owned();
+        let mut header = [0_u8; 8];
+        let Ok(read) = entry.read(&mut header) else {
+            continue;
+        };
+        let Some(major) = classfile_major_version(&header[..read]) else {
+            continue;
+        };
+        let fact = Fact {
+            name: format!("{path}!{entry_name}:{major}"),
+            start_byte: 0,
+            end_byte: 0,
+        };
+        let evidence_id = push_evidence_with_collector(
+            "archive-classfile-major-version",
+            &fact,
+            path,
+            artifact_id,
+            BYTECODE_COLLECTOR,
+            evidence,
+        );
+        let technology = classfile_java_version(major).map_or_else(
+            || format!("classfile-major-{major}"),
+            |version| format!("java-{version}"),
+        );
+        signals.push(TechnologySignal {
+            id: stable_id(
+                "signal",
+                [
+                    "java-bytecode",
+                    technology.as_str(),
+                    "classfile.major-version",
+                ],
+            ),
+            category: "java-bytecode".to_owned(),
+            technology,
+            rule_id: "classfile.major-version".to_owned(),
+            epistemic_state: "derived".to_owned(),
+            evidence_ids: vec![evidence_id],
+        });
+    }
+    "indexed".to_owned()
 }
 
 fn classfile_major_version(source: &[u8]) -> Option<u16> {

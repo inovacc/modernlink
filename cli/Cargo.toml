@@ -32,3 +32,4 @@ tempfile = "3.20"
 thiserror = "2.0"
 tree-sitter = "0.26.13"
 tree-sitter-java = "0.23.5"
+zip = { version = "2.2", default-features = false, features = ["deflate"] }

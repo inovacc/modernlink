@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, io::Write};
 
 use modernlink_analyzer::analyze_repository;
 
@@ -155,6 +155,46 @@ fn derives_classfile_version_evidence_without_executing_bytecode() {
         "java-8",
         "classfile.major-version",
         "target/classes/com/acme/Legacy.class",
+    );
+}
+
+#[test]
+fn indexes_nested_class_headers_in_a_war_without_executing_them() {
+    let repository = tempfile::tempdir().expect("temporary repository");
+    let archive_file = fs::File::create(repository.path().join("legacy.war")).expect("archive");
+    let mut archive = zip::ZipWriter::new(archive_file);
+    archive
+        .start_file(
+            "WEB-INF/classes/com/acme/Legacy.class",
+            zip::write::SimpleFileOptions::default(),
+        )
+        .expect("class entry");
+    archive
+        .write_all(&[0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 61, 0, 1])
+        .expect("class header");
+    archive.finish().expect("finish archive");
+
+    let report = analyze_repository(repository.path()).expect("analysis");
+    assert_eq!(report.summary.archive_files, 1);
+    assert!(
+        report
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.language == "java-war" && artifact.parse_health == "indexed")
+    );
+    assert_signal(
+        &report,
+        "deployment-archive",
+        "war",
+        "archive.extension",
+        "legacy.war",
+    );
+    assert_signal(
+        &report,
+        "java-bytecode",
+        "java-17",
+        "classfile.major-version",
+        "legacy.war",
     );
 }
 
