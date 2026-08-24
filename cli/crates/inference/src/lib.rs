@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub const STRUCTURE_SCHEMA_VERSION: &str = "modernlink.structure/v1alpha1";
+pub const COMPATIBILITY_SCHEMA_VERSION: &str = "modernlink.compatibility/v1alpha1";
 
 #[derive(Debug, Error)]
 pub enum InferenceError {
@@ -94,6 +95,41 @@ pub struct ScoreComponent {
     pub factor: String,
     pub points: u8,
     pub reasoning: String,
+}
+
+/// A target-specific review item.  It deliberately reports observed evidence and
+/// does not claim a migration outcome or a synthetic readiness percentage.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompatibilityFinding {
+    pub id: String,
+    pub state: ClaimState,
+    pub category: String,
+    pub severity: String,
+    pub summary: String,
+    pub evidence_ids: Vec<String>,
+    pub target_version: u16,
+    pub recommendation: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompatibilityReport {
+    pub schema_version: String,
+    pub target_version: u16,
+    pub findings: Vec<CompatibilityFinding>,
+    pub limitations: Vec<String>,
+}
+
+impl CompatibilityReport {
+    pub fn canonical_json(&self) -> Result<String, InferenceError> {
+        let mut normalized = self.clone();
+        normalized
+            .findings
+            .sort_by(|left, right| left.id.cmp(&right.id));
+        normalized.limitations.sort();
+        let mut json = serde_json::to_string_pretty(&normalized)?;
+        json.push('\n');
+        Ok(json)
+    }
 }
 
 pub fn infer_structure(graph: &EvidenceGraph) -> Result<StructureReport, InferenceError> {
@@ -197,6 +233,59 @@ pub fn infer_seams(graph: &EvidenceGraph) -> Result<SeamReport, InferenceError> 
     })
 }
 
+/// Produces an evidence-linked target review from imports already present in the
+/// graph. It is intentionally conservative: a finding asks for a review rather
+/// than asserting that a dependency or source edit is sufficient.
+pub fn assess_compatibility(
+    graph: &EvidenceGraph,
+    target_version: u16,
+) -> Result<CompatibilityReport, InferenceError> {
+    graph.validate()?;
+    let mut findings = Vec::new();
+    for node in &graph.nodes {
+        if node.kind != "external-reference" {
+            continue;
+        }
+        let Some((category, severity, summary, recommendation)) =
+            compatibility_rule(&node.name, target_version)
+        else {
+            continue;
+        };
+        let mut evidence_ids = node.evidence_ids.clone();
+        evidence_ids.extend(
+            graph
+                .edges
+                .iter()
+                .filter(|edge| edge.target_id == node.id && edge.kind == "imports")
+                .flat_map(|edge| edge.evidence_ids.clone()),
+        );
+        evidence_ids.sort();
+        evidence_ids.dedup();
+        findings.push(CompatibilityFinding {
+            id: model::stable_id(
+                "compatibility-finding",
+                [target_version.to_string().as_str(), node.id.as_str()],
+            ),
+            state: ClaimState::Inference,
+            category: category.to_owned(),
+            severity: severity.to_owned(),
+            summary: summary.to_owned(),
+            evidence_ids,
+            target_version,
+            recommendation: recommendation.to_owned(),
+        });
+    }
+    Ok(CompatibilityReport {
+        schema_version: COMPATIBILITY_SCHEMA_VERSION.to_owned(),
+        target_version,
+        findings,
+        limitations: vec![
+            "This report uses import evidence only; it does not yet inspect resolved dependency versions, bytecode, runtime configuration, or deployment behavior.".to_owned(),
+            "A finding is an evidence-backed review request, not a claim that a migration will fail or that one change is sufficient.".to_owned(),
+        ],
+    })
+}
+
 fn layer_for(name: &str) -> Option<&'static str> {
     let lower = name.to_ascii_lowercase();
     if lower.ends_with("controller") || lower.ends_with("resource") {
@@ -225,6 +314,49 @@ fn vendor_technology(name: &str) -> Option<&'static str> {
         Some("jboss")
     } else if name.starts_with("com.ibm.websphere.") || name.starts_with("com.ibm.ws.") {
         Some("websphere")
+    } else {
+        None
+    }
+}
+
+fn compatibility_rule(
+    name: &str,
+    target_version: u16,
+) -> Option<(&'static str, &'static str, &'static str, &'static str)> {
+    if name.starts_with("sun.") || name.starts_with("com.sun.") {
+        Some((
+            "internal-jdk-api",
+            "HIGH",
+            "Import targets a non-standard JDK namespace.",
+            "Establish the supported replacement and characterize behavior before selecting a target-runtime migration step.",
+        ))
+    } else if name.starts_with("weblogic.")
+        || name.starts_with("org.jboss.")
+        || name.starts_with("com.ibm.websphere.")
+        || name.starts_with("com.ibm.ws.")
+    {
+        Some((
+            "application-server-api",
+            "HIGH",
+            "Import targets an application-server-specific API.",
+            "Isolate the vendor boundary and assess whether ModernLink can bridge it before changing the target runtime.",
+        ))
+    } else if target_version >= 11
+        && (name.starts_with("javax.xml.bind.") || name.starts_with("javax.xml.ws."))
+    {
+        Some((
+            "java-ee-api-review",
+            "HIGH",
+            "Import targets a legacy Java EE namespace that requires explicit target-runtime review.",
+            "Inventory the deployment-provided API and dependency path, then choose a compatible migration boundary with characterization tests.",
+        ))
+    } else if name.starts_with("javax.") {
+        Some((
+            "java-ee-api-review",
+            "MEDIUM",
+            "Import targets a Java EE namespace whose runtime provider must be established for the selected target.",
+            "Record the provider and deployment contract before changing runtime or namespace assumptions.",
+        ))
     } else {
         None
     }

@@ -27,6 +27,18 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Assess target-runtime risks from a shared evidence graph.
+    Compatibility {
+        /// Shared evidence graph JSON path.
+        #[arg(long)]
+        evidence: PathBuf,
+        /// Target Java runtime major version.
+        #[arg(long)]
+        target: u16,
+        /// Compatibility assessment JSON output path.
+        #[arg(long, short)]
+        output: PathBuf,
+    },
     /// Identify evidence-backed modernization seams from a shared evidence graph.
     Seams {
         /// Shared evidence graph JSON path.
@@ -137,6 +149,37 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<(), CommandError> {
     match cli.command {
+        Command::Compatibility {
+            evidence,
+            target,
+            output,
+        } => {
+            if target < 8 {
+                return Err(CommandError::invalid_input(
+                    "--target must be a Java major version of at least 8".to_owned(),
+                ));
+            }
+            let graph = read_evidence_graph(&evidence)?;
+            let report = inference::assess_compatibility(&graph, target)
+                .map_err(|error| CommandError::internal(error.to_string()))?;
+            let json = report
+                .canonical_json()
+                .map_err(|error| CommandError::internal(error.to_string()))?;
+            ensure_report_absent(&output)?;
+            write_report(&output, json)?;
+            println!(
+                "{}",
+                serde_json::json!({
+                    "report": output,
+                    "schema_version": report.schema_version,
+                    "summary": {
+                        "target_version": report.target_version,
+                        "findings": report.findings.len(),
+                    },
+                })
+            );
+            Ok(())
+        }
         Command::Seams { evidence, output } => {
             let graph = read_evidence_graph(&evidence)?;
             let report = inference::infer_seams(&graph)

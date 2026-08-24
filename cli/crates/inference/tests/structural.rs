@@ -1,4 +1,4 @@
-use inference::{infer_seams, infer_structure};
+use inference::{assess_compatibility, infer_seams, infer_structure};
 use model::{Evidence, EvidenceGraph, GraphEdge, GraphNode, SourceLocation};
 
 #[test]
@@ -87,4 +87,42 @@ fn seam_inference_decomposes_vendor_coupling_without_claiming_a_fact() {
             .any(|component| { component.factor == "vendor-lock" && component.points > 0 })
     );
     assert_eq!(seam.recommended_mode, "PASSTHROUGH -> SHADOW -> REDIRECT");
+}
+
+#[test]
+fn compatibility_assessment_links_target_reviews_to_import_evidence() {
+    let graph = EvidenceGraph {
+        schema_version: "modernlink.evidence/v1alpha1".to_owned(),
+        evidence: vec![Evidence {
+            id: "evidence:jaxb".to_owned(),
+            kind: "import".to_owned(),
+            value: "javax.xml.bind.JAXBContext".to_owned(),
+            source: SourceLocation {
+                path: "PaymentXml.java".to_owned(),
+                start_byte: 0,
+                end_byte: 25,
+            },
+        }],
+        nodes: vec![GraphNode {
+            id: "node:jaxb".to_owned(),
+            kind: "external-reference".to_owned(),
+            name: "javax.xml.bind.JAXBContext".to_owned(),
+            evidence_ids: Vec::new(),
+        }],
+        edges: vec![GraphEdge {
+            id: "edge:jaxb".to_owned(),
+            kind: "imports".to_owned(),
+            source_id: "node:jaxb".to_owned(),
+            target_id: "node:jaxb".to_owned(),
+            evidence_ids: vec!["evidence:jaxb".to_owned()],
+        }],
+        claims: Vec::new(),
+    };
+
+    let report = assess_compatibility(&graph, 21).expect("compatibility assessment");
+    let finding = report.findings.first().expect("JAXB review finding");
+    assert_eq!(report.target_version, 21);
+    assert_eq!(finding.state, model::ClaimState::Inference);
+    assert_eq!(finding.category, "java-ee-api-review");
+    assert_eq!(finding.evidence_ids, vec!["evidence:jaxb"]);
 }
