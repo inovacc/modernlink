@@ -5,6 +5,7 @@ members = [
     "crates/model",
     "crates/modernlink-cli",
     "crates/runtime-observer",
+    "crates/state",
 ]
 resolver = "2"
 
