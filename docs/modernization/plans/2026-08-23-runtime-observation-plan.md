@@ -8,6 +8,8 @@
 
 **Tech Stack:** Rust 1.96 workspace, Serde/JSON, SHA-256 canonical digests, blocking HTTP transport behind an injectable trait, `std::process::Command` for allowlisted installed-tool adapters, and local controlled HTTP/process fixtures for executable probes.
 
+**Checkpoint (2026-08-24):** Tasks 1 and 2 are implemented and task-reviewed. Work intentionally stopped before Task 3. See `../2026-08-23-runtime-observation-checkpoint.md` for commits, machine facts, unproven live behavior, and the exact resume point.
+
 ---
 
 ## Task 1: Shared runtime contracts and first executable HTTP path
@@ -149,4 +151,3 @@
 - Run the whole CLI workspace test suite and an end-to-end command transcript; state explicitly that live external clusters/servers remain unproven until a human supplies authorized targets.
 
 **Commit:** `feat(cli): correlate runtime evidence with modernization analysis`
-
