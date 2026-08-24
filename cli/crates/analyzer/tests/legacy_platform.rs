@@ -363,7 +363,9 @@ fn indexes_nested_class_headers_in_a_war_without_executing_them() {
         )
         .expect("descriptor entry");
     archive
-        .write_all(b"<weblogic-web-app/>")
+        .write_all(
+            b"<weblogic-web-app><jndi-name>jdbc/Payments</jndi-name><jms-connection-factory>jms/Payments</jms-connection-factory></weblogic-web-app>",
+        )
         .expect("descriptor content");
     archive.finish().expect("finish archive");
 
@@ -414,6 +416,45 @@ fn indexes_nested_class_headers_in_a_war_without_executing_them() {
         "descriptor.path.weblogic-xml",
         "legacy.war",
     );
+    for (technology, rule_id) in [
+        ("jndi", "descriptor.xml.jndi-reference"),
+        ("jms", "descriptor.xml.jms-destination"),
+    ] {
+        assert_signal(
+            &report,
+            "integration-boundary",
+            technology,
+            rule_id,
+            "legacy.war!WEB-INF/weblogic.xml",
+        );
+    }
+}
+
+#[test]
+fn malformed_nested_descriptors_do_not_emit_partial_content_facts() {
+    let repository = tempfile::tempdir().expect("temporary repository");
+    let archive_file = fs::File::create(repository.path().join("broken.war")).expect("archive");
+    let mut archive = zip::ZipWriter::new(archive_file);
+    archive
+        .start_file(
+            "WEB-INF/weblogic.xml",
+            zip::write::SimpleFileOptions::default(),
+        )
+        .expect("descriptor entry");
+    archive
+        .write_all(b"<weblogic-web-app><jndi-name>jdbc/Payments</jndi-name>")
+        .expect("descriptor content");
+    archive.finish().expect("finish archive");
+
+    let report = analyze_repository(repository.path()).expect("analysis");
+    assert!(report.evidence.iter().any(|evidence| {
+        evidence.observation_kind == "archive-descriptor-path"
+            && evidence.observed_value == "broken.war!WEB-INF/weblogic.xml"
+    }));
+    assert!(!report.evidence.iter().any(|evidence| {
+        evidence.path == "broken.war!WEB-INF/weblogic.xml"
+            && evidence.observation_kind == "descriptor-reference"
+    }));
 }
 
 #[test]

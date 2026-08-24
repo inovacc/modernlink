@@ -1,5 +1,5 @@
 # Features
-<!-- rev:012 (RFC 3339) 2026-08-24T00:00:00Z -->
+<!-- rev:013 (RFC 3339) 2026-08-24T00:00:00Z -->
 
 What exists in the current tree, and what is proposed. "Implemented" means the code is present;
 it does **not** mean the behavior satisfies the intended runtime contract. See
@@ -63,7 +63,7 @@ host product remains outside every recorded run. See [ISSUES.md](ISSUES.md) I-01
 | Feature | Where | Scope / limitation |
 |---|---|---|
 | Rust-first deterministic Java repository analysis | `cli/crates/analyzer` | Static source facts include packages, imports, declarations, annotations, parsed `extends`/`implements`, and method-call candidates; dispatch and runtime call-graph resolution remain out of scope. |
-| Compiled class/archive inventory | `modernlink inspect` | Reads `.class` headers plus validated `CONSTANT_Class` references from direct and JAR/WAR/EAR entries up to 16 MiB uncompressed; archive evidence retains each entry name. Malformed/oversized entries contribute no reference facts. It neither executes nor semantically decompiles bytecode. |
+| Compiled class/archive inventory | `modernlink inspect` | Reads `.class` headers plus validated `CONSTANT_Class` references from direct and JAR/WAR/EAR entries up to 16 MiB uncompressed. Recognized archive XML descriptors are streamed up to 4 MiB, and evidence identifies the exact `archive!entry`; malformed/oversized content contributes no content facts. It neither executes nor semantically decompiles bytecode. |
 | Unified static + evolution evidence graph | `modernlink inspect [--history]` | Merges versioned Java and Git adapters into `modernlink.evidence/v1alpha1`; deeper detectors remain pending. |
 | Architectural layer and candidate-context report | `modernlink architecture` | Inference/hypothesis states, confidence, evidence IDs, and reasoning are explicit; not a DDD fact assertion. |
 | Static boundary report | `modernlink boundaries` | Lists annotation-backed transaction, messaging-consumer, SOAP, HTTP, and batch candidates with source locations and limitations; it does not establish runtime activation or transaction resources. |

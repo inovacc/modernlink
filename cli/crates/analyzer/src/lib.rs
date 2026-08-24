@@ -18,6 +18,7 @@ const DESCRIPTOR_COLLECTOR: &str = "repository-descriptor";
 const BYTECODE_COLLECTOR: &str = "classfile-header";
 const COLLECTOR_VERSION: &str = "0.1.0";
 const MAX_BYTECODE_ENTRY_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_DESCRIPTOR_ENTRY_BYTES: u64 = 4 * 1024 * 1024;
 
 #[derive(Debug, Error)]
 pub enum AnalysisError {
@@ -723,6 +724,23 @@ fn add_archive_facts(
                 evidence,
             );
             signals.push(signal_from_rule(rule, evidence_id));
+            if archive_descriptor_is_xml(&entry_name) {
+                let mut descriptor = Vec::new();
+                let read = entry
+                    .by_ref()
+                    .take(MAX_DESCRIPTOR_ENTRY_BYTES + 1)
+                    .read_to_end(&mut descriptor);
+                if read.is_ok() && descriptor.len() as u64 <= MAX_DESCRIPTOR_ENTRY_BYTES {
+                    let descriptor_path = format!("{path}!{entry_name}");
+                    add_descriptor_content_facts(
+                        &descriptor_path,
+                        artifact_id,
+                        &descriptor,
+                        evidence,
+                        signals,
+                    );
+                }
+            }
         }
         if !entry_name.ends_with(".class") {
             continue;
@@ -784,6 +802,11 @@ fn add_archive_facts(
         );
     }
     "indexed".to_owned()
+}
+
+fn archive_descriptor_is_xml(entry_name: &str) -> bool {
+    let lower = entry_name.to_ascii_lowercase();
+    lower.ends_with(".xml") || lower.ends_with(".xmi")
 }
 
 fn classfile_major_version(source: &[u8]) -> Option<u16> {
