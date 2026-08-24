@@ -112,6 +112,54 @@ fn derives_build_and_application_server_signals_from_cited_artifacts() {
 }
 
 #[test]
+fn derives_literal_maven_and_gradle_java_version_declarations() {
+    let repository = tempfile::tempdir().expect("temporary repository");
+    fs::write(
+        repository.path().join("pom.xml"),
+        "<project><properties><maven.compiler.source>1.8</maven.compiler.source><maven.compiler.target>8</maven.compiler.target></properties></project>",
+    )
+    .expect("Maven fixture");
+    fs::write(
+        repository.path().join("build.gradle"),
+        "sourceCompatibility = JavaVersion.VERSION_17\ntargetCompatibility = '17'\n",
+    )
+    .expect("Gradle fixture");
+
+    let report = analyze_repository(repository.path()).expect("analysis");
+    assert_signal(
+        &report,
+        "java-configuration",
+        "java-8",
+        "maven.compiler.source",
+        "pom.xml",
+    );
+    assert_signal(
+        &report,
+        "java-configuration",
+        "java-8",
+        "maven.compiler.target",
+        "pom.xml",
+    );
+    assert_signal(
+        &report,
+        "java-configuration",
+        "java-17",
+        "gradle.source-compatibility",
+        "build.gradle",
+    );
+    assert_signal(
+        &report,
+        "java-configuration",
+        "java-17",
+        "gradle.target-compatibility",
+        "build.gradle",
+    );
+    assert!(report.artifacts.iter().any(|artifact| {
+        artifact.path == "build.gradle" && artifact.parse_health == "configuration-lexed"
+    }));
+}
+
+#[test]
 fn ignores_deployment_descriptor_names_outside_standard_locations() {
     let repository = tempfile::tempdir().expect("temporary repository");
     let docs = repository.path().join("docs");

@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:028 (RFC 3339) 2026-08-24T00:00:00Z -->
+<!-- rev:029 (RFC 3339) 2026-08-24T00:00:00Z -->
 
 Reconciled 2026-08-21 against the current tree. Phases follow the M1/M2 structure in
 [BACKLOG.md](BACKLOG.md); tasks are broken out in [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md).
@@ -150,7 +150,7 @@ runtime, transaction, or cutover behavior.
 - [~] Deterministic recognized annotation signals for transaction, messaging, SOAP, HTTP, and batch boundaries; method ownership, transaction resources, and runtime activation remain pending
 - [~] `modernlink boundaries` emits annotation-backed boundary candidates with explicit limitations; source call graphs, destination/resource mapping, and runtime confirmation remain pending
 - [~] Compiled `.class` and bounded JAR/WAR/EAR-entry constant-pool reference inventory with cited classfile major versions and known Java mappings; nested deployment descriptors and semantic bytecode traversal remain pending
-- [~] `modernlink compatibility --target` evidence-linked import review for Java EE, internal-JDK, and server APIs; dependency-resolution, bytecode, configuration, and runtime analysis remain pending
+- [~] `modernlink compatibility --target` evidence-linked import review for Java EE, internal-JDK, server APIs, bytecode references, and literal Maven/Gradle Java-level declarations; dependency resolution, property/toolchain evaluation, and runtime analysis remain pending
 - [~] Lifecycle transition/replay plus append-only JSONL journal; snapshots, approval records, and reconciliation remain pending
 - [~] `modernlink status` can recover a read-only lifecycle snapshot from a supplied journal; workspace-owned journal creation and transition orchestration remain pending
 - [~] `modernlink lifecycle advance` appends the sole valid next transition and enforces explicit approvals; artifact reconciliation and migration-specific state remain pending

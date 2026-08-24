@@ -1,5 +1,5 @@
 # Features
-<!-- rev:009 (RFC 3339) 2026-08-24T00:00:00Z -->
+<!-- rev:010 (RFC 3339) 2026-08-24T00:00:00Z -->
 
 What exists in the current tree, and what is proposed. "Implemented" means the code is present;
 it does **not** mean the behavior satisfies the intended runtime contract. See
@@ -69,6 +69,7 @@ host product remains outside every recorded run. See [ISSUES.md](ISSUES.md) I-01
 | Static boundary report | `modernlink boundaries` | Lists annotation-backed transaction, messaging-consumer, SOAP, HTTP, and batch candidates with source locations and limitations; it does not establish runtime activation or transaction resources. |
 | Decomposed modernization seam report | `modernlink seams` | Scores observed vendor, JMS, JNDI, JDBC/persistence, and SOAP import boundaries with evidence-linked components; call/data-flow-specific seam families are pending. |
 | Legacy infrastructure inventory | `modernlink inspect` | Emits deterministic import-derived signals for JMS, JNDI, JDBC/persistence, EJB, JTA, JAX-WS, JAXB, JMX, Servlet, RMI, Spring, and server APIs; imports do not prove runtime use. |
+| Declared Java build levels | `modernlink inspect` | Cites literal Maven `maven.compiler.{source,target,release}` properties and Gradle `sourceCompatibility`/`targetCompatibility` assignments. It does not resolve properties, inheritance, toolchains, plugins, or execute builds. |
 | Deployment-descriptor boundary references | `modernlink inspect` | Streams recognized XML descriptors to cite JNDI/data-source and JMS queue/topic values; malformed XML is labeled `xml-malformed` and contributes no partial content facts. The collector does not establish runtime wiring, transactions, or delivery semantics. |
 | Static boundary annotations | `modernlink inspect` | Emits cited, derived signals for recognized transaction, messaging-consumer, SOAP, HTTP, and scheduled-batch annotations; annotation use does not prove an active runtime entry point. |
 | Target-runtime compatibility review | `modernlink compatibility --target <major>` | Emits evidence-linked review findings for observed internal-JDK, Java EE, and application-server imports; it does not claim a readiness percentage or inspect resolved dependencies/runtime behavior yet. |

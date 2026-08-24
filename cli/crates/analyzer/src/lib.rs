@@ -366,14 +366,33 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
             configuration_files += 1;
             let parse_health = if source.is_empty() {
                 "empty".to_owned()
-            } else {
-                add_descriptor_content_facts(
+            } else if is_gradle_build_file(&relative) {
+                add_gradle_java_version_facts(
                     &relative,
                     &artifact_id,
                     &source,
                     &mut evidence,
                     &mut signals,
-                )
+                );
+                "configuration-lexed".to_owned()
+            } else {
+                let parse_health = add_descriptor_content_facts(
+                    &relative,
+                    &artifact_id,
+                    &source,
+                    &mut evidence,
+                    &mut signals,
+                );
+                if is_maven_pom(&relative) {
+                    add_maven_java_version_facts(
+                        &relative,
+                        &artifact_id,
+                        &source,
+                        &mut evidence,
+                        &mut signals,
+                    );
+                }
+                parse_health
             };
             artifacts.push(Artifact {
                 id: artifact_id.clone(),
@@ -1217,6 +1236,142 @@ fn coalesce_signals(signals: Vec<TechnologySignal>) -> Vec<TechnologySignal> {
         signal.evidence_ids.dedup();
     }
     coalesced.into_values().collect()
+}
+
+fn is_maven_pom(path: &str) -> bool {
+    path.rsplit('/').next().is_some_and(|name| name.eq_ignore_ascii_case("pom.xml"))
+}
+
+fn is_gradle_build_file(path: &str) -> bool {
+    matches!(
+        path.rsplit('/').next().map(|name| name.to_ascii_lowercase()),
+        Some(name) if matches!(name.as_str(), "build.gradle" | "build.gradle.kts")
+    )
+}
+
+fn add_maven_java_version_facts(
+    path: &str,
+    artifact_id: &str,
+    source: &[u8],
+    evidence: &mut Vec<Evidence>,
+    signals: &mut Vec<TechnologySignal>,
+) {
+    let Ok(text) = std::str::from_utf8(source) else {
+        return;
+    };
+    for property in [
+        "maven.compiler.source",
+        "maven.compiler.target",
+        "maven.compiler.release",
+    ] {
+        let open = format!("<{property}>");
+        let close = format!("</{property}>");
+        let Some(start) = text.find(&open) else {
+            continue;
+        };
+        let value_start = start + open.len();
+        let Some(value_end) = text[value_start..].find(&close).map(|end| value_start + end) else {
+            continue;
+        };
+        add_declared_java_version(
+            path,
+            artifact_id,
+            property,
+            &text[value_start..value_end],
+            value_start,
+            value_end,
+            evidence,
+            signals,
+        );
+    }
+}
+
+fn add_gradle_java_version_facts(
+    path: &str,
+    artifact_id: &str,
+    source: &[u8],
+    evidence: &mut Vec<Evidence>,
+    signals: &mut Vec<TechnologySignal>,
+) {
+    let Ok(text) = std::str::from_utf8(source) else {
+        return;
+    };
+    let mut offset = 0;
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim();
+        for (property, prefix) in [
+            ("gradle.source-compatibility", "sourceCompatibility"),
+            ("gradle.target-compatibility", "targetCompatibility"),
+        ] {
+            let Some(value) = trimmed
+                .strip_prefix(prefix)
+                .and_then(|rest| rest.trim_start().strip_prefix('='))
+                .map(str::trim)
+            else {
+                continue;
+            };
+            let value = value.trim_matches(|character| character == '\'' || character == '"');
+            let Some(relative_start) = line.find(value) else {
+                continue;
+            };
+            add_declared_java_version(
+                path,
+                artifact_id,
+                property,
+                value,
+                offset + relative_start,
+                offset + relative_start + value.len(),
+                evidence,
+                signals,
+            );
+        }
+        offset += line.len();
+    }
+}
+
+fn add_declared_java_version(
+    path: &str,
+    artifact_id: &str,
+    rule_id: &str,
+    value: &str,
+    start_byte: usize,
+    end_byte: usize,
+    evidence: &mut Vec<Evidence>,
+    signals: &mut Vec<TechnologySignal>,
+) {
+    let Some(version) = normalize_declared_java_version(value) else {
+        return;
+    };
+    let fact = Fact {
+        name: version.to_string(),
+        start_byte,
+        end_byte,
+    };
+    let evidence_id = push_evidence_with_collector(
+        "declared-java-version",
+        &fact,
+        path,
+        artifact_id,
+        DESCRIPTOR_COLLECTOR,
+        evidence,
+    );
+    let technology = format!("java-{version}");
+    signals.push(TechnologySignal {
+        id: stable_id("signal", ["java-configuration", technology.as_str(), rule_id]),
+        category: "java-configuration".to_owned(),
+        technology,
+        rule_id: rule_id.to_owned(),
+        epistemic_state: "derived".to_owned(),
+        evidence_ids: vec![evidence_id],
+    });
+}
+
+fn normalize_declared_java_version(value: &str) -> Option<u16> {
+    let value = value.trim();
+    let value = value.strip_prefix("JavaVersion.VERSION_").unwrap_or(value);
+    let value = value.replace('_', ".");
+    let value = value.strip_prefix("1.").unwrap_or(&value);
+    value.parse::<u16>().ok().filter(|version| *version > 0)
 }
 
 fn descriptor_rule(path: &str) -> Option<SignalRule> {
