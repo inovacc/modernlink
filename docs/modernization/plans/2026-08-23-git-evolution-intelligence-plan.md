@@ -452,7 +452,7 @@ cargo clippy --manifest-path cli/Cargo.toml --workspace --all-targets -- -D warn
 
 Report each result as a machine fact; none establishes product correctness.
 
-- [ ] **Step 4: Commit documentation/evidence reconciliation**
+- [x] **Step 4: Commit documentation/evidence reconciliation**
 
 ```text
 git add docs cli
