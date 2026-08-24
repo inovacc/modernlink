@@ -452,18 +452,25 @@ fn add_descriptor_content_facts(
     evidence: &mut Vec<Evidence>,
     signals: &mut Vec<TechnologySignal>,
 ) -> String {
+    let evidence_start = evidence.len();
+    let signals_start = signals.len();
     let mut reader = Reader::from_reader(source);
     reader.config_mut().trim_text(true);
     let mut tag = None::<String>;
     let mut buffer = Vec::new();
+    let mut depth = 0_usize;
     loop {
         match reader.read_event_into(&mut buffer) {
             Ok(Event::Start(element)) => {
+                depth += 1;
                 tag = std::str::from_utf8(element.name().as_ref())
                     .ok()
                     .map(|name| name.to_ascii_lowercase())
             }
-            Ok(Event::End(_)) => tag = None,
+            Ok(Event::End(_)) => {
+                depth = depth.saturating_sub(1);
+                tag = None;
+            }
             Ok(Event::Text(text)) => {
                 let Some(tag) = &tag else {
                     buffer.clear();
@@ -511,8 +518,19 @@ fn add_descriptor_content_facts(
                     signals.push(signal_from_rule(rule, evidence_id));
                 }
             }
-            Ok(Event::Eof) => return "xml-streamed".to_owned(),
-            Err(_) => return "xml-malformed".to_owned(),
+            Ok(Event::Eof) => {
+                if depth == 0 {
+                    return "xml-streamed".to_owned();
+                }
+                evidence.truncate(evidence_start);
+                signals.truncate(signals_start);
+                return "xml-malformed".to_owned();
+            }
+            Err(_) => {
+                evidence.truncate(evidence_start);
+                signals.truncate(signals_start);
+                return "xml-malformed".to_owned();
+            }
             _ => {}
         }
         buffer.clear();
