@@ -129,6 +129,35 @@ fn derives_legacy_infrastructure_signals_from_import_evidence() {
     }
 }
 
+#[test]
+fn derives_classfile_version_evidence_without_executing_bytecode() {
+    let repository = tempfile::tempdir().expect("temporary repository");
+    let classes = repository.path().join("target/classes/com/acme");
+    fs::create_dir_all(&classes).expect("class directory");
+    fs::write(
+        classes.join("Legacy.class"),
+        [0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 52, 0, 1],
+    )
+    .expect("class fixture");
+
+    let report = analyze_repository(repository.path()).expect("analysis");
+    assert_eq!(report.summary.class_files, 1);
+    assert!(
+        report
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.language == "java-bytecode"
+                && artifact.parse_health == "header-only")
+    );
+    assert_signal(
+        &report,
+        "java-bytecode",
+        "java-8",
+        "classfile.major-version",
+        "target/classes/com/acme/Legacy.class",
+    );
+}
+
 fn assert_signal(
     report: &modernlink_analyzer::AnalysisReport,
     category: &str,

@@ -13,6 +13,7 @@ use tree_sitter::{Node, Parser};
 const SCHEMA_VERSION: &str = "modernlink.analysis/v1alpha1";
 const COLLECTOR: &str = "java-tree-sitter";
 const DESCRIPTOR_COLLECTOR: &str = "repository-descriptor";
+const BYTECODE_COLLECTOR: &str = "classfile-header";
 const COLLECTOR_VERSION: &str = "0.1.0";
 
 #[derive(Debug, Error)]
@@ -146,6 +147,7 @@ impl AnalysisReport {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnalysisSummary {
     pub java_files: usize,
+    pub class_files: usize,
     pub configuration_files: usize,
     pub parse_errors: usize,
     pub evidence_items: usize,
@@ -240,6 +242,9 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
         .filter(|path| {
             path.extension()
                 .is_some_and(|extension| extension == "java")
+                || path
+                    .extension()
+                    .is_some_and(|extension| extension == "class")
                 || descriptor_rule(&repository_relative(repository, path)).is_some()
         })
         .collect::<Vec<_>>();
@@ -257,6 +262,7 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
     let mut signals = Vec::new();
     let mut parse_errors = 0;
     let mut java_files = 0;
+    let mut class_files = 0;
     let mut configuration_files = 0;
 
     for path in paths {
@@ -299,6 +305,25 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
                 &mut evidence,
                 &mut nodes,
                 &mut edges,
+                &mut signals,
+            );
+        } else if path
+            .extension()
+            .is_some_and(|extension| extension == "class")
+        {
+            class_files += 1;
+            artifacts.push(Artifact {
+                id: artifact_id.clone(),
+                path: relative.clone(),
+                digest,
+                language: "java-bytecode".to_owned(),
+                parse_health: "header-only".to_owned(),
+            });
+            add_classfile_facts(
+                &relative,
+                &artifact_id,
+                &source,
+                &mut evidence,
                 &mut signals,
             );
         } else if let Some(rule) = descriptor_rule(&relative) {
@@ -355,6 +380,7 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
     );
     let summary = AnalysisSummary {
         java_files,
+        class_files,
         configuration_files,
         parse_errors,
         evidence_items: evidence.len(),
@@ -373,6 +399,67 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
         edges,
         signals,
     })
+}
+
+fn add_classfile_facts(
+    path: &str,
+    artifact_id: &str,
+    source: &[u8],
+    evidence: &mut Vec<Evidence>,
+    signals: &mut Vec<TechnologySignal>,
+) {
+    let Some(major_version) = classfile_major_version(source) else {
+        return;
+    };
+    let fact = Fact {
+        name: major_version.to_string(),
+        start_byte: 6,
+        end_byte: 8,
+    };
+    let evidence_id = push_evidence_with_collector(
+        "classfile-major-version",
+        &fact,
+        path,
+        artifact_id,
+        BYTECODE_COLLECTOR,
+        evidence,
+    );
+    let technology = classfile_java_version(major_version).map_or_else(
+        || format!("classfile-major-{major_version}"),
+        |version| format!("java-{version}"),
+    );
+    signals.push(TechnologySignal {
+        id: stable_id(
+            "signal",
+            [
+                "java-bytecode",
+                technology.as_str(),
+                "classfile.major-version",
+            ],
+        ),
+        category: "java-bytecode".to_owned(),
+        technology,
+        rule_id: "classfile.major-version".to_owned(),
+        epistemic_state: "derived".to_owned(),
+        evidence_ids: vec![evidence_id],
+    });
+}
+
+fn classfile_major_version(source: &[u8]) -> Option<u16> {
+    (source.len() >= 8 && source[..4] == [0xCA, 0xFE, 0xBA, 0xBE])
+        .then(|| u16::from_be_bytes([source[6], source[7]]))
+}
+
+fn classfile_java_version(major: u16) -> Option<u16> {
+    match major {
+        50 => Some(6),
+        52 => Some(8),
+        55 => Some(11),
+        61 => Some(17),
+        65 => Some(21),
+        69 => Some(25),
+        _ => None,
+    }
 }
 
 fn collect_facts(node: Node<'_>, source: &[u8], facts: &mut FileFacts) {
