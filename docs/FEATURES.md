@@ -1,5 +1,5 @@
 # Features
-<!-- rev:022 (RFC 3339) 2026-08-24T00:00:00Z -->
+<!-- rev:023 (RFC 3339) 2026-08-24T00:00:00Z -->
 
 What exists in the current tree, and what is proposed. "Implemented" means the code is present;
 it does **not** mean the behavior satisfies the intended runtime contract. See
@@ -74,7 +74,7 @@ host product remains outside every recorded run. See [ISSUES.md](ISSUES.md) I-01
 | Declared Java build levels | `modernlink inspect` | Cites literal Maven `maven.compiler.{source,target,release}` properties and Gradle `sourceCompatibility`/`targetCompatibility` assignments. It does not resolve properties, inheritance, toolchains, plugins, or execute builds. |
 | Deployment-descriptor boundary references | `modernlink inspect` | Streams recognized repository XML descriptors and bounded recognized XML entries inside JAR/WAR/EAR archives to cite JNDI/data-source, JMS queue/topic, and declarative-transaction values. Malformed XML contributes no partial content facts. It does not traverse archives nested inside an EAR/WAR. |
 | Static boundary annotations | `modernlink inspect` | Emits cited, derived signals for recognized transaction, messaging-consumer, SOAP, HTTP, and scheduled-batch annotations; annotation use does not prove an active runtime entry point. |
-| Target-runtime compatibility review | `modernlink compatibility --target <major>` | Emits evidence-linked review findings for observed internal-JDK, Java EE, and application-server imports; it does not claim a readiness percentage or inspect resolved dependencies/runtime behavior yet. |
+| Target-runtime compatibility review | `modernlink compatibility --target <major>` | Emits evidence-linked review findings for observed internal-JDK, Java EE, and application-server imports or validated bytecode references; it does not claim a readiness percentage or inspect resolved dependencies/runtime behavior yet. |
 | Lifecycle status | `modernlink status --run-id <id>` | Replays the setup-owned `.modernlink/state/migrations/<id>.jsonl` journal into a machine-readable snapshot; an explicit `--journal` remains available for externally managed journals. An absent default journal reports the initial state without writing. |
 | Lifecycle transition | `modernlink lifecycle advance --run-id <id>` | Appends only the next valid phase to the setup-owned journal, requires `--approve` for Modernize/Cutover/Detach, and records explicit artifact digests. Run IDs are constrained so the default journal cannot escape its workspace directory. |
 | Reviewable migration record | `modernlink migration create --id <id> --plan <plan.json>` | Requires a setup-owned workspace and a plan that passes static integrity checks. It writes an immutable canonical plan plus `status.json` under `modernlink/migrations/<id>/`, hashes the plan, records approval-gated task IDs, and links the mutable local journal. It does not authorize implementation or cutover. |

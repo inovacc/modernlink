@@ -219,6 +219,51 @@ fn compatibility_assessment_links_target_reviews_to_import_evidence() {
 }
 
 #[test]
+fn compatibility_assessment_links_target_reviews_to_bytecode_evidence() {
+    let graph = EvidenceGraph {
+        schema_version: "modernlink.evidence/v1alpha1".to_owned(),
+        evidence: vec![Evidence {
+            id: "evidence:bytecode-jaxb".to_owned(),
+            kind: "bytecode-class-reference".to_owned(),
+            value: "javax.xml.bind.JAXBContext".to_owned(),
+            source: SourceLocation {
+                path: "legacy.jar!LegacyXml.class".to_owned(),
+                start_byte: 0,
+                end_byte: 0,
+            },
+        }],
+        nodes: vec![
+            GraphNode {
+                id: "node:archive".to_owned(),
+                kind: "artifact".to_owned(),
+                name: "legacy.jar".to_owned(),
+                evidence_ids: Vec::new(),
+            },
+            GraphNode {
+                id: "node:jaxb".to_owned(),
+                kind: "external-reference".to_owned(),
+                name: "javax.xml.bind.JAXBContext".to_owned(),
+                evidence_ids: Vec::new(),
+            },
+        ],
+        edges: vec![GraphEdge {
+            id: "edge:bytecode-jaxb".to_owned(),
+            kind: "bytecode-references".to_owned(),
+            source_id: "node:archive".to_owned(),
+            target_id: "node:jaxb".to_owned(),
+            evidence_ids: vec!["evidence:bytecode-jaxb".to_owned()],
+        }],
+        claims: Vec::new(),
+    };
+    let finding = assess_compatibility(&graph, 21)
+        .expect("bytecode compatibility")
+        .findings
+        .remove(0);
+    assert_eq!(finding.category, "java-ee-api-review");
+    assert_eq!(finding.evidence_ids, vec!["evidence:bytecode-jaxb"]);
+}
+
+#[test]
 fn migration_plan_makes_seam_work_depend_on_matching_compatibility_review() {
     let graph = EvidenceGraph {
         schema_version: "modernlink.evidence/v1alpha1".to_owned(),

@@ -392,7 +392,10 @@ pub fn assess_compatibility(
             graph
                 .edges
                 .iter()
-                .filter(|edge| edge.target_id == node.id && edge.kind == "imports")
+                .filter(|edge| {
+                    edge.target_id == node.id
+                        && matches!(edge.kind.as_str(), "imports" | "bytecode-references")
+                })
                 .flat_map(|edge| edge.evidence_ids.clone()),
         );
         evidence_ids.sort();
@@ -416,7 +419,7 @@ pub fn assess_compatibility(
         target_version,
         findings,
         limitations: vec![
-            "This report uses import evidence only; it does not yet inspect resolved dependency versions, bytecode, runtime configuration, or deployment behavior.".to_owned(),
+            "This report uses static import and validated bytecode-reference evidence only; it does not yet inspect resolved dependency versions, semantic bytecode behavior, runtime configuration, or deployment behavior.".to_owned(),
             "A finding is an evidence-backed review request, not a claim that a migration will fail or that one change is sufficient.".to_owned(),
         ],
     })
