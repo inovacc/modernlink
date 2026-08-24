@@ -518,6 +518,15 @@ fn add_descriptor_content_facts(
                         technology: "jndi",
                         rule_id: "descriptor.xml.jndi-reference",
                     })
+                } else if tag.contains("trans-attribute")
+                    || tag.contains("transaction-type")
+                    || tag.contains("transaction-manager")
+                {
+                    Some(SignalRule {
+                        category: "transaction-boundary",
+                        technology: "transaction-descriptor",
+                        rule_id: "descriptor.xml.transaction-boundary",
+                    })
                 } else {
                     None
                 };

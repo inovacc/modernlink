@@ -364,7 +364,7 @@ fn indexes_nested_class_headers_in_a_war_without_executing_them() {
         .expect("descriptor entry");
     archive
         .write_all(
-            b"<weblogic-web-app><jndi-name>jdbc/Payments</jndi-name><jms-connection-factory>jms/Payments</jms-connection-factory></weblogic-web-app>",
+            b"<weblogic-web-app><jndi-name>jdbc/Payments</jndi-name><jms-connection-factory>jms/Payments</jms-connection-factory><transaction-type>JTA</transaction-type></weblogic-web-app>",
         )
         .expect("descriptor content");
     archive.finish().expect("finish archive");
@@ -428,6 +428,13 @@ fn indexes_nested_class_headers_in_a_war_without_executing_them() {
             "legacy.war!WEB-INF/weblogic.xml",
         );
     }
+    assert_signal(
+        &report,
+        "transaction-boundary",
+        "transaction-descriptor",
+        "descriptor.xml.transaction-boundary",
+        "legacy.war!WEB-INF/weblogic.xml",
+    );
 }
 
 #[test]
