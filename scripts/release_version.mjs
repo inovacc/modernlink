@@ -16,7 +16,10 @@ const cargoFiles = [
 const skillFiles = [
   'cli/plugin/skills/modernlink-modernize/SKILL.md',
   'cli/plugin/skills/modernlink-plan/SKILL.md',
-  'cli/plugin/skills/modernlink-verify/SKILL.md'
+  'cli/plugin/skills/modernlink-verify/SKILL.md',
+  'cli/plugin/skills/modernlink-domains/SKILL.md',
+  'cli/plugin/skills/modernlink-assess/SKILL.md',
+  'cli/plugin/skills/modernlink-prepare/SKILL.md'
 ];
 const pluginManifestFiles = [
   'cli/plugin/.codex-plugin/plugin.json',

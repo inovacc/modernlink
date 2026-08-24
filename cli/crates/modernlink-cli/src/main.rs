@@ -229,8 +229,16 @@ static PLUGIN_CLAUDE: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../plugin/.
 const PLUGIN_ARCHITECTURE_COMMAND: &[u8] =
     include_bytes!("../../../plugin/commands/architecture.md");
 const PLUGIN_BOUNDARIES_COMMAND: &[u8] = include_bytes!("../../../plugin/commands/boundaries.md");
+const PLUGIN_DOMAINS_COMMAND: &[u8] = include_bytes!("../../../plugin/commands/domains.md");
+const PLUGIN_ASSESS_COMMAND: &[u8] = include_bytes!("../../../plugin/commands/assess.md");
+const PLUGIN_PREPARE_COMMAND: &[u8] = include_bytes!("../../../plugin/commands/prepare.md");
 const PLUGIN_ARCHITECTURE_SKILL: &[u8] =
     include_bytes!("../../../plugin/skills/modernlink-architecture/SKILL.md");
+const PLUGIN_DOMAINS_SKILL: &[u8] =
+    include_bytes!("../../../plugin/skills/modernlink-domains/SKILL.md");
+const PLUGIN_ASSESS_SKILL: &[u8] = include_bytes!("../../../plugin/skills/modernlink-assess/SKILL.md");
+const PLUGIN_PREPARE_SKILL: &[u8] =
+    include_bytes!("../../../plugin/skills/modernlink-prepare/SKILL.md");
 
 #[derive(Debug, Subcommand)]
 enum HarnessCommand {
@@ -1330,7 +1338,13 @@ fn install_plugin(destination: PathBuf, format: OutputFormat) -> Result<(), Comm
     let _embedded_contracts = (
         PLUGIN_ARCHITECTURE_COMMAND,
         PLUGIN_BOUNDARIES_COMMAND,
+        PLUGIN_DOMAINS_COMMAND,
+        PLUGIN_ASSESS_COMMAND,
+        PLUGIN_PREPARE_COMMAND,
         PLUGIN_ARCHITECTURE_SKILL,
+        PLUGIN_DOMAINS_SKILL,
+        PLUGIN_ASSESS_SKILL,
+        PLUGIN_PREPARE_SKILL,
     );
     if destination.exists() {
         return Err(CommandError::io(format!(
