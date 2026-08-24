@@ -10,9 +10,11 @@ modernlink
 ├── inspect
 ├── analyze
 ├── architecture
+├── boundaries
 ├── seams
 ├── compatibility
 ├── plan
+├── verify
 ├── history
 ├── evolution
 ├── doctor
@@ -27,8 +29,10 @@ modernlink
 
 1. `lifecycle`, `harness`, `plugin`, and `runtime` form coherent noun groups. Analysis and
    planning commands remain root-level because they are primary lifecycle intentions.
-2. `boundaries`, `readiness`, and `verify` appear in future design examples but are not executable
-   commands. They are planned, not present.
+2. `boundaries` and `verify` are root-level analysis/assurance intentions and are executable.
+   `readiness` remains a future design example, not a command. Any future command must make its
+   artifact, evidence inputs, and relationship to existing lifecycle stages explicit before it is
+   added.
 3. `analyze` retains its legacy analysis artifact while `inspect` is the shared evidence-graph
    workflow. Keep their output distinction explicit until a compatibility decision merges them.
 4. `history` collects raw structured facts; `evolution` derives a read-only x-ray from them. They
