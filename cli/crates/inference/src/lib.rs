@@ -359,7 +359,10 @@ pub fn infer_seams(graph: &EvidenceGraph) -> Result<SeamReport, InferenceError> 
             });
             continue;
         }
-        if !matches!(edge.kind.as_str(), "imports" | "bytecode-references") {
+        if !matches!(
+            edge.kind.as_str(),
+            "imports" | "bytecode-references" | "descriptor-references"
+        ) {
             continue;
         }
         if target.kind != "external-reference" {
@@ -369,7 +372,12 @@ pub fn infer_seams(graph: &EvidenceGraph) -> Result<SeamReport, InferenceError> 
         let mut score_components = vec![ScoreComponent {
             factor: "external-boundary".to_owned(),
             points: 25,
-            reasoning: "an import crosses from an owned node to an external reference".to_owned(),
+            reasoning: if edge.kind == "descriptor-references" {
+                "a deployment descriptor names an external integration boundary"
+            } else {
+                "an import crosses from an owned node to an external reference"
+            }
+            .to_owned(),
         }];
         if technology != "external-api" {
             score_components.push(ScoreComponent {
@@ -384,10 +392,11 @@ pub fn infer_seams(graph: &EvidenceGraph) -> Result<SeamReport, InferenceError> 
             state: ClaimState::Inference,
             location_node_id: edge.source_id.clone(),
             location_name: source.name.clone(),
-            seam_type: if edge.kind == "imports" {
-                "outbound-import-dependency"
-            } else {
-                "outbound-bytecode-dependency"
+            seam_type: match edge.kind.as_str() {
+                "imports" => "outbound-import-dependency",
+                "bytecode-references" => "outbound-bytecode-dependency",
+                "descriptor-references" => "deployment-descriptor-boundary",
+                _ => unreachable!("edge kinds were filtered above"),
             }
             .to_owned(),
             current_technology: technology.to_owned(),
@@ -647,7 +656,13 @@ fn annotation_boundary(annotation: &str) -> Option<(&'static str, &'static str)>
 }
 
 fn boundary_technology(name: &str) -> Option<&'static str> {
-    if name.starts_with("weblogic.") {
+    if name.starts_with("jms:") {
+        Some("jms")
+    } else if name.starts_with("jndi:") {
+        Some("jndi")
+    } else if name.starts_with("transaction-descriptor:") {
+        Some("transaction")
+    } else if name.starts_with("weblogic.") {
         Some("weblogic")
     } else if name.starts_with("org.jboss.") {
         Some("jboss")
@@ -676,6 +691,7 @@ fn boundary_factor(technology: &str) -> &'static str {
         "jms" => "messaging-boundary",
         "jndi" => "naming-boundary",
         "database" => "data-boundary",
+        "transaction" => "transaction-boundary",
         "soap" => "service-contract-boundary",
         _ => "external-boundary",
     }
@@ -685,6 +701,7 @@ fn boundary_points(technology: &str) -> u8 {
     match technology {
         "weblogic" | "jboss" | "websphere" => 45,
         "jms" | "database" => 35,
+        "transaction" => 40,
         "jndi" | "soap" => 30,
         _ => 0,
     }
@@ -698,6 +715,7 @@ fn boundary_reasoning(technology: &str) -> &'static str {
         "jms" => "target name identifies a messaging API boundary",
         "jndi" => "target name identifies a naming lookup boundary",
         "database" => "target name identifies a persistence or JDBC boundary",
+        "transaction" => "target name identifies a declarative transaction boundary",
         "soap" => "target name identifies a SOAP client or endpoint boundary",
         _ => "target name identifies an external boundary",
     }
@@ -706,6 +724,7 @@ fn boundary_reasoning(technology: &str) -> &'static str {
 fn boundary_risk(technology: &str) -> u8 {
     match technology {
         "database" => 70,
+        "transaction" => 75,
         "jms" | "weblogic" | "jboss" | "websphere" => 60,
         "jndi" | "soap" => 50,
         _ => 40,
@@ -717,6 +736,7 @@ fn boundary_isolation(technology: &str) -> u8 {
         "jms" | "soap" => 75,
         "jndi" => 70,
         "database" => 60,
+        "transaction" => 40,
         "weblogic" | "jboss" | "websphere" => 65,
         _ => 70,
     }

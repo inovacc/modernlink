@@ -168,6 +168,51 @@ fn seam_inference_identifies_a_jms_boundary_and_its_migration_mode() {
 }
 
 #[test]
+fn seam_inference_uses_descriptor_named_jms_boundaries() {
+    let graph = EvidenceGraph {
+        schema_version: "modernlink.evidence/v1alpha1".to_owned(),
+        evidence: vec![Evidence {
+            id: "evidence:descriptor-jms".to_owned(),
+            kind: "descriptor-reference".to_owned(),
+            value: "jms/AuthorizationQueue".to_owned(),
+            source: SourceLocation {
+                path: "WEB-INF/weblogic.xml".to_owned(),
+                start_byte: 1,
+                end_byte: 23,
+            },
+        }],
+        nodes: vec![
+            GraphNode {
+                id: "node:descriptor".to_owned(),
+                kind: "artifact".to_owned(),
+                name: "WEB-INF/weblogic.xml".to_owned(),
+                evidence_ids: Vec::new(),
+            },
+            GraphNode {
+                id: "node:jms".to_owned(),
+                kind: "external-reference".to_owned(),
+                name: "jms:jms/AuthorizationQueue".to_owned(),
+                evidence_ids: Vec::new(),
+            },
+        ],
+        edges: vec![GraphEdge {
+            id: "edge:descriptor-jms".to_owned(),
+            kind: "descriptor-references".to_owned(),
+            source_id: "node:descriptor".to_owned(),
+            target_id: "node:jms".to_owned(),
+            evidence_ids: vec!["evidence:descriptor-jms".to_owned()],
+        }],
+        claims: Vec::new(),
+    };
+    let seam = infer_seams(&graph)
+        .expect("descriptor seam")
+        .seams
+        .remove(0);
+    assert_eq!(seam.seam_type, "deployment-descriptor-boundary");
+    assert_eq!(seam.current_technology, "jms");
+}
+
+#[test]
 fn seam_inference_keeps_sql_table_writes_as_low_confidence_data_candidates() {
     let graph = EvidenceGraph {
         schema_version: "modernlink.evidence/v1alpha1".to_owned(),
