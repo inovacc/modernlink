@@ -63,6 +63,10 @@ fn seams_command_writes_decomposed_vendor_seams() {
         serde_json::from_slice(&fs::read(output_path).expect("seam report")).expect("seam JSON");
     assert_eq!(report["schema_version"], "modernlink.seams/v1alpha1");
     assert_eq!(report["seams"][0]["current_technology"], "weblogic");
+    assert_eq!(
+        report["seams"][0]["location_name"],
+        "com.bank.PaymentService"
+    );
     assert!(
         report["seams"][0]["score_components"]
             .as_array()

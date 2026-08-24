@@ -81,6 +81,7 @@ fn seam_inference_decomposes_vendor_coupling_without_claiming_a_fact() {
     let seam = report.seams.first().expect("vendor seam");
     assert_eq!(seam.state, model::ClaimState::Inference);
     assert_eq!(seam.current_technology, "weblogic");
+    assert_eq!(seam.location_name, "com.bank.payments.PaymentService");
     assert!(
         seam.score_components
             .iter()

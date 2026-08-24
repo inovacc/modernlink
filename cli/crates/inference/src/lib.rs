@@ -79,6 +79,7 @@ pub struct ModernizationSeam {
     pub id: String,
     pub state: ClaimState,
     pub location_node_id: String,
+    pub location_name: String,
     pub seam_type: String,
     pub current_technology: String,
     pub leverage_score: u8,
@@ -227,6 +228,9 @@ pub fn infer_seams(graph: &EvidenceGraph) -> Result<SeamReport, InferenceError> 
         let Some(target) = nodes.get(edge.target_id.as_str()) else {
             continue;
         };
+        let Some(source) = nodes.get(edge.source_id.as_str()) else {
+            continue;
+        };
         if target.kind != "external-reference" {
             continue;
         }
@@ -248,6 +252,7 @@ pub fn infer_seams(graph: &EvidenceGraph) -> Result<SeamReport, InferenceError> 
             id: model::stable_id("modernization-seam", [edge.id.as_str()]),
             state: ClaimState::Inference,
             location_node_id: edge.source_id.clone(),
+            location_name: source.name.clone(),
             seam_type: "outbound-import-dependency".to_owned(),
             current_technology: technology.to_owned(),
             leverage_score,
@@ -347,7 +352,7 @@ pub fn plan_migration(seams: &SeamReport, compatibility: &CompatibilityReport) -
             kind: "seam-isolation".to_owned(),
             summary: format!(
                 "Isolate {} at {} before selecting a cutover action.",
-                seam.current_technology, seam.location_node_id
+                seam.current_technology, seam.location_name
             ),
             depends_on: Vec::new(),
             evidence_ids: seam.evidence_ids.clone(),
@@ -371,7 +376,7 @@ pub fn plan_migration(seams: &SeamReport, compatibility: &CompatibilityReport) -
             kind: "seam-migration".to_owned(),
             summary: format!(
                 "Propose a {} migration for {} only after its listed prerequisites are reviewed.",
-                seam.recommended_mode, seam.location_node_id
+                seam.recommended_mode, seam.location_name
             ),
             depends_on,
             evidence_ids: seam.evidence_ids.clone(),
