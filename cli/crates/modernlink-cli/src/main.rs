@@ -27,6 +27,17 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Collect deterministic repository facts into the shared evidence graph.
+    Inspect {
+        /// Repository root to inspect.
+        repository: PathBuf,
+        /// Shared evidence graph JSON output path.
+        #[arg(long, short)]
+        output: PathBuf,
+        /// Merge local Git evolution evidence when the repository has Git history.
+        #[arg(long)]
+        history: bool,
+    },
     /// Analyze a repository and write a deterministic evidence graph.
     Analyze {
         /// Repository root to analyze.
@@ -108,6 +119,49 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<(), CommandError> {
     match cli.command {
+        Command::Inspect {
+            repository,
+            output,
+            history,
+        } => {
+            let report = analyze_repository(&repository)
+                .map_err(|error| CommandError::invalid_input(error.to_string()))?;
+            let graph = report
+                .to_evidence_graph()
+                .map_err(|error| CommandError::internal(error.to_string()))?;
+            let graph = if history {
+                let history = collect_history_cached(&repository, &HistoryOptions::all())
+                    .map_err(|error| CommandError::invalid_input(error.to_string()))?;
+                graph
+                    .merge(
+                        history
+                            .to_evidence_graph()
+                            .map_err(|error| CommandError::internal(error.to_string()))?,
+                    )
+                    .map_err(|error| CommandError::internal(error.to_string()))?
+            } else {
+                graph
+            };
+            let json = graph
+                .canonical_json()
+                .map_err(|error| CommandError::internal(error.to_string()))?;
+            ensure_report_absent(&output)?;
+            write_report(&output, json)?;
+            println!(
+                "{}",
+                serde_json::json!({
+                    "report": output,
+                    "schema_version": graph.schema_version,
+                    "summary": {
+                        "evidence": graph.evidence.len(),
+                        "nodes": graph.nodes.len(),
+                        "edges": graph.edges.len(),
+                        "claims": graph.claims.len(),
+                    },
+                })
+            );
+            Ok(())
+        }
         Command::Analyze {
             repository,
             output,

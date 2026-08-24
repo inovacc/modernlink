@@ -12,6 +12,7 @@ fn analyzes_java_repository_into_deterministic_evidence_graph() {
         r#"package com.acme.orders;
 
 import com.acme.payments.PaymentGateway;
+import weblogic.jndi.Environment;
 
 public class OrderService {
     private final PaymentGateway payments;
@@ -60,6 +61,16 @@ public class OrderService {
     let json = first.canonical_json().expect("canonical JSON");
     let decoded: AnalysisReport = serde_json::from_str(&json).expect("report round trip");
     assert_eq!(decoded, first);
+
+    let graph = first.to_evidence_graph().expect("shared evidence graph");
+    assert!(graph.validate().is_ok());
+    assert!(graph.edges.iter().any(|edge| edge.kind == "imports"));
+    assert!(
+        graph
+            .claims
+            .iter()
+            .any(|claim| claim.state == model::ClaimState::Inference)
+    );
 }
 
 #[test]

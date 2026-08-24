@@ -15,6 +15,8 @@ pub enum GitHistoryError {
     Cache(String),
     #[error("cannot serialize Git history snapshot: {0}")]
     Serialization(#[from] serde_json::Error),
+    #[error("cannot adapt Git history to evidence graph: {0}")]
+    EvidenceGraph(#[from] model::GraphError),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,6 +67,155 @@ impl GitHistorySnapshot {
         let mut normalized = self.clone();
         normalized.normalize();
         Ok(serde_json::to_string(&normalized)?)
+    }
+
+    pub fn to_evidence_graph(&self) -> Result<model::EvidenceGraph, GitHistoryError> {
+        let mut graph = model::EvidenceGraph::new();
+        let mut commit_evidence_ids = std::collections::BTreeMap::new();
+        for commit in &self.commits {
+            let evidence_id = model::stable_id("git-commit-evidence", [commit.object_id.as_str()]);
+            graph.evidence.push(model::Evidence {
+                id: evidence_id.clone(),
+                kind: "git-commit".to_owned(),
+                value: commit.object_id.clone(),
+                source: model::SourceLocation {
+                    path: ".git/history".to_owned(),
+                    start_byte: 0,
+                    end_byte: 0,
+                },
+            });
+            graph.nodes.push(model::GraphNode {
+                id: commit.object_id.clone(),
+                kind: "commit".to_owned(),
+                name: commit.object_id.clone(),
+                evidence_ids: vec![evidence_id.clone()],
+            });
+            commit_evidence_ids.insert(commit.object_id.clone(), evidence_id);
+        }
+        for selected_ref in &self.selected_refs {
+            let id = model::stable_id("git-ref-node", [selected_ref.name.as_str()]);
+            graph.nodes.push(model::GraphNode {
+                id: id.clone(),
+                kind: "git-ref".to_owned(),
+                name: selected_ref.name.clone(),
+                evidence_ids: Vec::new(),
+            });
+            if let Some(evidence_id) = commit_evidence_ids.get(&selected_ref.target_id) {
+                graph.edges.push(model::GraphEdge {
+                    id: model::stable_id(
+                        "git-ref-reaches-commit",
+                        [id.as_str(), selected_ref.target_id.as_str()],
+                    ),
+                    kind: "REF_REACHES_COMMIT".to_owned(),
+                    source_id: id,
+                    target_id: selected_ref.target_id.clone(),
+                    evidence_ids: vec![evidence_id.clone()],
+                });
+            }
+        }
+        for commit in &self.commits {
+            let evidence_id = commit_evidence_ids
+                .get(&commit.object_id)
+                .expect("commit evidence is created with the commit")
+                .clone();
+            for parent_id in &commit.parent_ids {
+                if commit_evidence_ids.contains_key(parent_id) {
+                    graph.edges.push(model::GraphEdge {
+                        id: model::stable_id(
+                            "git-commit-parent",
+                            [commit.object_id.as_str(), parent_id.as_str()],
+                        ),
+                        kind: "COMMIT_PARENT".to_owned(),
+                        source_id: commit.object_id.clone(),
+                        target_id: parent_id.clone(),
+                        evidence_ids: vec![evidence_id.clone()],
+                    });
+                }
+            }
+        }
+        let mut path_nodes = std::collections::BTreeMap::<String, (String, Vec<String>)>::new();
+        for change in &self.path_changes {
+            let evidence_id = model::stable_id(
+                "git-path-change-evidence",
+                [
+                    change.commit_id.as_str(),
+                    change.path.as_str(),
+                    change.kind.as_str(),
+                ],
+            );
+            graph.evidence.push(model::Evidence {
+                id: evidence_id.clone(),
+                kind: "git-path-change".to_owned(),
+                value: format!("{}:{}", change.kind, change.path),
+                source: model::SourceLocation {
+                    path: change.path.clone(),
+                    start_byte: 0,
+                    end_byte: 0,
+                },
+            });
+            let entry = path_nodes.entry(change.path.clone()).or_insert_with(|| {
+                (
+                    model::stable_id("git-path-node", [change.path.as_str()]),
+                    Vec::new(),
+                )
+            });
+            entry.1.push(evidence_id.clone());
+            if commit_evidence_ids.contains_key(&change.commit_id) {
+                graph.edges.push(model::GraphEdge {
+                    id: model::stable_id(
+                        "git-commit-touches-path",
+                        [
+                            change.commit_id.as_str(),
+                            entry.0.as_str(),
+                            evidence_id.as_str(),
+                        ],
+                    ),
+                    kind: "COMMIT_TOUCHES_PATH".to_owned(),
+                    source_id: change.commit_id.clone(),
+                    target_id: entry.0.clone(),
+                    evidence_ids: vec![evidence_id],
+                });
+            }
+        }
+        for (path, (id, evidence_ids)) in &path_nodes {
+            graph.nodes.push(model::GraphNode {
+                id: id.clone(),
+                kind: "path".to_owned(),
+                name: path.clone(),
+                evidence_ids: evidence_ids.clone(),
+            });
+        }
+        for co_change in &self.co_changes {
+            let Some((left_id, _)) = path_nodes.get(&co_change.left_path) else {
+                continue;
+            };
+            let Some((right_id, _)) = path_nodes.get(&co_change.right_path) else {
+                continue;
+            };
+            let evidence_id = model::stable_id(
+                "git-cochange-evidence",
+                [co_change.left_path.as_str(), co_change.right_path.as_str()],
+            );
+            graph.evidence.push(model::Evidence {
+                id: evidence_id.clone(),
+                kind: "git-cochange".to_owned(),
+                value: format!("{}|{}", co_change.left_path, co_change.right_path),
+                source: model::SourceLocation {
+                    path: ".git/history".to_owned(),
+                    start_byte: 0,
+                    end_byte: 0,
+                },
+            });
+            graph.edges.push(model::GraphEdge {
+                id: model::stable_id("git-path-cochange", [left_id.as_str(), right_id.as_str()]),
+                kind: "PATH_CO_CHANGED_WITH_PATH".to_owned(),
+                source_id: left_id.clone(),
+                target_id: right_id.clone(),
+                evidence_ids: vec![evidence_id],
+            });
+        }
+        graph.validate()?;
+        Ok(graph)
     }
 
     fn normalize(&mut self) {

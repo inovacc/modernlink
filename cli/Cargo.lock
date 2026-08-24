@@ -576,6 +576,7 @@ version = "0.1.0"
 dependencies = [
  "gix",
  "hex",
+ "model",
  "serde",
  "serde_json",
  "sha2",
@@ -2024,6 +2025,7 @@ version = "0.1.0"
 dependencies = [
  "hex",
  "ignore",
+ "model",
  "serde",
  "serde_json",
  "sha2",

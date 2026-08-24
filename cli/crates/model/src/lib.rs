@@ -18,6 +18,12 @@ pub enum GraphError {
         owner_id: String,
         evidence_id: String,
     },
+    #[error("edge {edge_id} references missing {role} node: {node_id}")]
+    MissingNode {
+        edge_id: String,
+        role: &'static str,
+        node_id: String,
+    },
     #[error("claims cannot use the observed fact state: {0}")]
     InvalidClaimState(String),
     #[error("cannot serialize evidence graph: {0}")]
@@ -32,6 +38,8 @@ pub struct EvidenceGraph {
     #[serde(default)]
     pub nodes: Vec<GraphNode>,
     #[serde(default)]
+    pub edges: Vec<GraphEdge>,
+    #[serde(default)]
     pub claims: Vec<Claim>,
 }
 
@@ -41,6 +49,7 @@ impl EvidenceGraph {
             schema_version: EVIDENCE_SCHEMA_VERSION.to_owned(),
             evidence: Vec::new(),
             nodes: Vec::new(),
+            edges: Vec::new(),
             claims: Vec::new(),
         }
     }
@@ -50,10 +59,28 @@ impl EvidenceGraph {
             return Err(GraphError::UnsupportedSchema(self.schema_version.clone()));
         }
         let evidence_ids = unique_ids("evidence", self.evidence.iter().map(|item| &item.id))?;
-        unique_ids("node", self.nodes.iter().map(|item| &item.id))?;
+        let node_ids = unique_ids("node", self.nodes.iter().map(|item| &item.id))?;
+        unique_ids("edge", self.edges.iter().map(|item| &item.id))?;
         unique_ids("claim", self.claims.iter().map(|item| &item.id))?;
         for node in &self.nodes {
             validate_evidence_links("node", &node.id, &node.evidence_ids, &evidence_ids)?;
+        }
+        for edge in &self.edges {
+            if !node_ids.contains(&edge.source_id) {
+                return Err(GraphError::MissingNode {
+                    edge_id: edge.id.clone(),
+                    role: "source",
+                    node_id: edge.source_id.clone(),
+                });
+            }
+            if !node_ids.contains(&edge.target_id) {
+                return Err(GraphError::MissingNode {
+                    edge_id: edge.id.clone(),
+                    role: "target",
+                    node_id: edge.target_id.clone(),
+                });
+            }
+            validate_evidence_links("edge", &edge.id, &edge.evidence_ids, &evidence_ids)?;
         }
         for claim in &self.claims {
             if claim.state == ClaimState::Fact {
@@ -79,9 +106,23 @@ impl EvidenceGraph {
         Ok(graph)
     }
 
+    pub fn merge(mut self, other: Self) -> Result<Self, GraphError> {
+        if self.schema_version != other.schema_version {
+            return Err(GraphError::UnsupportedSchema(other.schema_version));
+        }
+        self.evidence.extend(other.evidence);
+        self.nodes.extend(other.nodes);
+        self.edges.extend(other.edges);
+        self.claims.extend(other.claims);
+        self.validate()?;
+        self.normalize();
+        Ok(self)
+    }
+
     fn normalize(&mut self) {
         self.evidence.sort_by(|left, right| left.id.cmp(&right.id));
         self.nodes.sort_by(|left, right| left.id.cmp(&right.id));
+        self.edges.sort_by(|left, right| left.id.cmp(&right.id));
         self.claims.sort_by(|left, right| left.id.cmp(&right.id));
         for node in &mut self.nodes {
             node.evidence_ids.sort();
@@ -90,6 +131,10 @@ impl EvidenceGraph {
         for claim in &mut self.claims {
             claim.evidence_ids.sort();
             claim.evidence_ids.dedup();
+        }
+        for edge in &mut self.edges {
+            edge.evidence_ids.sort();
+            edge.evidence_ids.dedup();
         }
     }
 }
@@ -120,6 +165,16 @@ pub struct GraphNode {
     pub id: String,
     pub kind: String,
     pub name: String,
+    #[serde(default)]
+    pub evidence_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GraphEdge {
+    pub id: String,
+    pub kind: String,
+    pub source_id: String,
+    pub target_id: String,
     #[serde(default)]
     pub evidence_ids: Vec<String>,
 }

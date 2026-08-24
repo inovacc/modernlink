@@ -1,4 +1,6 @@
-use model::{Claim, ClaimState, Evidence, EvidenceGraph, GraphError, GraphNode, SourceLocation};
+use model::{
+    Claim, ClaimState, Evidence, EvidenceGraph, GraphEdge, GraphError, GraphNode, SourceLocation,
+};
 
 #[test]
 fn graph_rejects_claims_that_cite_missing_evidence() {
@@ -6,6 +8,7 @@ fn graph_rejects_claims_that_cite_missing_evidence() {
         schema_version: "modernlink.evidence/v1alpha1".to_owned(),
         evidence: Vec::new(),
         nodes: Vec::new(),
+        edges: Vec::new(),
         claims: vec![Claim {
             id: "claim:missing".to_owned(),
             state: ClaimState::Hypothesis,
@@ -40,6 +43,7 @@ fn graph_canonicalizes_facts_and_preserves_traceability() {
             name: "PaymentService".to_owned(),
             evidence_ids: vec!["evidence:payment-service".to_owned()],
         }],
+        edges: Vec::new(),
         claims: vec![Claim {
             id: "claim:payment-context".to_owned(),
             state: ClaimState::Hypothesis,
@@ -65,6 +69,7 @@ fn graph_rejects_an_observed_fact_as_an_agent_claim() {
         schema_version: "modernlink.evidence/v1alpha1".to_owned(),
         evidence: Vec::new(),
         nodes: Vec::new(),
+        edges: Vec::new(),
         claims: vec![Claim {
             id: "claim:misclassified".to_owned(),
             state: ClaimState::Fact,
@@ -76,5 +81,27 @@ fn graph_rejects_an_observed_fact_as_an_agent_claim() {
     assert!(matches!(
         graph.validate(),
         Err(GraphError::InvalidClaimState(_))
+    ));
+}
+
+#[test]
+fn graph_rejects_edges_that_reference_missing_nodes() {
+    let graph = EvidenceGraph {
+        schema_version: "modernlink.evidence/v1alpha1".to_owned(),
+        evidence: Vec::new(),
+        nodes: Vec::new(),
+        edges: vec![GraphEdge {
+            id: "edge:missing".to_owned(),
+            kind: "imports".to_owned(),
+            source_id: "node:missing".to_owned(),
+            target_id: "node:other".to_owned(),
+            evidence_ids: Vec::new(),
+        }],
+        claims: Vec::new(),
+    };
+
+    assert!(matches!(
+        graph.validate(),
+        Err(GraphError::MissingNode { .. })
     ));
 }

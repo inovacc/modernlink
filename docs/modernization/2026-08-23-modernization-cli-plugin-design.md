@@ -8,8 +8,9 @@ the hard library/CLI separation, component migration-readiness gates, coherence 
 the documentation lifecycle, and the Tree-sitter extraction architecture. Implementation is
 underway in controlled slices: the analyzer, plugin-pointer contract, runtime-observation
 preparation, Git-evolution artifact, shared evidence-model kernel, and lifecycle transition/replay
-kernel exist. The analyzer and Git artifacts have not yet been adapted into that shared graph, and
-the state kernel now persists/replays append-only JSONL events but has no workspace snapshot,
+kernel exist. The analyzer and Git artifacts now adapt into that shared graph through
+`modernlink inspect [--history]`; broader detector families and graph-backed inference remain
+pending. The state kernel now persists/replays append-only JSONL events but has no workspace snapshot,
 approval-latch records, or physical-artifact reconciliation yet. A descriptor registry exposes conservative
 Codex and Claude capability records but deliberately has no installation paths; setup,
 distribution, verified harness adapters, and the full lifecycle remain planned.

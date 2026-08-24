@@ -63,6 +63,7 @@ host product remains outside every recorded run. See [ISSUES.md](ISSUES.md) I-01
 | Feature | Where | Scope / limitation |
 |---|---|---|
 | Rust-first deterministic Java repository analysis | `cli/crates/analyzer` | Static source facts only; architecture and domain conclusions remain higher-layer inference. |
+| Unified static + evolution evidence graph | `modernlink inspect [--history]` | Merges versioned Java and Git adapters into `modernlink.evidence/v1alpha1`; deeper detectors remain pending. |
 | Local Git evolution evidence | `cli/crates/git`, `modernlink history` | Uses structured `gix` APIs; default artifacts fingerprint commit messages instead of storing message text. |
 | Path deltas, bounded co-change, and knowledge signals | `modernlink.git-history/v1alpha1` | Co-change expansion and commit traversal report caps explicitly; no contributor productivity ranking. |
 | Repository-local Git cache | `.modernlink/cache/git/` | Cache is ignored, input-keyed, and local only. |

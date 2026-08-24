@@ -1,4 +1,8 @@
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+};
 
 use ignore::WalkBuilder;
 use serde::{Deserialize, Serialize};
@@ -25,6 +29,8 @@ pub enum AnalysisError {
     Parser(String),
     #[error("cannot serialize analysis report: {0}")]
     Serialize(#[from] serde_json::Error),
+    #[error("cannot adapt analysis report to evidence graph: {0}")]
+    EvidenceGraph(#[from] model::GraphError),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,6 +50,96 @@ impl AnalysisReport {
         let mut json = serde_json::to_string_pretty(self)?;
         json.push('\n');
         Ok(json)
+    }
+
+    pub fn to_evidence_graph(&self) -> Result<model::EvidenceGraph, AnalysisError> {
+        let evidence = self
+            .evidence
+            .iter()
+            .map(|item| model::Evidence {
+                id: item.id.clone(),
+                kind: item.observation_kind.clone(),
+                value: item.observed_value.clone(),
+                source: model::SourceLocation {
+                    path: item.path.clone(),
+                    start_byte: item.start_byte,
+                    end_byte: item.end_byte,
+                },
+            })
+            .collect::<Vec<_>>();
+        let mut nodes = self
+            .artifacts
+            .iter()
+            .map(|artifact| model::GraphNode {
+                id: artifact.id.clone(),
+                kind: "artifact".to_owned(),
+                name: artifact.path.clone(),
+                evidence_ids: Vec::new(),
+            })
+            .collect::<Vec<_>>();
+        nodes.extend(self.nodes.iter().map(|node| model::GraphNode {
+            id: node.id.clone(),
+            kind: node.kind.clone(),
+            name: node.qualified_name.clone(),
+            evidence_ids: node.evidence_ids.clone(),
+        }));
+
+        let mut known_ids = nodes
+            .iter()
+            .map(|node| node.id.clone())
+            .collect::<BTreeSet<_>>();
+        let names_to_ids = nodes
+            .iter()
+            .map(|node| (node.name.clone(), node.id.clone()))
+            .collect::<BTreeMap<_, _>>();
+        let mut edges = Vec::new();
+        for edge in &self.edges {
+            let target_id = if known_ids.contains(&edge.target_name) {
+                edge.target_name.clone()
+            } else if let Some(id) = names_to_ids.get(&edge.target_name) {
+                id.clone()
+            } else {
+                let id = model::stable_id("external-node", [edge.target_name.as_str()]);
+                if known_ids.insert(id.clone()) {
+                    nodes.push(model::GraphNode {
+                        id: id.clone(),
+                        kind: "external-reference".to_owned(),
+                        name: edge.target_name.clone(),
+                        evidence_ids: Vec::new(),
+                    });
+                }
+                id
+            };
+            edges.push(model::GraphEdge {
+                id: edge.id.clone(),
+                kind: edge.kind.clone(),
+                source_id: edge.source_id.clone(),
+                target_id,
+                evidence_ids: edge.evidence_ids.clone(),
+            });
+        }
+        let claims = self
+            .signals
+            .iter()
+            .map(|signal| model::Claim {
+                id: signal.id.clone(),
+                state: model::ClaimState::Inference,
+                summary: format!(
+                    "{} signal detected by deterministic rule {}",
+                    signal.technology, signal.rule_id
+                ),
+                evidence_ids: signal.evidence_ids.clone(),
+            })
+            .collect();
+        let graph = model::EvidenceGraph {
+            schema_version: model::EVIDENCE_SCHEMA_VERSION.to_owned(),
+            evidence,
+            nodes,
+            edges,
+            claims,
+        };
+        graph.validate()?;
+        Ok(graph)
     }
 }
 

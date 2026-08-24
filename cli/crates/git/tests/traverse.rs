@@ -77,6 +77,11 @@ fn traversal_keeps_raw_identity_and_records_commit_limit() {
     assert!(report.commits.iter().any(|commit| {
         commit.author_name == "Alice Example" && commit.author_email == "alice@example.test"
     }));
+    let graph = report
+        .to_evidence_graph()
+        .expect("shared Git evidence graph");
+    assert!(graph.validate().is_ok());
+    assert!(graph.edges.iter().any(|edge| edge.kind == "COMMIT_PARENT"));
 }
 
 #[test]
