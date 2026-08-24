@@ -103,6 +103,30 @@ fn ignores_deployment_descriptor_names_outside_standard_locations() {
 }
 
 #[test]
+fn records_malformed_recognized_descriptor_without_claiming_content_evidence() {
+    let repository = tempfile::tempdir().expect("temporary repository");
+    let web_inf = repository.path().join("WEB-INF");
+    fs::create_dir_all(&web_inf).expect("WEB-INF");
+    fs::write(
+        web_inf.join("weblogic.xml"),
+        "<weblogic-web-app><queue-jndi-name>",
+    )
+    .expect("malformed descriptor");
+
+    let report = analyze_repository(repository.path()).expect("analysis");
+
+    assert!(report.artifacts.iter().any(|artifact| {
+        artifact.path == "WEB-INF/weblogic.xml" && artifact.parse_health == "xml-malformed"
+    }));
+    assert!(
+        !report
+            .signals
+            .iter()
+            .any(|signal| signal.rule_id == "descriptor.xml.jms-destination")
+    );
+}
+
+#[test]
 fn derives_legacy_infrastructure_signals_from_import_evidence() {
     let repository = tempfile::tempdir().expect("temporary repository");
     let java_dir = repository.path().join("src/main/java/com/acme/legacy");
