@@ -27,6 +27,18 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Build an evidence-linked migration dependency DAG from seam and compatibility reports.
+    Plan {
+        /// Modernization seam report JSON path.
+        #[arg(long)]
+        seams: PathBuf,
+        /// Compatibility assessment report JSON path.
+        #[arg(long)]
+        compatibility: PathBuf,
+        /// Migration plan JSON output path.
+        #[arg(long, short)]
+        output: PathBuf,
+    },
     /// Create or refresh local ModernLink workspace metadata without touching user-authored harness files.
     Setup {
         /// Repository root; defaults to the current directory.
@@ -197,6 +209,32 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<(), CommandError> {
     match cli.command {
+        Command::Plan {
+            seams,
+            compatibility,
+            output,
+        } => {
+            let seams = read_json::<inference::SeamReport>(&seams, "modernization seam report")?;
+            let compatibility = read_json::<inference::CompatibilityReport>(
+                &compatibility,
+                "compatibility assessment report",
+            )?;
+            let report = inference::plan_migration(&seams, &compatibility);
+            let json = report
+                .canonical_json()
+                .map_err(|error| CommandError::internal(error.to_string()))?;
+            ensure_report_absent(&output)?;
+            write_report(&output, json)?;
+            println!(
+                "{}",
+                serde_json::json!({
+                    "report": output,
+                    "schema_version": report.schema_version,
+                    "summary": { "target_version": report.target_version, "tasks": report.tasks.len() },
+                })
+            );
+            Ok(())
+        }
         Command::Setup {
             repository,
             tools,
@@ -622,6 +660,15 @@ fn read_evidence_graph(path: &Path) -> Result<model::EvidenceGraph, CommandError
         .map_err(|error| CommandError::io(format!("cannot read {}: {error}", path.display())))?;
     model::EvidenceGraph::from_json(&input)
         .map_err(|error| CommandError::invalid_input(error.to_string()))
+}
+
+fn read_json<T: serde::de::DeserializeOwned>(path: &Path, label: &str) -> Result<T, CommandError> {
+    let input = fs::read_to_string(path).map_err(|error| {
+        CommandError::io(format!("cannot read {label} {}: {error}", path.display()))
+    })?;
+    serde_json::from_str(&input).map_err(|error| {
+        CommandError::invalid_input(format!("cannot parse {label} {}: {error}", path.display()))
+    })
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]

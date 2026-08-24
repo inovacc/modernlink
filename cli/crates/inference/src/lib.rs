@@ -119,6 +119,38 @@ pub struct CompatibilityReport {
     pub limitations: Vec<String>,
 }
 
+pub const MIGRATION_PLAN_SCHEMA_VERSION: &str = "modernlink.migration-plan/v1alpha1";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MigrationPlan {
+    pub schema_version: String,
+    pub target_version: u16,
+    pub tasks: Vec<MigrationPlanTask>,
+}
+
+impl MigrationPlan {
+    pub fn canonical_json(&self) -> Result<String, InferenceError> {
+        let mut normalized = self.clone();
+        normalized
+            .tasks
+            .sort_by(|left, right| left.id.cmp(&right.id));
+        let mut json = serde_json::to_string_pretty(&normalized)?;
+        json.push('\n');
+        Ok(json)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MigrationPlanTask {
+    pub id: String,
+    pub state: ClaimState,
+    pub kind: String,
+    pub summary: String,
+    pub depends_on: Vec<String>,
+    pub evidence_ids: Vec<String>,
+    pub approval_required: bool,
+}
+
 impl CompatibilityReport {
     pub fn canonical_json(&self) -> Result<String, InferenceError> {
         let mut normalized = self.clone();
@@ -284,6 +316,73 @@ pub fn assess_compatibility(
             "A finding is an evidence-backed review request, not a claim that a migration will fail or that one change is sufficient.".to_owned(),
         ],
     })
+}
+
+/// Builds a minimal, review-oriented dependency DAG. It never chooses a target
+/// technology; it makes the evidence already collected prerequisite work.
+pub fn plan_migration(seams: &SeamReport, compatibility: &CompatibilityReport) -> MigrationPlan {
+    let mut tasks = Vec::new();
+    let mut compatibility_tasks = Vec::new();
+    for finding in &compatibility.findings {
+        let id = model::stable_id(
+            "migration-plan-task",
+            ["compatibility", finding.id.as_str()],
+        );
+        compatibility_tasks.push((id.clone(), finding));
+        tasks.push(MigrationPlanTask {
+            id,
+            state: ClaimState::Inference,
+            kind: "compatibility-review".to_owned(),
+            summary: finding.summary.clone(),
+            depends_on: Vec::new(),
+            evidence_ids: finding.evidence_ids.clone(),
+            approval_required: false,
+        });
+    }
+    for seam in &seams.seams {
+        let isolate_id = model::stable_id("migration-plan-task", ["isolate", seam.id.as_str()]);
+        tasks.push(MigrationPlanTask {
+            id: isolate_id.clone(),
+            state: ClaimState::Inference,
+            kind: "seam-isolation".to_owned(),
+            summary: format!(
+                "Isolate {} at {} before selecting a cutover action.",
+                seam.current_technology, seam.location_node_id
+            ),
+            depends_on: Vec::new(),
+            evidence_ids: seam.evidence_ids.clone(),
+            approval_required: false,
+        });
+        let mut depends_on = vec![isolate_id];
+        for (task_id, finding) in &compatibility_tasks {
+            if finding
+                .evidence_ids
+                .iter()
+                .any(|id| seam.evidence_ids.contains(id))
+            {
+                depends_on.push(task_id.clone());
+            }
+        }
+        depends_on.sort();
+        depends_on.dedup();
+        tasks.push(MigrationPlanTask {
+            id: model::stable_id("migration-plan-task", ["migrate", seam.id.as_str()]),
+            state: ClaimState::Hypothesis,
+            kind: "seam-migration".to_owned(),
+            summary: format!(
+                "Propose a {} migration for {} only after its listed prerequisites are reviewed.",
+                seam.recommended_mode, seam.location_node_id
+            ),
+            depends_on,
+            evidence_ids: seam.evidence_ids.clone(),
+            approval_required: true,
+        });
+    }
+    MigrationPlan {
+        schema_version: MIGRATION_PLAN_SCHEMA_VERSION.to_owned(),
+        target_version: compatibility.target_version,
+        tasks,
+    }
 }
 
 fn layer_for(name: &str) -> Option<&'static str> {

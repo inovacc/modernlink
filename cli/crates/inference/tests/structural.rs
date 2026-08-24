@@ -1,4 +1,4 @@
-use inference::{assess_compatibility, infer_seams, infer_structure};
+use inference::{assess_compatibility, infer_seams, infer_structure, plan_migration};
 use model::{Evidence, EvidenceGraph, GraphEdge, GraphNode, SourceLocation};
 
 #[test]
@@ -125,4 +125,46 @@ fn compatibility_assessment_links_target_reviews_to_import_evidence() {
     assert_eq!(finding.state, model::ClaimState::Inference);
     assert_eq!(finding.category, "java-ee-api-review");
     assert_eq!(finding.evidence_ids, vec!["evidence:jaxb"]);
+}
+
+#[test]
+fn migration_plan_makes_seam_work_depend_on_matching_compatibility_review() {
+    let graph = EvidenceGraph {
+        schema_version: "modernlink.evidence/v1alpha1".to_owned(),
+        evidence: vec![Evidence {
+            id: "evidence:vendor".to_owned(),
+            kind: "import".to_owned(),
+            value: "weblogic.jndi.Environment".to_owned(),
+            source: SourceLocation {
+                path: "Legacy.java".to_owned(),
+                start_byte: 0,
+                end_byte: 20,
+            },
+        }],
+        nodes: vec![GraphNode {
+            id: "node:vendor".to_owned(),
+            kind: "external-reference".to_owned(),
+            name: "weblogic.jndi.Environment".to_owned(),
+            evidence_ids: Vec::new(),
+        }],
+        edges: vec![GraphEdge {
+            id: "edge:vendor".to_owned(),
+            kind: "imports".to_owned(),
+            source_id: "node:vendor".to_owned(),
+            target_id: "node:vendor".to_owned(),
+            evidence_ids: vec!["evidence:vendor".to_owned()],
+        }],
+        claims: Vec::new(),
+    };
+    let seams = infer_seams(&graph).expect("seams");
+    let compatibility = assess_compatibility(&graph, 21).expect("compatibility");
+    let plan = plan_migration(&seams, &compatibility);
+    let migration = plan
+        .tasks
+        .iter()
+        .find(|task| task.kind == "seam-migration")
+        .expect("migration task");
+    assert_eq!(migration.state, model::ClaimState::Hypothesis);
+    assert!(migration.approval_required);
+    assert!(migration.depends_on.len() >= 2);
 }
