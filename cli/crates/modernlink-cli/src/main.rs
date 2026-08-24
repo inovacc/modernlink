@@ -1,4 +1,9 @@
-use std::{env, fs, io::Write, path::PathBuf, process::ExitCode};
+use std::{
+    env, fs,
+    io::Write,
+    path::{Path, PathBuf},
+    process::ExitCode,
+};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use git::{HistoryOptions, MailmapMode, RefScope, collect_history_cached};
@@ -224,7 +229,7 @@ fn history_options(
     Ok(options)
 }
 
-fn write_report(output: &PathBuf, json: String) -> Result<(), CommandError> {
+fn write_report(output: &Path, json: String) -> Result<(), CommandError> {
     if let Some(parent) = output
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -262,7 +267,7 @@ fn write_report(output: &PathBuf, json: String) -> Result<(), CommandError> {
     Ok(())
 }
 
-fn ensure_report_absent(output: &PathBuf) -> Result<(), CommandError> {
+fn ensure_report_absent(output: &Path) -> Result<(), CommandError> {
     if output.exists() {
         return Err(CommandError::io(format!(
             "refusing to overwrite existing report {}",

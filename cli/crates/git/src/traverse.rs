@@ -68,7 +68,7 @@ fn collect_history_from_repository(
     selected_refs: Vec<SelectedRef>,
     options: &HistoryOptions,
 ) -> Result<GitHistorySnapshot, GitHistoryError> {
-    let identity = repository_identity(&repository, &selected_refs);
+    let identity = repository_identity(repository, &selected_refs);
     let mut facts = BTreeMap::<String, CollectedCommit>::new();
     let mut limit_reached = false;
 
@@ -285,6 +285,9 @@ fn collect_path_changes(
             .map_err(|error| GitHistoryError::Traversal(error.to_string()))?;
 
         for change in changes {
+            if is_directory_change(&change) {
+                continue;
+            }
             let (kind, path) = change_kind_and_path(&change);
             let (additions, deletions, line_count_status) =
                 line_counts(&change, repository, &mut resource_cache)?;
@@ -305,6 +308,15 @@ fn collect_path_changes(
             .then_with(|| left.path.cmp(&right.path))
     });
     Ok(path_changes)
+}
+
+fn is_directory_change(change: &ChangeDetached) -> bool {
+    match change {
+        ChangeDetached::Addition { entry_mode, .. }
+        | ChangeDetached::Deletion { entry_mode, .. }
+        | ChangeDetached::Modification { entry_mode, .. }
+        | ChangeDetached::Rewrite { entry_mode, .. } => entry_mode.is_tree(),
+    }
 }
 
 fn change_kind_and_path(change: &ChangeDetached) -> (&'static str, String) {

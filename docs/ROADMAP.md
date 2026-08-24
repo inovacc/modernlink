@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:024 (RFC 3339) 2026-08-21T20:41:35Z -->
+<!-- rev:025 (RFC 3339) 2026-08-24T01:11:47Z -->
 
 Reconciled 2026-08-21 against the current tree. Phases follow the M1/M2 structure in
 [BACKLOG.md](BACKLOG.md); tasks are broken out in [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md).
@@ -128,6 +128,25 @@ until then this file is written against the production bar because that is the s
 - [ ] Migration controls: shadow, dual delivery, cutover, pause/resume, rollback — **RT-08**
 - [ ] Cutover and rollback observable through JMX — **RT-09**
 
+## Modernization CLI and agent-plugin track · `[FOUNDATION IN PROGRESS]`
+
+This is a separate Rust workspace under `cli/`, not a dependency of the Java 6 runtime. Its
+canonical design and staged plan live under [modernization](modernization/). The code presently
+provides an analyzer, a thin plugin-binary binding, runtime-observation preparation, and a local
+Git-evolution foundation. It does **not** yet provide setup/onboarding, npm distribution, a
+harness registry, an evidence-graph adapter, architecture/domain inference, seam scoring, or the
+stateful agent modernization lifecycle.
+
+- [x] Private Rust CLI workspace and thin binary-pointer plugin binding
+- [x] Deterministic local Git history artifact (`modernlink.git-history/v1alpha1`), structured
+      ref/commit/tree evidence, bounded co-change, local cache, and `modernlink history`
+- [x] Optional `modernlink analyze --history` sibling artifact with unchanged analysis schema
+- [ ] Shared evidence graph and static-analysis adapter
+- [ ] Java/application-server/transaction/messaging/database boundary detectors
+- [ ] Architecture, candidate-domain, and modernization-seam inference
+- [ ] Compatibility targets, migration DAG/state, verification and cutover lifecycle
+- [ ] Safe rerunnable setup, harness registry/adapters, npm/native release distribution
+
 ## Engineering hygiene · `[PARTIAL]`
 
 - [x] Apache-2.0 LICENSE
@@ -181,8 +200,11 @@ percentage establishes.
 | 2 — Messaging transports | implemented, limited happy-path runtime evidence |
 | 3 — M1 compatibility scope | not started |
 | 4 — M2 routing and migration | not started |
+| Modernization CLI / agent plugin | foundation in progress; controlled local evidence only |
 
-Roughly **two of five phases** are code-complete; none is validated against the vendor product.
+The runtime remains roughly **two of five phases** code-complete; the separate CLI/product track
+is a foundation, not a replacement for runtime validation. Neither product surface is validated
+against the vendor host.
 The single highest-value next step is a current-branch run of the newly wired Rust and Java line
 gates. After that machine result is recorded, B-003 delivery-mode enforcement and vendor-host
 JMS compatibility remain the highest-value contract work.

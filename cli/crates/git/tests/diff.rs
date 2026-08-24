@@ -42,7 +42,7 @@ fn history_records_structured_path_changes_and_co_changes() {
         .expect("collect history with changes");
 
     assert!(report.path_changes.iter().any(|change| {
-        change.commit_id == first.to_string()
+        change.commit_id == first
             && change.path == "Payment.java"
             && change.kind == "addition"
             && change.additions == 1
@@ -51,7 +51,7 @@ fn history_records_structured_path_changes_and_co_changes() {
             && change.rename_detection == "disabled"
     }));
     assert!(report.path_changes.iter().any(|change| {
-        change.commit_id == second.to_string()
+        change.commit_id == second
             && change.path == "Payment.java"
             && change.kind == "modification"
             && change.additions == 1
@@ -60,9 +60,7 @@ fn history_records_structured_path_changes_and_co_changes() {
             && change.rename_detection == "disabled"
     }));
     assert!(report.path_changes.iter().any(|change| {
-        change.commit_id == second.to_string()
-            && change.path == "Settlement.java"
-            && change.kind == "addition"
+        change.commit_id == second && change.path == "Settlement.java" && change.kind == "addition"
     }));
     assert!(report.co_changes.iter().any(|co_change| {
         co_change.left_path == "Payment.java"
@@ -123,6 +121,40 @@ fn co_change_cap_records_incomplete_evidence_instead_of_guessing() {
     );
 }
 
+#[test]
+fn history_ignores_directory_entries_and_records_nested_file_changes() {
+    let directory = tempdir().expect("temporary directory");
+    let repository = gix::init(directory.path()).expect("initialize fixture repository");
+    let signature = signature();
+    let nested_tree = nested_tree(&repository, "src", "Payment.java", b"class Payment {}");
+    repository
+        .commit_as(
+            signature,
+            signature,
+            "refs/heads/main",
+            "nested source\n",
+            nested_tree,
+            std::iter::empty::<gix::ObjectId>(),
+        )
+        .expect("create nested fixture commit");
+
+    let report =
+        collect_history(directory.path(), &HistoryOptions::all()).expect("collect nested history");
+
+    assert!(
+        report
+            .path_changes
+            .iter()
+            .any(|change| change.path == "src/Payment.java")
+    );
+    assert!(
+        !report
+            .path_changes
+            .iter()
+            .any(|change| change.path == "src")
+    );
+}
+
 fn tree(repository: &gix::Repository, files: &[(&str, &[u8])]) -> gix::ObjectId {
     let mut entries = files
         .iter()
@@ -139,6 +171,38 @@ fn tree(repository: &gix::Repository, files: &[(&str, &[u8])]) -> gix::ObjectId 
     repository
         .write_object(gix::objs::Tree { entries })
         .expect("write tree")
+        .detach()
+}
+
+fn nested_tree(
+    repository: &gix::Repository,
+    directory: &str,
+    filename: &str,
+    contents: &[u8],
+) -> gix::ObjectId {
+    let blob = repository
+        .write_blob(contents)
+        .expect("write blob")
+        .detach();
+    let child = repository
+        .write_object(gix::objs::Tree {
+            entries: vec![gix::objs::tree::Entry {
+                mode: gix::objs::tree::EntryKind::Blob.into(),
+                filename: BString::from(filename),
+                oid: blob,
+            }],
+        })
+        .expect("write child tree")
+        .detach();
+    repository
+        .write_object(gix::objs::Tree {
+            entries: vec![gix::objs::tree::Entry {
+                mode: gix::objs::tree::EntryKind::Tree.into(),
+                filename: BString::from(directory),
+                oid: child,
+            }],
+        })
+        .expect("write root tree")
         .detach()
 }
 

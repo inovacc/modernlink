@@ -5,8 +5,10 @@
 Revised for written review on 2026-08-23. The clean-adaptation direction and the
 `cli/` / `cli/plugin/` ownership split were approved in conversation. This revision adds
 the hard library/CLI separation, component migration-readiness gates, coherence interviews,
-the documentation lifecycle, and the Tree-sitter extraction architecture. Implementation
-starts after this revision is reviewed.
+the documentation lifecycle, and the Tree-sitter extraction architecture. Implementation is
+underway in controlled slices: the analyzer, plugin-pointer contract, runtime-observation
+preparation, and Git-evolution artifact exist; setup, distribution, harness adapters, shared
+evidence graph, and the full lifecycle remain planned.
 
 ## Goal
 

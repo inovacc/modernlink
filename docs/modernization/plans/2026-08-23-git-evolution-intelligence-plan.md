@@ -38,7 +38,7 @@
 - Produces: `GitHistorySnapshot`, `SelectedRef`, `Completeness`, `CommitFact`, `PathChange`, `CoChangeFact`, `ContributorIdentity`, `KnowledgeSignal`, and `GitHistoryError`.
 - Produces: `GitHistorySnapshot::canonical_json(&self) -> Result<String, GitHistoryError>`.
 
-- [ ] **Step 1: Write failing model tests**
+- [x] **Step 1: Write failing model tests**
 
 ```rust
 #[test]
@@ -52,13 +52,13 @@ fn canonical_json_is_stable_and_round_trips() {
 }
 ```
 
-- [ ] **Step 2: Run the model test and observe the missing-type failure**
+- [x] **Step 2: Run the model test and observe the missing-type failure**
 
 Run: `cargo test --manifest-path cli/Cargo.toml -p git --test model`
 
 Expected: compilation fails because package `git` and `GitHistorySnapshot` do not exist.
 
-- [ ] **Step 3: Add the workspace member and private manifest**
+- [x] **Step 3: Add the workspace member and private manifest**
 
 ```toml
 [package]
@@ -78,7 +78,7 @@ thiserror.workspace = true
 
 Add `"crates/git"` to the `cli/Cargo.toml` member list. Do not change the root runtime workspace.
 
-- [ ] **Step 4: Implement the canonical model**
+- [x] **Step 4: Implement the canonical model**
 
 Implement the public serializable types in `model.rs`, using `BTreeMap`/sorted vectors for all
 collections that affect output. `GitHistorySnapshot::canonical_json` serializes the snapshot after
@@ -87,13 +87,13 @@ calling `normalize()` which sorts refs by name, commits by object ID, path chang
 limitations by stable code. `schema_version` is the literal
 `modernlink.git-history/v1alpha1`.
 
-- [ ] **Step 5: Run the model test and workspace compilation**
+- [x] **Step 5: Run the model test and workspace compilation**
 
 Run: `cargo test --manifest-path cli/Cargo.toml -p git --test model`
 
 Expected: the command exits `0`; this is evidence only that the controlled model test executed.
 
-- [ ] **Step 6: Commit the isolated model**
+- [x] **Step 6: Commit the isolated model**
 
 ```text
 git add cli/Cargo.toml cli/Cargo.lock cli/crates/git
@@ -115,7 +115,7 @@ git commit -m "feat(cli): add Git history evidence model"
 - Produces: `open_repository(path: &Path) -> Result<gix::Repository, GitHistoryError>`.
 - Produces: `resolve_refs(repo: &gix::Repository, scope: RefScope) -> Result<Vec<SelectedRef>, GitHistoryError>`.
 
-- [ ] **Step 1: Write failing ref-scope tests using a local fixture repository**
+- [x] **Step 1: Write failing ref-scope tests using a local fixture repository**
 
 ```rust
 #[test]
@@ -132,13 +132,13 @@ fn all_scope_records_head_branch_and_tag_targets() {
 `FixtureRepository` creates repository objects through `gix` APIs or fixture objects. It must not
 capture or parse `git` executable output.
 
-- [ ] **Step 2: Run the repository test and observe the missing-module failure**
+- [x] **Step 2: Run the repository test and observe the missing-module failure**
 
 Run: `cargo test --manifest-path cli/Cargo.toml -p git --test repository`
 
 Expected: compilation fails because `HistoryOptions`, `RefScope`, and `resolve_refs` do not exist.
 
-- [ ] **Step 3: Add the structured backend dependency**
+- [x] **Step 3: Add the structured backend dependency**
 
 Add this exact workspace dependency and inherit it from `git`:
 
@@ -149,21 +149,21 @@ gix = "0.87.0"
 Record the resolved version, license, and upstream URL in `cli/THIRD_PARTY_NOTICES.md`; do not
 copy upstream source into this repository.
 
-- [ ] **Step 4: Implement read-only open and ref selection**
+- [x] **Step 4: Implement read-only open and ref selection**
 
 Use `gix::open(path)` or the equivalent read-only open API. Enumerate references through `gix`,
 resolve symbolic targets, and return stable `SelectedRef` records. Ref failures become
 `Completeness` records only when other selected refs can still form a coherent result; a path that
 is not a repository returns `GitHistoryError::NotRepository` without producing a snapshot.
 
-- [ ] **Step 5: Run repository tests**
+- [x] **Step 5: Run repository tests**
 
 Run: `cargo test --manifest-path cli/Cargo.toml -p git --test repository`
 
 Expected: the command exits `0`; it does not prove behavior for remote, corrupt, or enterprise
 repositories.
 
-- [ ] **Step 6: Commit structured repository access**
+- [x] **Step 6: Commit structured repository access**
 
 ```text
 git add cli/Cargo.toml cli/Cargo.lock cli/THIRD_PARTY_NOTICES.md cli/crates/git
@@ -183,7 +183,7 @@ git commit -m "feat(cli): resolve Git history refs with gix"
 - Produces: one `CommitFact` per reachable object ID, with all parent IDs and explicit selected diff-parent policy.
 - Produces: `Completeness { code: "commit-limit-reached", .. }` once `max_commits` stops traversal.
 
-- [ ] **Step 1: Write failing traversal tests**
+- [x] **Step 1: Write failing traversal tests**
 
 ```rust
 #[test]
@@ -200,13 +200,13 @@ fn traversal_keeps_raw_identity_and_records_commit_limit() {
 }
 ```
 
-- [ ] **Step 2: Run the traversal test and observe the missing-collector failure**
+- [x] **Step 2: Run the traversal test and observe the missing-collector failure**
 
 Run: `cargo test --manifest-path cli/Cargo.toml -p git --test traverse`
 
 Expected: compilation fails because `collect_history` and the fixture builder do not exist.
 
-- [ ] **Step 3: Implement deterministic graph walk**
+- [x] **Step 3: Implement deterministic graph walk**
 
 Traverse each selected ref using `gix` commit/object APIs. Deduplicate commit object IDs across
 refs, preserve reachability on the commit record, and stop at `max_commits` with a completeness
@@ -220,13 +220,13 @@ Add a fixture merge commit and assert that all parent IDs remain present while
 `diff_parent_policy == "first-parent"`. Implement this literal policy in `CommitFact`; do not
 derive path metrics from every parent in the first release.
 
-- [ ] **Step 5: Run traversal tests**
+- [x] **Step 5: Run traversal tests**
 
 Run: `cargo test --manifest-path cli/Cargo.toml -p git --test traverse`
 
 Expected: the command exits `0`; output remains limited to controlled fixture evidence.
 
-- [ ] **Step 6: Commit commit-history collection**
+- [x] **Step 6: Commit commit-history collection**
 
 ```text
 git add cli/crates/git
@@ -338,7 +338,7 @@ Run: `cargo test --manifest-path cli/Cargo.toml -p git --test cache`
 
 Expected: the command exits `0`; tests demonstrate cache-key behavior only.
 
-- [ ] **Step 5: Commit local cache support**
+- [x] **Step 5: Commit local cache support**
 
 ```text
 git add .gitignore cli/crates/git
@@ -395,14 +395,14 @@ Add `--history` to `Analyze`. Given `--output path/to/analysis.json`, write the 
 to `path/to/git-history.json`, return both paths/digests in stdout, and do not change the existing
 `modernlink.analysis/v1alpha1` schema.
 
-- [ ] **Step 5: Run CLI integration tests**
+- [x] **Step 5: Run CLI integration tests**
 
 Run: `cargo test --manifest-path cli/Cargo.toml -p modernlink-cli --test history_command --test analyze_command`
 
 Expected: the command exits `0`; this demonstrates controlled local command behavior, not
 enterprise-history accuracy.
 
-- [ ] **Step 6: Commit command integration**
+- [x] **Step 6: Commit command integration**
 
 ```text
 git add cli/crates/modernlink-cli cli/crates/git cli/Cargo.lock
@@ -422,7 +422,7 @@ git commit -m "feat(cli): expose Git history analysis"
 - Consumes: the public `modernlink history` command and its JSON artifact.
 - Produces: a revision-scoped evidence record that labels what was executed and what remains unproven.
 
-- [ ] **Step 1: Run the controlled command against a fixture and a local non-destructive repository**
+- [x] **Step 1: Run the controlled command against a fixture and a local non-destructive repository**
 
 Run:
 
@@ -434,13 +434,13 @@ cargo run --manifest-path cli/Cargo.toml -p modernlink-cli -- history . --output
 Record exact command, revision, output schema, and limits. Do not record commit messages, email
 addresses, source content, or private remote URLs in the evidence document.
 
-- [ ] **Step 2: Update status language without overstating scope**
+- [x] **Step 2: Update status language without overstating scope**
 
 Mark the Git-history foundation as implemented only to the precise extent demonstrated by code and
 machine facts. Keep contributor support, semantic ownership, rename lineage, and real enterprise
 history interpretation explicitly unproven.
 
-- [ ] **Step 3: Run static checks for the isolated CLI workspace**
+- [x] **Step 3: Run static checks for the isolated CLI workspace**
 
 Run:
 

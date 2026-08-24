@@ -1,5 +1,5 @@
 # Features
-<!-- rev:004 (RFC 3339) 2026-08-21T00:00:00Z -->
+<!-- rev:005 (RFC 3339) 2026-08-24T01:11:47Z -->
 
 What exists in the current tree, and what is proposed. "Implemented" means the code is present;
 it does **not** mean the behavior satisfies the intended runtime contract. See
@@ -57,6 +57,17 @@ host product remains outside every recorded run. See [ISSUES.md](ISSUES.md) I-01
 | SHA-256 content-addressed native extraction with cleanup on failure | `NativeLoader.java` |
 | Cross-compilation to linux-x86_64, linux-aarch64, windows-x86_64 | `cargo-zigbuild` |
 | Executable cross-application contract fixtures | `hacks/` |
+
+### Modernization CLI foundation (separate product workspace)
+
+| Feature | Where | Scope / limitation |
+|---|---|---|
+| Rust-first deterministic Java repository analysis | `cli/crates/analyzer` | Static source facts only; architecture and domain conclusions remain higher-layer inference. |
+| Local Git evolution evidence | `cli/crates/git`, `modernlink history` | Uses structured `gix` APIs; default artifacts fingerprint commit messages instead of storing message text. |
+| Path deltas, bounded co-change, and knowledge signals | `modernlink.git-history/v1alpha1` | Co-change expansion and commit traversal report caps explicitly; no contributor productivity ranking. |
+| Repository-local Git cache | `.modernlink/cache/git/` | Cache is ignored, input-keyed, and local only. |
+| `analyze --history` sibling artifact | `cli/crates/modernlink-cli` | Writes `analysis.json` and `git-history.json` without merging schemas; publication refuses to replace reviewed outputs. |
+| Plugin binary pointer binding | `modernlink plugin bind`, `cli/plugin/` | Foundation adapter only; the full harness registry and lifecycle bundle are not implemented. |
 
 ## Proposed
 

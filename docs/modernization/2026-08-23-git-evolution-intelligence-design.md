@@ -149,6 +149,11 @@ type changes, and executable-bit changes available from the structured diff. Mer
 all parents but use the first parent for default path metrics. This makes the metric reproducible
 and avoids multiplying a merge's change count. The policy is recorded on every affected fact.
 
+Directory tree entries are excluded from file-level churn and co-change facts because they are not
+diffable blobs and would otherwise create false coupling. Nested file paths remain recorded. A
+merge-specific controlled fixture is still required before the first-parent policy is considered
+exercised beyond linear history.
+
 Rename/copy similarity is deliberately disabled in the first slice even though the selected
 backend can be configured to infer it. A delete and add remain distinct paths and the snapshot
 records `rename_detection = disabled`; agents must not claim a file lineage from that pair.
