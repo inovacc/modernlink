@@ -16,6 +16,7 @@ dialoguer.workspace = true
 git = { path = "../git" }
 harness = { path = "../harness" }
 hex.workspace = true
+include_dir.workspace = true
 inference = { path = "../inference" }
 model = { path = "../model" }
 modernlink-analyzer = { path = "../analyzer" }

@@ -9,6 +9,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use dialoguer::MultiSelect;
 use git::{HistoryOptions, MailmapMode, RefScope, collect_history_cached};
 use harness::HarnessRegistry;
+use include_dir::{Dir, DirEntry, include_dir};
 use modernlink_analyzer::analyze_repository;
 use sha2::{Digest, Sha256};
 
@@ -166,6 +167,12 @@ enum Command {
 
 #[derive(Debug, Subcommand)]
 enum PluginCommand {
+    /// Materialize the canonical plugin bundle into an explicit new directory.
+    Install {
+        /// Empty destination directory to create for the ModernLink-owned plugin bundle.
+        #[arg(long)]
+        destination: PathBuf,
+    },
     /// Bind an installed plugin to one exact ModernLink binary.
     Bind {
         #[arg(long)]
@@ -174,6 +181,13 @@ enum PluginCommand {
         binary: PathBuf,
     },
 }
+
+static PLUGIN_SKILLS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../plugin/skills");
+static PLUGIN_AGENTS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../plugin/agents");
+static PLUGIN_COMMANDS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../plugin/commands");
+static PLUGIN_HARNESSES: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../plugin/harnesses");
+static PLUGIN_CODEX: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../plugin/.codex-plugin");
+static PLUGIN_CLAUDE: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../plugin/.claude-plugin");
 
 #[derive(Debug, Subcommand)]
 enum HarnessCommand {
@@ -468,6 +482,9 @@ fn run(cli: Cli) -> Result<(), CommandError> {
             );
             Ok(())
         }
+        Command::Plugin {
+            command: PluginCommand::Install { destination },
+        } => install_plugin(destination),
         Command::Plugin {
             command:
                 PluginCommand::Bind {
@@ -922,6 +939,12 @@ fn bind_plugin(plugin_root: PathBuf, binary: PathBuf) -> Result<(), CommandError
         CommandError::io(format!("cannot create {}: {error}", config_dir.display()))
     })?;
     let pointer_path = config_dir.join("binary-pointer.json");
+    if pointer_path.exists() {
+        return Err(CommandError::io(format!(
+            "refusing to overwrite existing binary pointer {}; install a fresh bundle or remove only the owned pointer after review",
+            pointer_path.display()
+        )));
+    }
     let mut json = serde_json::to_string_pretty(&pointer)
         .map_err(|error| CommandError::internal(error.to_string()))?;
     json.push('\n');
@@ -932,6 +955,96 @@ fn bind_plugin(plugin_root: PathBuf, binary: PathBuf) -> Result<(), CommandError
         "{}",
         serde_json::json!({"pointer": pointer_path, "binary": binary})
     );
+    Ok(())
+}
+
+fn install_plugin(destination: PathBuf) -> Result<(), CommandError> {
+    if destination.exists() {
+        return Err(CommandError::io(format!(
+            "refusing to install into existing path {}; choose a new explicit destination",
+            destination.display()
+        )));
+    }
+    fs::create_dir_all(&destination).map_err(|error| {
+        CommandError::io(format!(
+            "cannot create plugin destination {}: {error}",
+            destination.display()
+        ))
+    })?;
+    let result = (|| {
+        copy_embedded_dir(&PLUGIN_SKILLS, &destination.join("skills"))?;
+        copy_embedded_dir(&PLUGIN_AGENTS, &destination.join("agents"))?;
+        copy_embedded_dir(&PLUGIN_COMMANDS, &destination.join("commands"))?;
+        copy_embedded_dir(&PLUGIN_HARNESSES, &destination.join("harnesses"))?;
+        copy_embedded_dir(&PLUGIN_CODEX, &destination.join(".codex-plugin"))?;
+        copy_embedded_dir(&PLUGIN_CLAUDE, &destination.join(".claude-plugin"))?;
+        let config = destination.join("config");
+        fs::create_dir_all(&config)
+            .map_err(|error| CommandError::io(format!("cannot create plugin config: {error}")))?;
+        fs::write(
+            config.join("binary-pointer.schema.json"),
+            include_bytes!("../../../plugin/config/binary-pointer.schema.json"),
+        )
+        .map_err(|error| CommandError::io(format!("cannot write pointer schema: {error}")))?;
+        fs::write(config.join(".gitignore"), "binary-pointer.json\n").map_err(|error| {
+            CommandError::io(format!("cannot write pointer ignore rule: {error}"))
+        })?;
+        fs::write(
+            destination.join("WORKFLOWS.md"),
+            include_bytes!("../../../plugin/WORKFLOWS.md"),
+        )
+        .map_err(|error| CommandError::io(format!("cannot write plugin workflow: {error}")))?;
+        Ok(())
+    })();
+    result?;
+    println!(
+        "{}",
+        serde_json::json!({
+            "schema_version": "modernlink.plugin-install/v1alpha1",
+            "plugin_root": destination,
+            "binary_pointer": "not-created; run modernlink plugin bind with this plugin_root and the intended binary",
+            "harness_materialization": "not-attempted; adapter paths require an explicit harness ownership contract",
+        })
+    );
+    Ok(())
+}
+
+fn copy_embedded_dir(source: &Dir<'_>, destination: &Path) -> Result<(), CommandError> {
+    fs::create_dir_all(destination).map_err(|error| {
+        CommandError::io(format!(
+            "cannot create embedded plugin directory {}: {error}",
+            destination.display()
+        ))
+    })?;
+    for entry in source.entries() {
+        match entry {
+            DirEntry::Dir(directory) => {
+                let relative = directory
+                    .path()
+                    .strip_prefix(source.path())
+                    .map_err(|error| CommandError::internal(error.to_string()))?;
+                copy_embedded_dir(directory, &destination.join(relative))?;
+            }
+            DirEntry::File(file) => {
+                let relative = file
+                    .path()
+                    .strip_prefix(source.path())
+                    .map_err(|error| CommandError::internal(error.to_string()))?;
+                let output = destination.join(relative);
+                if let Some(parent) = output.parent() {
+                    fs::create_dir_all(parent).map_err(|error| {
+                        CommandError::io(format!("cannot create plugin file parent: {error}"))
+                    })?;
+                }
+                fs::write(&output, file.contents()).map_err(|error| {
+                    CommandError::io(format!(
+                        "cannot write plugin file {}: {error}",
+                        output.display()
+                    ))
+                })?;
+            }
+        }
+    }
     Ok(())
 }
 
