@@ -2018,6 +2018,8 @@ name = "modernlink-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "git",
+ "gix",
  "hex",
  "modernlink-analyzer",
  "runtime-observer",

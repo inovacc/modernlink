@@ -1,6 +1,7 @@
-use std::{env, fs, path::PathBuf, process::ExitCode};
+use std::{env, fs, io::Write, path::PathBuf, process::ExitCode};
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
+use git::{HistoryOptions, MailmapMode, RefScope, collect_history_cached};
 use modernlink_analyzer::analyze_repository;
 use sha2::{Digest, Sha256};
 
@@ -27,6 +28,26 @@ enum Command {
         /// JSON report path.
         #[arg(long, short)]
         output: PathBuf,
+    },
+    /// Collect local, deterministic Git evolution evidence for a repository.
+    History {
+        /// Git repository root to inspect.
+        repository: PathBuf,
+        /// JSON report path.
+        #[arg(long, short)]
+        output: PathBuf,
+        /// Refs to include: all, head, local, or one explicit ref name.
+        #[arg(long, default_value = "all")]
+        refs: String,
+        /// Maximum unique commits to collect.
+        #[arg(long)]
+        max_commits: Option<usize>,
+        /// Maximum changed paths per commit before co-change expansion is skipped.
+        #[arg(long)]
+        max_cochange_paths: Option<usize>,
+        /// Whether to apply the repository mailmap when identity support is available.
+        #[arg(long, value_enum, default_value_t = MailmapArgument::Off)]
+        mailmap: MailmapArgument,
     },
     /// Manage the thin agent-plugin binding.
     Plugin {
@@ -73,23 +94,43 @@ fn run(cli: Cli) -> Result<(), CommandError> {
             let json = report
                 .canonical_json()
                 .map_err(|error| CommandError::internal(error.to_string()))?;
-            if let Some(parent) = output
-                .parent()
-                .filter(|parent| !parent.as_os_str().is_empty())
-            {
-                fs::create_dir_all(parent).map_err(|error| {
-                    CommandError::io(format!("cannot create output directory: {error}"))
-                })?;
-            }
-            fs::write(&output, json).map_err(|error| {
-                CommandError::io(format!("cannot write {}: {error}", output.display()))
-            })?;
+            write_report(&output, json)?;
             println!(
                 "{}",
                 serde_json::json!({
                     "report": output,
                     "repository_digest": report.repository_digest,
                     "summary": report.summary,
+                })
+            );
+            Ok(())
+        }
+        Command::History {
+            repository,
+            output,
+            refs,
+            max_commits,
+            max_cochange_paths,
+            mailmap,
+        } => {
+            let options = history_options(refs, max_commits, max_cochange_paths, mailmap)?;
+            let report = collect_history_cached(&repository, &options)
+                .map_err(|error| CommandError::invalid_input(error.to_string()))?;
+            let json = report
+                .canonical_json()
+                .map_err(|error| CommandError::internal(error.to_string()))?;
+            write_report(&output, json)?;
+            println!(
+                "{}",
+                serde_json::json!({
+                    "report": output,
+                    "repository_digest": report.repository.repository_digest,
+                    "summary": {
+                        "commits": report.commits.len(),
+                        "path_changes": report.path_changes.len(),
+                        "co_changes": report.co_changes.len(),
+                        "completeness": report.completeness,
+                    },
                 })
             );
             Ok(())
@@ -105,6 +146,86 @@ fn run(cli: Cli) -> Result<(), CommandError> {
             runtime_command::run(command).map_err(runtime_command::into_command_error)
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum MailmapArgument {
+    Off,
+    Repo,
+}
+
+fn history_options(
+    refs: String,
+    max_commits: Option<usize>,
+    max_cochange_paths: Option<usize>,
+    mailmap: MailmapArgument,
+) -> Result<HistoryOptions, CommandError> {
+    let mut options = HistoryOptions::all();
+    options.ref_scope = match refs.as_str() {
+        "all" => RefScope::All,
+        "head" => RefScope::Head,
+        "local" => RefScope::Local,
+        _ => RefScope::Explicit(refs),
+    };
+    if let Some(max_commits) = max_commits {
+        if max_commits == 0 {
+            return Err(CommandError::invalid_input(
+                "--max-commits must be greater than zero".to_owned(),
+            ));
+        }
+        options.max_commits = max_commits;
+    }
+    if let Some(max_cochange_paths) = max_cochange_paths {
+        if max_cochange_paths == 0 {
+            return Err(CommandError::invalid_input(
+                "--max-cochange-paths must be greater than zero".to_owned(),
+            ));
+        }
+        options.max_cochange_paths = max_cochange_paths;
+    }
+    options.mailmap = match mailmap {
+        MailmapArgument::Off => MailmapMode::Off,
+        MailmapArgument::Repo => MailmapMode::Repository,
+    };
+    Ok(options)
+}
+
+fn write_report(output: &PathBuf, json: String) -> Result<(), CommandError> {
+    if let Some(parent) = output
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent).map_err(|error| {
+            CommandError::io(format!("cannot create output directory: {error}"))
+        })?;
+    }
+    let parent = output.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let mut temporary = tempfile::NamedTempFile::new_in(parent).map_err(|error| {
+        CommandError::io(format!(
+            "cannot create temporary report beside {}: {error}",
+            output.display()
+        ))
+    })?;
+    temporary.write_all(json.as_bytes()).map_err(|error| {
+        CommandError::io(format!(
+            "cannot write temporary report for {}: {error}",
+            output.display()
+        ))
+    })?;
+    temporary.flush().map_err(|error| {
+        CommandError::io(format!(
+            "cannot flush temporary report for {}: {error}",
+            output.display()
+        ))
+    })?;
+    temporary.persist_noclobber(output).map_err(|error| {
+        CommandError::io(format!(
+            "refusing to overwrite existing report {}: {}",
+            output.display(),
+            error.error
+        ))
+    })?;
+    Ok(())
 }
 
 fn bind_plugin(plugin_root: PathBuf, binary: PathBuf) -> Result<(), CommandError> {

@@ -11,6 +11,8 @@ pub enum GitHistoryError {
     Reference(String),
     #[error("cannot traverse Git history: {0}")]
     Traversal(String),
+    #[error("cannot access Git history cache: {0}")]
+    Cache(String),
     #[error("cannot serialize Git history snapshot: {0}")]
     Serialization(#[from] serde_json::Error),
 }
@@ -119,7 +121,11 @@ pub struct CommitFact {
     pub tree_id: String,
     pub parent_ids: Vec<String>,
     pub reachable_refs: Vec<String>,
+    pub author_name: String,
+    pub author_email: String,
     pub author_identity_key: String,
+    pub committer_name: String,
+    pub committer_email: String,
     pub committer_identity_key: String,
     pub author_time_seconds: i64,
     pub committer_time_seconds: i64,

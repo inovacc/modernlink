@@ -1,5 +1,5 @@
 # ModernLink Git Evolution Intelligence Design
-<!-- rev:002 (RFC 3339) 2026-08-24T00:54:23Z -->
+<!-- rev:003 (RFC 3339) 2026-08-24T01:06:15Z -->
 
 ## Status
 
@@ -131,10 +131,11 @@ cannot upload them or make them telemetry.
 ### Identity observations and support candidates
 
 `ContributorIdentity` represents observed author/committer metadata, not a verified person. The
-normalizer trims surrounding whitespace and applies Unicode-safe case folding to email addresses
-for comparison only. It preserves raw values, never joins two different email addresses because
-their names match, and records every ambiguous grouping. Mailmap use is opt-in and its resolved
-mapping is recorded as evidence.
+collector preserves the decoded header name and email separately and lowercases the email only in
+the comparison key. It never joins two different email addresses because their names match.
+`--mailmap repo` is accepted as an intent and cache input, but this implementation records
+`mailmap-not-applied` rather than silently claiming resolution until a structured mailmap backend
+and fixture coverage exist.
 
 The deterministic layer emits path-level `KnowledgeSignal` facts such as recent touch count,
 distinct-change count, and last observed touch. It does not emit a single contributor score.
@@ -213,7 +214,8 @@ The first user-facing command is:
 modernlink history <repository> --output <path>
 ```
 
-It emits only canonical JSON to the output path and a concise JSON receipt to stdout. It supports:
+It emits only canonical JSON to a new output path and a concise JSON receipt to stdout. Publication
+uses a same-directory temporary file and refuses to replace an existing report. It supports:
 
 ```text
 --refs all|head|local|<explicit ref>

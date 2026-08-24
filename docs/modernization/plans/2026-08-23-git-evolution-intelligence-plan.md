@@ -236,19 +236,17 @@ git commit -m "feat(cli): collect deterministic Git commit history"
 ### Task 4: Emit path changes, bounded co-change evidence, and transparent metrics
 
 **Files:**
-- Create: `cli/crates/git/src/diff.rs`
-- Create: `cli/crates/git/src/metrics.rs`
-- Modify: `cli/crates/git/src/lib.rs`
+- Modify: `cli/crates/git/src/traverse.rs` (the first slice keeps traversal, structured diff,
+  coupling, and metric derivation together; split modules remain a non-functional refactor)
 - Modify: `cli/crates/git/src/model.rs`
 - Test: `cli/crates/git/tests/diff.rs`
-- Test: `cli/crates/git/tests/metrics.rs`
 
 **Interfaces:**
 - Produces: `collect_path_changes(...) -> Result<Vec<PathChange>, GitHistoryError>`.
 - Produces: `derive_co_changes(changes: &[PathChange], cap: usize) -> (Vec<CoChangeFact>, Vec<Completeness>)`.
 - Produces: `derive_metrics(snapshot: &GitHistorySnapshot) -> Vec<HistoryMetric>`.
 
-- [ ] **Step 1: Write failing path and cap tests**
+- [x] **Step 1: Write failing path and cap tests**
 
 ```rust
 #[test]
@@ -262,13 +260,13 @@ fn cochange_cap_records_skipped_expansion_instead_of_silent_truncation() {
 }
 ```
 
-- [ ] **Step 2: Run tests and observe the missing-function failure**
+- [x] **Step 2: Run tests and observe the missing-function failure**
 
 Run: `cargo test --manifest-path cli/Cargo.toml -p git --test diff --test metrics`
 
 Expected: compilation fails because the diff/metric functions do not exist.
 
-- [ ] **Step 3: Implement structured first-parent path deltas**
+- [x] **Step 3: Implement structured first-parent path deltas**
 
 Use `gix` tree/diff APIs to collect additions, deletions, modifications, type changes, and
 executable-bit changes from each commit to its first parent. For root commits, compare against an
@@ -276,20 +274,20 @@ empty tree. Deliberately configure `rename_detection = "disabled"` in this first
 counts must report whether they are measured or unavailable; a diff-processing error must not be
 converted into zero churn.
 
-- [ ] **Step 4: Implement co-change and metric derivation**
+- [x] **Step 4: Implement co-change and metric derivation**
 
 Sort and deduplicate paths per commit before pairing. If the per-commit path count exceeds the
 configured cap, emit no pairs for that commit and emit `cochange-cap-exceeded` with the count and
 cap. Derive only documented quantities: changed-commit count, additions, deletions, last observed
 change, identity-observation count, and coupling ratio with its numerator/denominator recorded.
 
-- [ ] **Step 5: Run controlled diff and metric tests**
+- [x] **Step 5: Run controlled diff and metric tests**
 
 Run: `cargo test --manifest-path cli/Cargo.toml -p git --test diff --test metrics`
 
 Expected: the command exits `0`; rename lineage remains explicitly unavailable.
 
-- [ ] **Step 6: Commit path/coupling evidence**
+- [x] **Step 6: Commit path/coupling evidence**
 
 ```text
 git add cli/crates/git
@@ -309,7 +307,7 @@ git commit -m "feat(cli): derive Git change coupling evidence"
 - Produces: `load_cached(path, key) -> Result<Option<GitHistorySnapshot>, GitHistoryError>`.
 - Produces: `store_cached(path, key, snapshot) -> Result<(), GitHistoryError>`.
 
-- [ ] **Step 1: Write failing cache-isolation tests**
+- [x] **Step 1: Write failing cache-isolation tests**
 
 ```rust
 #[test]
@@ -320,13 +318,13 @@ fn cache_key_changes_when_selected_ref_target_changes() {
 }
 ```
 
-- [ ] **Step 2: Run the cache test and observe the missing-type failure**
+- [x] **Step 2: Run the cache test and observe the missing-type failure**
 
 Run: `cargo test --manifest-path cli/Cargo.toml -p git --test cache`
 
 Expected: compilation fails because `CacheKey` does not exist.
 
-- [ ] **Step 3: Implement cache key and atomic writes**
+- [x] **Step 3: Implement cache key and atomic writes**
 
 Hash object format, selected `(ref, target)` pairs, collector version, ref scope, commit cap,
 co-change cap, and mailmap mode with SHA-256. Write canonical JSON to a same-directory temporary
@@ -334,7 +332,7 @@ file then rename it into `.modernlink/cache/git/<key>.json`. Reject a cache path
 supplied repository root after canonical containment checks. Add `.modernlink/cache/` to the root
 ignore rules without ignoring reviewed `modernlink/` artifacts.
 
-- [ ] **Step 4: Run cache tests**
+- [x] **Step 4: Run cache tests**
 
 Run: `cargo test --manifest-path cli/Cargo.toml -p git --test cache`
 
@@ -361,7 +359,7 @@ git commit -m "feat(cli): cache Git history evidence locally"
 - Produces: a stdout JSON receipt with `report`, `repository_digest`, `schema_version`, and completeness count.
 - Produces: `modernlink analyze <repository> --history --output <path>` with sibling `git-history.json`.
 
-- [ ] **Step 1: Write failing CLI integration tests**
+- [x] **Step 1: Write failing CLI integration tests**
 
 ```rust
 #[test]
@@ -379,13 +377,13 @@ fn history_command_writes_canonical_history_artifact() {
 }
 ```
 
-- [ ] **Step 2: Run the CLI test and observe clap’s unknown-subcommand failure**
+- [x] **Step 2: Run the CLI test and observe clap’s unknown-subcommand failure**
 
 Run: `cargo test --manifest-path cli/Cargo.toml -p modernlink-cli --test history_command`
 
 Expected: test fails because `history` is not a ModernLink subcommand.
 
-- [ ] **Step 3: Implement typed history arguments and atomic output**
+- [x] **Step 3: Implement typed history arguments and atomic output**
 
 Add a `History` command variant with typed `--refs`, `--max-commits`, `--max-cochange-paths`, and
 `--mailmap` arguments. It calls only the `git` crate API, writes the canonical artifact atomically,

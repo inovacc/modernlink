@@ -4,9 +4,9 @@ use gix::{bstr::ByteSlice, object::tree::diff::ChangeDetached, prelude::TreeDiff
 use sha2::{Digest, Sha256};
 
 use crate::{
-    CoChangeFact, CommitFact, Completeness, ContributorIdentity, GitHistoryError,
+    CacheKey, CoChangeFact, CommitFact, Completeness, ContributorIdentity, GitHistoryError,
     GitHistorySnapshot, HistoryMetric, KnowledgeSignal, PathChange, RefScope, RepositoryIdentity,
-    SelectedRef, open_repository, resolve_refs,
+    SelectedRef, load_cached, open_repository, resolve_refs, store_cached,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,6 +40,34 @@ pub fn collect_history(
 ) -> Result<GitHistorySnapshot, GitHistoryError> {
     let repository = open_repository(path)?;
     let selected_refs = resolve_refs(&repository, options.ref_scope.clone())?;
+    collect_history_from_repository(&repository, selected_refs, options)
+}
+
+pub fn collect_history_cached(
+    path: &std::path::Path,
+    options: &HistoryOptions,
+) -> Result<GitHistorySnapshot, GitHistoryError> {
+    let repository = open_repository(path)?;
+    let selected_refs = resolve_refs(&repository, options.ref_scope.clone())?;
+    let cache_key = CacheKey::from_history_inputs(&repository, options, &selected_refs);
+    let cache_root = repository.workdir().ok_or_else(|| {
+        GitHistoryError::Cache(
+            "cannot place a project-local cache for a bare repository".to_owned(),
+        )
+    })?;
+    if let Some(snapshot) = load_cached(cache_root, &cache_key)? {
+        return Ok(snapshot);
+    }
+    let snapshot = collect_history_from_repository(&repository, selected_refs, options)?;
+    store_cached(cache_root, &cache_key, &snapshot)?;
+    Ok(snapshot)
+}
+
+fn collect_history_from_repository(
+    repository: &gix::Repository,
+    selected_refs: Vec<SelectedRef>,
+    options: &HistoryOptions,
+) -> Result<GitHistorySnapshot, GitHistoryError> {
     let identity = repository_identity(&repository, &selected_refs);
     let mut facts = BTreeMap::<String, CollectedCommit>::new();
     let mut limit_reached = false;
@@ -96,7 +124,15 @@ pub fn collect_history(
         snapshot.commits.push(fact);
     }
     snapshot.contributors = collect_contributors(&snapshot.commits);
-    snapshot.path_changes = collect_path_changes(&repository, &snapshot.commits)?;
+    if options.mailmap == MailmapMode::Repository {
+        snapshot.completeness.push(Completeness {
+            code: "mailmap-not-applied".to_owned(),
+            subject: "identity-normalization".to_owned(),
+            detail: "repository mailmap support is not implemented in this collector version"
+                .to_owned(),
+        });
+    }
+    snapshot.path_changes = collect_path_changes(repository, &snapshot.commits)?;
     let (co_changes, co_change_completeness) =
         collect_co_changes(&snapshot.path_changes, options.max_cochange_paths);
     snapshot.co_changes = co_changes;
@@ -154,6 +190,10 @@ fn commit_fact(commit: &gix::Commit<'_>) -> Result<CommitFact, GitHistoryError> 
         .message_raw()
         .map_err(|error| GitHistoryError::Traversal(error.to_string()))?;
     let message_bytes: &[u8] = message.as_ref();
+    let author_name = identity_component(author.name.as_ref());
+    let author_email = identity_component(author.email.as_ref());
+    let committer_name = identity_component(committer.name.as_ref());
+    let committer_email = identity_component(committer.email.as_ref());
 
     Ok(CommitFact {
         object_id: commit.id().detach().to_string(),
@@ -163,8 +203,12 @@ fn commit_fact(commit: &gix::Commit<'_>) -> Result<CommitFact, GitHistoryError> 
             .map(|parent| parent.detach().to_string())
             .collect(),
         reachable_refs: Vec::new(),
-        author_identity_key: identity_key(author.name.as_ref(), author.email.as_ref()),
-        committer_identity_key: identity_key(committer.name.as_ref(), committer.email.as_ref()),
+        author_identity_key: identity_key(&author_name, &author_email),
+        author_name,
+        author_email,
+        committer_identity_key: identity_key(&committer_name, &committer_email),
+        committer_name,
+        committer_email,
         author_time_seconds,
         committer_time_seconds,
         message_fingerprint: format!("sha256:{}", hex::encode(Sha256::digest(message_bytes))),
@@ -175,13 +219,23 @@ fn commit_fact(commit: &gix::Commit<'_>) -> Result<CommitFact, GitHistoryError> 
 fn collect_contributors(commits: &[CommitFact]) -> Vec<ContributorIdentity> {
     let mut identities = BTreeMap::<String, ContributorIdentity>::new();
     for commit in commits {
-        for key in [&commit.author_identity_key, &commit.committer_identity_key] {
-            let (raw_name, raw_email) = key.split_once('\u{0}').unwrap_or((key, ""));
+        for (key, raw_name, raw_email) in [
+            (
+                &commit.author_identity_key,
+                &commit.author_name,
+                &commit.author_email,
+            ),
+            (
+                &commit.committer_identity_key,
+                &commit.committer_name,
+                &commit.committer_email,
+            ),
+        ] {
             identities
                 .entry(key.clone())
                 .or_insert_with(|| ContributorIdentity {
-                    raw_name: raw_name.to_owned(),
-                    raw_email: raw_email.to_owned(),
+                    raw_name: raw_name.clone(),
+                    raw_email: raw_email.clone(),
                     comparison_key: key.clone(),
                 });
         }
@@ -403,8 +457,10 @@ fn collect_metrics(commits: &[CommitFact], path_changes: &[PathChange]) -> Vec<H
     metrics
 }
 
-fn identity_key(name: &[u8], email: &[u8]) -> String {
-    let raw_name = String::from_utf8_lossy(name).trim().to_owned();
-    let raw_email = String::from_utf8_lossy(email).trim().to_owned();
-    format!("{raw_name}\u{0}{raw_email}")
+fn identity_component(value: &[u8]) -> String {
+    String::from_utf8_lossy(value).into_owned()
+}
+
+fn identity_key(name: &str, email: &str) -> String {
+    format!("{name}\u{0}{}", email.to_lowercase())
 }
