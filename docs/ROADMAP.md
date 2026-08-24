@@ -141,7 +141,7 @@ stateful agent modernization lifecycle.
 - [x] Deterministic local Git history artifact (`modernlink.git-history/v1alpha1`), structured
       ref/commit/tree evidence, bounded co-change, local cache, and `modernlink history`
 - [x] Optional `modernlink analyze --history` sibling artifact with unchanged analysis schema
-- [ ] Shared evidence graph and static-analysis adapter
+- [~] Shared evidence-model kernel; static-analysis and Git adapters remain pending
 - [ ] Java/application-server/transaction/messaging/database boundary detectors
 - [ ] Architecture, candidate-domain, and modernization-seam inference
 - [ ] Compatibility targets, migration DAG/state, verification and cutover lifecycle

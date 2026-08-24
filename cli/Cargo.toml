@@ -2,6 +2,7 @@
 members = [
     "crates/analyzer",
     "crates/git",
+    "crates/model",
     "crates/modernlink-cli",
     "crates/runtime-observer",
 ]

@@ -7,8 +7,9 @@ Revised for written review on 2026-08-23. The clean-adaptation direction and the
 the hard library/CLI separation, component migration-readiness gates, coherence interviews,
 the documentation lifecycle, and the Tree-sitter extraction architecture. Implementation is
 underway in controlled slices: the analyzer, plugin-pointer contract, runtime-observation
-preparation, and Git-evolution artifact exist; setup, distribution, harness adapters, shared
-evidence graph, and the full lifecycle remain planned.
+preparation, Git-evolution artifact, and the shared evidence-model kernel exist. The analyzer
+and Git artifacts have not yet been adapted into that shared graph; setup, distribution, harness
+adapters, lifecycle state, and the full lifecycle remain planned.
 
 ## Goal
 
