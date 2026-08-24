@@ -1,5 +1,5 @@
 # Roadmap
-<!-- rev:025 (RFC 3339) 2026-08-24T01:11:47Z -->
+<!-- rev:026 (RFC 3339) 2026-08-24T00:00:00Z -->
 
 Reconciled 2026-08-21 against the current tree. Phases follow the M1/M2 structure in
 [BACKLOG.md](BACKLOG.md); tasks are broken out in [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md).
@@ -131,11 +131,12 @@ until then this file is written against the production bar because that is the s
 ## Modernization CLI and agent-plugin track · `[FOUNDATION IN PROGRESS]`
 
 This is a separate Rust workspace under `cli/`, not a dependency of the Java 6 runtime. Its
-canonical design and staged plan live under [modernization](modernization/). The code presently
-provides an analyzer, a thin plugin-binary binding, runtime-observation preparation, and a local
-Git-evolution foundation. It does **not** yet provide setup/onboarding, npm distribution, a
-harness registry, an evidence-graph adapter, architecture/domain inference, seam scoring, or the
-stateful agent modernization lifecycle.
+canonical design and staged plan live under [modernization](modernization/). The code provides
+local-first static and Git evidence, a shared evidence graph, bounded structural inference and
+seam scoring, an append-only lifecycle foundation, rerunnable workspace setup, a descriptor-driven
+Codex/Claude selection registry, a canonical agent-plugin bundle, and an npm/GitHub Packages
+release scaffold. These are controlled local facts and contracts, not proof of vendor-host,
+runtime, transaction, or cutover behavior.
 
 - [x] Private Rust CLI workspace and thin binary-pointer plugin binding
 - [x] Deterministic local Git history artifact (`modernlink.git-history/v1alpha1`), structured
@@ -160,10 +161,20 @@ stateful agent modernization lifecycle.
 - [~] `modernlink plugin install --destination` materializes the embedded canonical bundle to a new explicit directory; harness-path adapters, ownership manifests, refresh, and uninstall remain pending
 - [~] `modernlink doctor` read-only prerequisite report using structured Git opening and launchability probes; JDK/build-tool version and deployment-runtime detection remain pending
 - [~] Descriptor-driven Codex/Claude registry plus safe `modernlink harness add|remove|refresh|doctor` workspace selection management; verified installation adapters remain pending
-- [ ] Java/application-server/transaction/messaging/database boundary detectors
-- [ ] Architecture, candidate-domain, and modernization-seam inference
-- [ ] Compatibility targets, migration DAG/state, verification and cutover lifecycle
-- [ ] Safe rerunnable setup, harness registry/adapters, npm/native release distribution
+- [~] Java/application-server/transaction/messaging/database boundary detectors: imports,
+      selected descriptors, and annotations are covered; resolved calls, resource/destination
+      mapping, transaction resources, bytecode references, and runtime activation remain pending
+- [~] Architecture, candidate-domain, and modernization-seam inference: structural layers,
+      candidate contexts, and import-boundary seams are cited hypotheses; semantic domain,
+      data-flow, message-flow, and operational confirmation remain pending
+- [~] Compatibility targets, migration DAG/state, verification and cutover lifecycle: static
+      target findings, a prerequisite DAG, journal replay/advance, and plan integrity checks exist;
+      resolved dependencies, artifacts reconciliation, behavioral verification, and real cutover
+      orchestration remain pending
+- [~] Safe rerunnable setup, harness registry/adapters, npm/native release distribution:
+      workspace selection, explicit canonical-plugin materialization, descriptor registry, native
+      package build/publish workflow, and integrity manifests exist; verified harness-path adapters,
+      refresh/uninstall ownership manifests, and a dispatched published release remain pending
 
 ## Engineering hygiene · `[PARTIAL]`
 
