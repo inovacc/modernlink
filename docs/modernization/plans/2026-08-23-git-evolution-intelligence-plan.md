@@ -389,7 +389,7 @@ Add a `History` command variant with typed `--refs`, `--max-commits`, `--max-coc
 `--mailmap` arguments. It calls only the `git` crate API, writes the canonical artifact atomically,
 and prints one JSON receipt. Input/state errors preserve the existing structured diagnostic format.
 
-- [ ] **Step 4: Add optional analyzer integration after standalone command behavior exists**
+- [x] **Step 4: Add optional analyzer integration after standalone command behavior exists**
 
 Add `--history` to `Analyze`. Given `--output path/to/analysis.json`, write the history artifact
 to `path/to/git-history.json`, return both paths/digests in stdout, and do not change the existing

@@ -1,5 +1,5 @@
 # ModernLink Git Evolution Intelligence Design
-<!-- rev:003 (RFC 3339) 2026-08-24T01:06:15Z -->
+<!-- rev:004 (RFC 3339) 2026-08-24T01:08:40Z -->
 
 ## Status
 
@@ -224,9 +224,10 @@ uses a same-directory temporary file and refuses to replace an existing report. 
 --mailmap off|repo
 ```
 
-`modernlink analyze <repository> --history --output <analysis-path>` is added only after the
-standalone history command is exercised against controlled fixtures. It invokes the same library
-API and writes the sibling `git-history.json` artifact; it does not duplicate traversal logic.
+`modernlink analyze <repository> --history --output <analysis-path>` invokes the same library API
+and writes the sibling `git-history.json` artifact without changing the
+`modernlink.analysis/v1alpha1` schema. Both target paths are checked before publication; the
+operation never silently replaces either artifact.
 
 Future commands map the same data to the lifecycle taxonomy:
 

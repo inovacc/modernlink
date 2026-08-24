@@ -28,6 +28,9 @@ enum Command {
         /// JSON report path.
         #[arg(long, short)]
         output: PathBuf,
+        /// Also write deterministic Git history evidence beside the analysis report.
+        #[arg(long)]
+        history: bool,
     },
     /// Collect local, deterministic Git evolution evidence for a repository.
     History {
@@ -88,19 +91,50 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<(), CommandError> {
     match cli.command {
-        Command::Analyze { repository, output } => {
+        Command::Analyze {
+            repository,
+            output,
+            history,
+        } => {
             let report = analyze_repository(&repository)
                 .map_err(|error| CommandError::invalid_input(error.to_string()))?;
             let json = report
                 .canonical_json()
                 .map_err(|error| CommandError::internal(error.to_string()))?;
+            let history_output = output
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new("."))
+                .join("git-history.json");
+            if history && history_output == output {
+                return Err(CommandError::invalid_input(
+                    "--history requires an analysis output path other than git-history.json"
+                        .to_owned(),
+                ));
+            }
+            let history_report = history
+                .then(|| collect_history_cached(&repository, &HistoryOptions::all()))
+                .transpose()
+                .map_err(|error| CommandError::invalid_input(error.to_string()))?;
+            let history_json = history_report
+                .as_ref()
+                .map(|report| report.canonical_json())
+                .transpose()
+                .map_err(|error| CommandError::internal(error.to_string()))?;
+            ensure_report_absent(&output)?;
+            if history_json.is_some() {
+                ensure_report_absent(&history_output)?;
+            }
             write_report(&output, json)?;
+            if let Some(history_json) = history_json {
+                write_report(&history_output, history_json)?;
+            }
             println!(
                 "{}",
                 serde_json::json!({
                     "report": output,
                     "repository_digest": report.repository_digest,
                     "summary": report.summary,
+                    "history_report": history.then_some(history_output),
                 })
             );
             Ok(())
@@ -225,6 +259,16 @@ fn write_report(output: &PathBuf, json: String) -> Result<(), CommandError> {
             error.error
         ))
     })?;
+    Ok(())
+}
+
+fn ensure_report_absent(output: &PathBuf) -> Result<(), CommandError> {
+    if output.exists() {
+        return Err(CommandError::io(format!(
+            "refusing to overwrite existing report {}",
+            output.display()
+        )));
+    }
     Ok(())
 }
 
