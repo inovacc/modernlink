@@ -1,5 +1,5 @@
 # ModernLink Git Evolution Intelligence Design
-<!-- rev:001 (RFC 3339) 2026-08-23T00:00:00Z -->
+<!-- rev:002 (RFC 3339) 2026-08-24T00:54:23Z -->
 
 ## Status
 
@@ -148,10 +148,15 @@ type changes, and executable-bit changes available from the structured diff. Mer
 all parents but use the first parent for default path metrics. This makes the metric reproducible
 and avoids multiplying a merge's change count. The policy is recorded on every affected fact.
 
-Rename/copy similarity is not inferred in the first slice unless the selected backend exposes a
-deterministic structured result. Until then, a delete and add remain distinct paths and the
-snapshot records `rename_detection = unavailable`; agents must not claim a file lineage from that
-pair.
+Rename/copy similarity is deliberately disabled in the first slice even though the selected
+backend can be configured to infer it. A delete and add remain distinct paths and the snapshot
+records `rename_detection = disabled`; agents must not claim a file lineage from that pair.
+
+Line additions and deletions come from the structured blob-diff API. Each path fact carries a
+`line_count_status`: `measured` means the numbers are available; `unavailable` means the backend
+could not produce meaningful line counts (for example, a binary diff) and the numeric fields are
+zero only as placeholders, never evidence of zero churn. A diff-processing error aborts the
+collection rather than silently fabricating a count.
 
 `CoChangeFact` is emitted for unique unordered path pairs changed in the same commit. It records
 the contributing commit IDs, count, ref scope, and traversal completeness. Aggregation is bounded

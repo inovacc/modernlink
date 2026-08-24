@@ -1,10 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use gix::{bstr::ByteSlice, object::tree::diff::ChangeDetached, prelude::TreeDiffChangeExt};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    CommitFact, Completeness, ContributorIdentity, GitHistoryError, GitHistorySnapshot, RefScope,
-    RepositoryIdentity, SelectedRef, open_repository, resolve_refs,
+    CoChangeFact, CommitFact, Completeness, ContributorIdentity, GitHistoryError,
+    GitHistorySnapshot, HistoryMetric, KnowledgeSignal, PathChange, RefScope, RepositoryIdentity,
+    SelectedRef, open_repository, resolve_refs,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,6 +96,14 @@ pub fn collect_history(
         snapshot.commits.push(fact);
     }
     snapshot.contributors = collect_contributors(&snapshot.commits);
+    snapshot.path_changes = collect_path_changes(&repository, &snapshot.commits)?;
+    let (co_changes, co_change_completeness) =
+        collect_co_changes(&snapshot.path_changes, options.max_cochange_paths);
+    snapshot.co_changes = co_changes;
+    snapshot.completeness.extend(co_change_completeness);
+    snapshot.knowledge_signals =
+        collect_knowledge_signals(&snapshot.commits, &snapshot.path_changes);
+    snapshot.metrics = collect_metrics(&snapshot.commits, &snapshot.path_changes);
     Ok(snapshot)
 }
 
@@ -177,6 +187,220 @@ fn collect_contributors(commits: &[CommitFact]) -> Vec<ContributorIdentity> {
         }
     }
     identities.into_values().collect()
+}
+
+fn collect_path_changes(
+    repository: &gix::Repository,
+    commits: &[CommitFact],
+) -> Result<Vec<PathChange>, GitHistoryError> {
+    let mut path_changes = Vec::new();
+    for fact in commits {
+        let current_tree_id = fact
+            .tree_id
+            .parse::<gix::ObjectId>()
+            .map_err(|error| GitHistoryError::Traversal(error.to_string()))?;
+        let current_tree = repository
+            .find_tree(current_tree_id)
+            .map_err(|error| GitHistoryError::Traversal(error.to_string()))?;
+        let parent_tree = fact
+            .parent_ids
+            .first()
+            .map(|parent_id| {
+                let parent_id = parent_id
+                    .parse::<gix::ObjectId>()
+                    .map_err(|error| GitHistoryError::Traversal(error.to_string()))?;
+                let parent = repository
+                    .find_commit(parent_id)
+                    .map_err(|error| GitHistoryError::Traversal(error.to_string()))?;
+                let parent_tree_id = parent
+                    .tree_id()
+                    .map_err(|error| GitHistoryError::Traversal(error.to_string()))?
+                    .detach();
+                repository
+                    .find_tree(parent_tree_id)
+                    .map_err(|error| GitHistoryError::Traversal(error.to_string()))
+            })
+            .transpose()?;
+        let mut options = gix::diff::Options::default();
+        options.track_path().track_rewrites(None);
+        let changes = repository
+            .diff_tree_to_tree(parent_tree.as_ref(), &current_tree, options)
+            .map_err(|error| GitHistoryError::Traversal(error.to_string()))?;
+        let mut resource_cache = repository
+            .diff_resource_cache(gix::diff::blob::pipeline::Mode::ToGit, Default::default())
+            .map_err(|error| GitHistoryError::Traversal(error.to_string()))?;
+
+        for change in changes {
+            let (kind, path) = change_kind_and_path(&change);
+            let (additions, deletions, line_count_status) =
+                line_counts(&change, repository, &mut resource_cache)?;
+            path_changes.push(PathChange {
+                commit_id: fact.object_id.clone(),
+                path,
+                kind: kind.to_owned(),
+                additions,
+                deletions,
+                line_count_status,
+                rename_detection: "disabled".to_owned(),
+            });
+        }
+    }
+    path_changes.sort_by(|left, right| {
+        left.commit_id
+            .cmp(&right.commit_id)
+            .then_with(|| left.path.cmp(&right.path))
+    });
+    Ok(path_changes)
+}
+
+fn change_kind_and_path(change: &ChangeDetached) -> (&'static str, String) {
+    match change {
+        ChangeDetached::Addition { location, .. } => {
+            ("addition", location.to_str_lossy().into_owned())
+        }
+        ChangeDetached::Deletion { location, .. } => {
+            ("deletion", location.to_str_lossy().into_owned())
+        }
+        ChangeDetached::Modification { location, .. } => {
+            ("modification", location.to_str_lossy().into_owned())
+        }
+        ChangeDetached::Rewrite { location, .. } => {
+            ("rewrite", location.to_str_lossy().into_owned())
+        }
+    }
+}
+
+fn line_counts(
+    change: &ChangeDetached,
+    repository: &gix::Repository,
+    resource_cache: &mut gix::diff::blob::Platform,
+) -> Result<(u64, u64, String), GitHistoryError> {
+    let attached = change.attach(repository, repository);
+    let counts = attached
+        .diff(resource_cache)
+        .map_err(|error| GitHistoryError::Traversal(error.to_string()))?
+        .line_counts()
+        .map_err(|error| GitHistoryError::Traversal(error.to_string()))?;
+    Ok(match counts {
+        Some(counts) => (
+            u64::from(counts.insertions),
+            u64::from(counts.removals),
+            "measured".to_owned(),
+        ),
+        None => (0, 0, "unavailable".to_owned()),
+    })
+}
+
+fn collect_co_changes(
+    path_changes: &[PathChange],
+    max_cochange_paths: usize,
+) -> (Vec<CoChangeFact>, Vec<Completeness>) {
+    let mut changed_paths_by_commit = BTreeMap::<String, BTreeSet<String>>::new();
+    for change in path_changes {
+        changed_paths_by_commit
+            .entry(change.commit_id.clone())
+            .or_default()
+            .insert(change.path.clone());
+    }
+    let mut pairs = BTreeMap::<(String, String), BTreeSet<String>>::new();
+    let mut completeness = Vec::new();
+    for (commit_id, paths) in changed_paths_by_commit {
+        if paths.len() > max_cochange_paths {
+            completeness.push(Completeness {
+                code: "cochange-path-cap-reached".to_owned(),
+                subject: commit_id,
+                detail: format!("max_cochange_paths={max_cochange_paths}"),
+            });
+            continue;
+        }
+        let paths = paths.into_iter().collect::<Vec<_>>();
+        for (index, left_path) in paths.iter().enumerate() {
+            for right_path in paths.iter().skip(index + 1) {
+                pairs
+                    .entry((left_path.clone(), right_path.clone()))
+                    .or_default()
+                    .insert(commit_id.clone());
+            }
+        }
+    }
+    let co_changes = pairs
+        .into_iter()
+        .map(|((left_path, right_path), commit_ids)| CoChangeFact {
+            left_path,
+            right_path,
+            commit_ids: commit_ids.into_iter().collect(),
+        })
+        .collect();
+    (co_changes, completeness)
+}
+
+fn collect_knowledge_signals(
+    commits: &[CommitFact],
+    path_changes: &[PathChange],
+) -> Vec<KnowledgeSignal> {
+    let commits_by_id = commits
+        .iter()
+        .map(|commit| (commit.object_id.as_str(), commit))
+        .collect::<BTreeMap<_, _>>();
+    let mut signals = BTreeMap::<(String, String), (BTreeSet<String>, i64)>::new();
+    for path_change in path_changes {
+        let Some(commit) = commits_by_id.get(path_change.commit_id.as_str()) else {
+            continue;
+        };
+        let entry = signals
+            .entry((path_change.path.clone(), commit.author_identity_key.clone()))
+            .or_insert_with(|| (BTreeSet::new(), commit.author_time_seconds));
+        entry.0.insert(path_change.commit_id.clone());
+        entry.1 = entry.1.max(commit.author_time_seconds);
+    }
+    signals
+        .into_iter()
+        .map(
+            |((path, identity_key), (commit_ids, last_observed_time_seconds))| KnowledgeSignal {
+                path,
+                identity_key,
+                changed_commit_count: commit_ids.len() as u64,
+                last_observed_time_seconds,
+            },
+        )
+        .collect()
+}
+
+fn collect_metrics(commits: &[CommitFact], path_changes: &[PathChange]) -> Vec<HistoryMetric> {
+    let mut commit_counts = BTreeMap::<String, u64>::new();
+    for commit in commits {
+        *commit_counts
+            .entry(commit.author_identity_key.clone())
+            .or_default() += 1;
+    }
+    let mut changed_commit_counts = BTreeMap::<String, BTreeSet<String>>::new();
+    for path_change in path_changes {
+        changed_commit_counts
+            .entry(path_change.path.clone())
+            .or_default()
+            .insert(path_change.commit_id.clone());
+    }
+    let commit_total = commits.len() as u64;
+    let mut metrics = commit_counts
+        .into_iter()
+        .map(|(subject, numerator)| HistoryMetric {
+            subject,
+            name: "commit-count".to_owned(),
+            numerator,
+            denominator: commit_total,
+        })
+        .collect::<Vec<_>>();
+    metrics.extend(
+        changed_commit_counts
+            .into_iter()
+            .map(|(subject, commit_ids)| HistoryMetric {
+                subject,
+                name: "changed-commit-count".to_owned(),
+                numerator: commit_ids.len() as u64,
+                denominator: commit_total,
+            }),
+    );
+    metrics
 }
 
 fn identity_key(name: &[u8], email: &[u8]) -> String {

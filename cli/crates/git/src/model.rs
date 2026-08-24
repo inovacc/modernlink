@@ -134,6 +134,7 @@ pub struct PathChange {
     pub kind: String,
     pub additions: u64,
     pub deletions: u64,
+    pub line_count_status: String,
     pub rename_detection: String,
 }
 

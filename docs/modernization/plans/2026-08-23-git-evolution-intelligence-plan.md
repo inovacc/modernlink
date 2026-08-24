@@ -272,8 +272,9 @@ Expected: compilation fails because the diff/metric functions do not exist.
 
 Use `gix` tree/diff APIs to collect additions, deletions, modifications, type changes, and
 executable-bit changes from each commit to its first parent. For root commits, compare against an
-empty tree. Set `rename_detection = "unavailable"` unless a deterministic structured backend
-result is implemented and covered by its own test.
+empty tree. Deliberately configure `rename_detection = "disabled"` in this first slice. Line
+counts must report whether they are measured or unavailable; a diff-processing error must not be
+converted into zero churn.
 
 - [ ] **Step 4: Implement co-change and metric derivation**
 
