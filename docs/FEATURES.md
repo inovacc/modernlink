@@ -77,6 +77,7 @@ host product remains outside every recorded run. See [ISSUES.md](ISSUES.md) I-01
 | Explicit plugin materialization | `modernlink plugin install --destination <dir>` | Embeds and writes the canonical bundle only into a new caller-selected directory; it creates no binary pointer and does not guess a harness install location. |
 | Local Git evolution evidence | `cli/crates/git`, `modernlink history` | Uses structured `gix` APIs; default artifacts fingerprint commit messages instead of storing message text. |
 | Path deltas, bounded co-change, and knowledge signals | `modernlink.git-history/v1alpha1` | Co-change expansion and commit traversal report caps explicitly; no contributor productivity ranking. |
+| Git evolution x-ray | `modernlink evolution --history …` | Produces changed-path hotspots, co-change relationships, and contributor continuity from structured Git facts; it deliberately avoids productivity/quality rankings. |
 | Repository-local Git cache | `.modernlink/cache/git/` | Cache is ignored, input-keyed, and local only. |
 | `analyze --history` sibling artifact | `cli/crates/modernlink-cli` | Writes `analysis.json` and `git-history.json` without merging schemas; publication refuses to replace reviewed outputs. |
 | Plugin binary pointer binding | `modernlink plugin bind`, `cli/plugin/` | Foundation adapter only; the full harness registry and lifecycle bundle are not implemented. |

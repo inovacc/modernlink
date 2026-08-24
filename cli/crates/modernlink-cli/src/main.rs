@@ -29,6 +29,15 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Derive an evidence-linked evolution x-ray from a local Git history artifact.
+    Evolution {
+        /// ModernLink Git history JSON path.
+        #[arg(long)]
+        history: PathBuf,
+        /// Evolution x-ray JSON output path.
+        #[arg(long, short)]
+        output: PathBuf,
+    },
     /// Inspect local CLI, repository, workspace, Git, and harness prerequisites without changing them.
     Doctor {
         /// Repository root; defaults to the current directory.
@@ -230,6 +239,24 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<(), CommandError> {
     match cli.command {
+        Command::Evolution { history, output } => {
+            let history = read_json::<git::GitHistorySnapshot>(&history, "Git history artifact")?;
+            let report = git::xray_history(&history);
+            let json = report
+                .canonical_json()
+                .map_err(|error| CommandError::internal(error.to_string()))?;
+            ensure_report_absent(&output)?;
+            write_report(&output, json)?;
+            println!(
+                "{}",
+                serde_json::json!({
+                    "report": output,
+                    "schema_version": report.schema_version,
+                    "summary": { "hotspots": report.hotspots.len(), "co_changes": report.co_changes.len(), "contributors": report.contributors.len() },
+                })
+            );
+            Ok(())
+        }
         Command::Doctor { repository } => doctor(repository),
         Command::Plan {
             seams,
