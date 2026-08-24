@@ -300,7 +300,10 @@ fn indexes_nested_class_headers_in_a_war_without_executing_them() {
         )
         .expect("class entry");
     archive
-        .write_all(&[0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 61, 0, 1])
+        .write_all(&classfile_with_class_references(
+            61,
+            &["weblogic/jms/extensions/WLMessage"],
+        ))
         .expect("class header");
     archive.finish().expect("finish archive");
 
@@ -324,6 +327,19 @@ fn indexes_nested_class_headers_in_a_war_without_executing_them() {
         "java-bytecode",
         "java-17",
         "classfile.major-version",
+        "legacy.war",
+    );
+    assert!(report.evidence.iter().any(|evidence| {
+        evidence.path == "legacy.war"
+            && evidence.observation_kind == "bytecode-class-reference"
+            && evidence.observed_value
+                == "WEB-INF/classes/com/acme/Legacy.class:weblogic.jms.extensions.WLMessage"
+    }));
+    assert_signal(
+        &report,
+        "vendor-api",
+        "weblogic",
+        "java.import-prefix.weblogic",
         "legacy.war",
     );
 }

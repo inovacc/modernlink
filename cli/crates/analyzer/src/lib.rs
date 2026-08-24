@@ -17,6 +17,7 @@ const COLLECTOR: &str = "java-tree-sitter";
 const DESCRIPTOR_COLLECTOR: &str = "repository-descriptor";
 const BYTECODE_COLLECTOR: &str = "classfile-header";
 const COLLECTOR_VERSION: &str = "0.1.0";
+const MAX_BYTECODE_ENTRY_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Debug, Error)]
 pub enum AnalysisError {
@@ -351,6 +352,7 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
                 &source,
                 kind,
                 &mut evidence,
+                &mut edges,
                 &mut signals,
             );
             artifacts.push(Artifact {
@@ -582,12 +584,30 @@ fn add_classfile_facts(
         epistemic_state: "derived".to_owned(),
         evidence_ids: vec![evidence_id],
     });
-    let Ok(references) = classfile_references(source) else {
+    if add_classfile_reference_facts(path, artifact_id, source, None, evidence, edges, signals)
+        .is_err()
+    {
         return "header-only".to_owned();
-    };
+    }
+    "constant-pool".to_owned()
+}
+
+fn add_classfile_reference_facts(
+    path: &str,
+    artifact_id: &str,
+    source: &[u8],
+    entry_name: Option<&str>,
+    evidence: &mut Vec<Evidence>,
+    edges: &mut Vec<GraphEdge>,
+    signals: &mut Vec<TechnologySignal>,
+) -> Result<(), ()> {
+    let references = classfile_references(source)?;
     for reference in references {
         let fact = Fact {
-            name: reference.name.clone(),
+            name: entry_name.map_or_else(
+                || reference.name.clone(),
+                |entry| format!("{entry}:{}", reference.name),
+            ),
             start_byte: reference.start_byte,
             end_byte: reference.end_byte,
         };
@@ -613,7 +633,7 @@ fn add_classfile_facts(
             evidence_ids: vec![evidence_id],
         });
     }
-    "constant-pool".to_owned()
+    Ok(())
 }
 
 fn archive_type(path: &Path) -> Option<&'static str> {
@@ -631,6 +651,7 @@ fn add_archive_facts(
     source: &[u8],
     archive_type: &str,
     evidence: &mut Vec<Evidence>,
+    edges: &mut Vec<GraphEdge>,
     signals: &mut Vec<TechnologySignal>,
 ) -> String {
     let type_fact = Fact {
@@ -707,6 +728,22 @@ fn add_archive_facts(
             epistemic_state: "derived".to_owned(),
             evidence_ids: vec![evidence_id],
         });
+        if entry.size() > MAX_BYTECODE_ENTRY_BYTES {
+            continue;
+        }
+        let mut classfile = header[..read].to_vec();
+        if entry.read_to_end(&mut classfile).is_err() {
+            continue;
+        }
+        let _ = add_classfile_reference_facts(
+            path,
+            artifact_id,
+            &classfile,
+            Some(&entry_name),
+            evidence,
+            edges,
+            signals,
+        );
     }
     "indexed".to_owned()
 }
