@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub const STRUCTURE_SCHEMA_VERSION: &str = "modernlink.structure/v1alpha1";
+pub const DOMAINS_SCHEMA_VERSION: &str = "modernlink.domains/v1alpha1";
 pub const COMPATIBILITY_SCHEMA_VERSION: &str = "modernlink.compatibility/v1alpha1";
 
 #[derive(Debug, Error)]
@@ -54,6 +55,26 @@ pub struct CandidateContext {
     pub confidence_percent: u8,
     pub evidence_ids: Vec<String>,
     pub reasoning: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DomainReport {
+    pub schema_version: String,
+    pub contexts: Vec<CandidateContext>,
+    pub limitations: Vec<String>,
+}
+
+impl DomainReport {
+    pub fn canonical_json(&self) -> Result<String, InferenceError> {
+        let mut normalized = self.clone();
+        normalized
+            .contexts
+            .sort_by(|left, right| left.name.cmp(&right.name));
+        normalized.limitations.sort();
+        let mut json = serde_json::to_string_pretty(&normalized)?;
+        json.push('\n');
+        Ok(json)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -271,6 +292,18 @@ pub fn infer_structure(graph: &EvidenceGraph) -> Result<StructureReport, Inferen
         schema_version: STRUCTURE_SCHEMA_VERSION.to_owned(),
         layers,
         contexts,
+    })
+}
+
+pub fn infer_domains(graph: &EvidenceGraph) -> Result<DomainReport, InferenceError> {
+    let structure = infer_structure(graph)?;
+    Ok(DomainReport {
+        schema_version: DOMAINS_SCHEMA_VERSION.to_owned(),
+        contexts: structure.contexts,
+        limitations: vec![
+            "Candidate contexts are structural hypotheses, not confirmed DDD bounded contexts, data ownership, team ownership, or business responsibility.".to_owned(),
+            "This report does not yet incorporate semantic vocabulary, table ownership, message destinations, endpoint contracts, or runtime transaction behavior.".to_owned(),
+        ],
     })
 }
 

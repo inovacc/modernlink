@@ -1,5 +1,5 @@
 # Features
-<!-- rev:021 (RFC 3339) 2026-08-24T00:00:00Z -->
+<!-- rev:022 (RFC 3339) 2026-08-24T00:00:00Z -->
 
 What exists in the current tree, and what is proposed. "Implemented" means the code is present;
 it does **not** mean the behavior satisfies the intended runtime contract. See
@@ -66,6 +66,7 @@ host product remains outside every recorded run. See [ISSUES.md](ISSUES.md) I-01
 | Compiled class/archive inventory | `modernlink inspect` | Reads `.class` headers plus validated `CONSTANT_Class` references from direct and JAR/WAR/EAR entries up to 16 MiB uncompressed. Recognized archive XML descriptors are streamed up to 4 MiB and expose JMS/JNDI plus declarative transaction references; evidence identifies the exact `archive!entry`, and malformed/oversized content contributes no content facts. It neither executes nor semantically decompiles bytecode. |
 | Unified static + evolution evidence graph | `modernlink inspect [--history]` | Merges versioned Java and Git adapters into `modernlink.evidence/v1alpha1`; deeper detectors remain pending. |
 | Architectural layer and candidate-context report | `modernlink architecture` | Inference/hypothesis states, confidence, evidence IDs, and reasoning are explicit; not a DDD fact assertion. |
+| Candidate-domain report | `modernlink domains` | Emits only `CandidateContext` hypotheses plus explicit limitations for agents and reviewers; it is not a declaration of bounded contexts or business ownership. |
 | Static boundary report | `modernlink boundaries` | Lists annotation-backed transaction, messaging-consumer, SOAP, HTTP, and batch candidates with source locations and limitations; it does not establish runtime activation or transaction resources. |
 | Decomposed modernization seam report | `modernlink seams` | Scores observed vendor, JMS, JNDI, JDBC/persistence, and SOAP import boundaries, plus validated bytecode class references from partial-source deployments, with evidence-linked components; call/data-flow-specific seam families are pending. |
 | Legacy infrastructure inventory | `modernlink inspect` | Emits deterministic import-derived signals for JMS, JNDI, JDBC/persistence, EJB, JTA, JAX-WS, JAXB, JMX, Servlet, RMI, Spring, and server APIs; imports do not prove runtime use. |

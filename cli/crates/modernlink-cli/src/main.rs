@@ -152,6 +152,15 @@ enum Command {
         #[arg(long, short)]
         output: PathBuf,
     },
+    /// Propose candidate business contexts from a shared evidence graph.
+    Domains {
+        /// Shared evidence graph JSON path.
+        #[arg(long)]
+        evidence: PathBuf,
+        /// Candidate-domain report JSON output path.
+        #[arg(long, short)]
+        output: PathBuf,
+    },
     /// Collect deterministic repository facts into the shared evidence graph.
     Inspect {
         /// Repository root to inspect.
@@ -533,6 +542,25 @@ fn run(cli: Cli) -> Result<(), CommandError> {
                         "layers": report.layers.len(),
                         "candidate_contexts": report.contexts.len(),
                     },
+                }),
+            );
+            Ok(())
+        }
+        Command::Domains { evidence, output } => {
+            let graph = read_evidence_graph(&evidence)?;
+            let report = inference::infer_domains(&graph)
+                .map_err(|error| CommandError::internal(error.to_string()))?;
+            let json = report
+                .canonical_json()
+                .map_err(|error| CommandError::internal(error.to_string()))?;
+            ensure_report_absent(&output)?;
+            write_report(&output, json)?;
+            emit_receipt(
+                format,
+                &serde_json::json!({
+                    "report": output,
+                    "schema_version": report.schema_version,
+                    "summary": { "candidate_contexts": report.contexts.len() },
                 }),
             );
             Ok(())

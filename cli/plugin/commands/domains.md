@@ -4,7 +4,7 @@ argument-hint: [repository]
 ---
 
 Run `modernlink inspect $1 --history --output <temporary-evidence-path>` when current evidence is
-absent or stale, then run `modernlink architecture` against that evidence. Invoke the domain-analyst
+absent or stale, then run `modernlink domains` against that evidence. Invoke the domain-analyst
 role to cluster vocabulary, modules, data references, endpoints, message destinations, and bounded
 Git co-change.
 
