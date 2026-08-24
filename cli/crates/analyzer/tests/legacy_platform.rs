@@ -40,6 +40,10 @@ fn derives_build_and_application_server_signals_from_cited_artifacts() {
 
     assert_eq!(report.summary.java_files, 1);
     assert_eq!(report.summary.configuration_files, 3);
+    assert!(report.artifacts.iter().any(|artifact| {
+        artifact.path == "orders/src/main/application/META-INF/weblogic-application.xml"
+            && artifact.parse_health == "xml-streamed"
+    }));
     assert_signal(
         &report,
         "build-system",

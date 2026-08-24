@@ -360,12 +360,23 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
             });
         } else if let Some(rule) = descriptor_rule(&relative) {
             configuration_files += 1;
+            let parse_health = if source.is_empty() {
+                "empty".to_owned()
+            } else {
+                add_descriptor_content_facts(
+                    &relative,
+                    &artifact_id,
+                    &source,
+                    &mut evidence,
+                    &mut signals,
+                )
+            };
             artifacts.push(Artifact {
                 id: artifact_id.clone(),
                 path: relative.clone(),
                 digest,
                 language: descriptor_language(&relative).to_owned(),
-                parse_health: "not-parsed".to_owned(),
+                parse_health,
             });
             if !source.is_empty() {
                 let fact = Fact {
@@ -382,13 +393,6 @@ pub fn analyze_repository(repository: &Path) -> Result<AnalysisReport, AnalysisE
                     &mut evidence,
                 );
                 signals.push(signal_from_rule(rule, evidence_id));
-                add_descriptor_content_facts(
-                    &relative,
-                    &artifact_id,
-                    &source,
-                    &mut evidence,
-                    &mut signals,
-                );
             }
         }
     }
@@ -447,7 +451,7 @@ fn add_descriptor_content_facts(
     source: &[u8],
     evidence: &mut Vec<Evidence>,
     signals: &mut Vec<TechnologySignal>,
-) {
+) -> String {
     let mut reader = Reader::from_reader(source);
     reader.config_mut().trim_text(true);
     let mut tag = None::<String>;
@@ -507,7 +511,8 @@ fn add_descriptor_content_facts(
                     signals.push(signal_from_rule(rule, evidence_id));
                 }
             }
-            Ok(Event::Eof) | Err(_) => break,
+            Ok(Event::Eof) => return "xml-streamed".to_owned(),
+            Err(_) => return "xml-malformed".to_owned(),
             _ => {}
         }
         buffer.clear();
