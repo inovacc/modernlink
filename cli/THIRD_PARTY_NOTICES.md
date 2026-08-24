@@ -32,3 +32,9 @@ upstream path and commit before merging.
 - `tree-sitter-graph` — analyzed but not included. Upstream 0.12 targets an older concrete
   Tree-sitter API; any future compatibility copy belongs under `cli/vendor/` with its upstream
   MIT OR Apache-2.0 files and a patch ledger.
+
+## Git-history dependency
+
+- `gix` 0.87.0 — consumed from crates.io under MIT OR Apache-2.0; no source copied into
+  ModernLink. It is the structured, Rust-native repository/object/reference backend for the
+  private `cli/crates/git` crate and replaces parsing human-oriented `git` command output.
