@@ -84,6 +84,51 @@ fn ignores_deployment_descriptor_names_outside_standard_locations() {
     assert!(report.signals.is_empty());
 }
 
+#[test]
+fn derives_legacy_infrastructure_signals_from_import_evidence() {
+    let repository = tempfile::tempdir().expect("temporary repository");
+    let java_dir = repository.path().join("src/main/java/com/acme/legacy");
+    fs::create_dir_all(&java_dir).expect("Java package");
+    fs::write(
+        java_dir.join("Infrastructure.java"),
+        "package com.acme.legacy;\nimport javax.jms.Queue;\nimport javax.naming.InitialContext;\nimport javax.persistence.EntityManager;\nimport javax.transaction.UserTransaction;\nimport javax.xml.ws.Service;\npublic class Infrastructure {}",
+    )
+    .expect("Java fixture");
+
+    let report = analyze_repository(repository.path()).expect("analysis");
+    for (category, technology, rule_id) in [
+        (
+            "integration-boundary",
+            "jms",
+            "java.import-prefix.javax-jms",
+        ),
+        (
+            "integration-boundary",
+            "jndi",
+            "java.import-prefix.javax-naming",
+        ),
+        (
+            "data-access",
+            "persistence",
+            "java.import-prefix.persistence",
+        ),
+        ("transaction", "jta", "java.import-prefix.transaction"),
+        (
+            "integration-boundary",
+            "jax-ws",
+            "java.import-prefix.jax-ws",
+        ),
+    ] {
+        assert_signal(
+            &report,
+            category,
+            technology,
+            rule_id,
+            "src/main/java/com/acme/legacy/Infrastructure.java",
+        );
+    }
+}
+
 fn assert_signal(
     report: &modernlink_analyzer::AnalysisReport,
     category: &str,

@@ -10,9 +10,14 @@ underway in controlled slices: the analyzer, plugin-pointer contract, runtime-ob
 preparation, Git-evolution artifact, shared evidence-model kernel, and lifecycle transition/replay
 kernel exist. The analyzer and Git artifacts now adapt into that shared graph through
 `modernlink inspect [--history]`; `modernlink architecture` produces deliberately labeled layer
-inferences and candidate-context hypotheses from it. `modernlink seams` currently scores
-vendor-coupled external-import boundaries with decomposed components and an explicit migration
-mode; transaction, messaging, data, and runtime seam families remain pending. `modernlink compatibility --target <major>` emits evidence-linked review findings for observed internal-JDK, Java EE, and vendor-server imports; it intentionally does not claim readiness or infer resolved dependencies and runtime behavior. The state kernel now persists/replays append-only JSONL events but has no workspace snapshot,
+inferences and candidate-context hypotheses from it. The analyzer also emits deterministic
+import-derived infrastructure signals (JMS, JNDI, JDBC/persistence, EJB, JTA, JAX-WS, JAXB,
+JMX, Servlet, RMI, Spring, and server APIs). `modernlink seams` currently scores vendor, JMS,
+JNDI, database, and SOAP import boundaries with decomposed components and explicit migration
+modes; call/data-flow-specific transaction, messaging, data, and runtime seam families remain
+pending. `modernlink compatibility --target <major>` emits evidence-linked review findings for
+observed internal-JDK, Java EE, and vendor-server imports; it intentionally does not claim
+readiness or infer resolved dependencies and runtime behavior. The state kernel now persists/replays append-only JSONL events but has no workspace snapshot,
 approval-latch records, or physical-artifact reconciliation yet. A descriptor registry exposes conservative
 Codex and Claude capability records but deliberately has no installation paths; setup,
 distribution, verified harness adapters, and the full lifecycle remain planned. `modernlink setup`

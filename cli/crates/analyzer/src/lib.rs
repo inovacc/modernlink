@@ -692,17 +692,70 @@ fn descriptor_language(path: &str) -> &'static str {
 }
 
 fn import_rule(import: &str) -> Option<SignalRule> {
-    let (technology, rule_id) = if import.starts_with("weblogic.") {
-        ("weblogic", "java.import-prefix.weblogic")
+    let (category, technology, rule_id) = if import.starts_with("weblogic.") {
+        ("vendor-api", "weblogic", "java.import-prefix.weblogic")
     } else if import.starts_with("org.jboss.") {
-        ("jboss", "java.import-prefix.org-jboss")
+        ("vendor-api", "jboss", "java.import-prefix.org-jboss")
     } else if import.starts_with("com.ibm.websphere.") || import.starts_with("com.ibm.ws.") {
-        ("websphere", "java.import-prefix.ibm-websphere")
+        (
+            "vendor-api",
+            "websphere",
+            "java.import-prefix.ibm-websphere",
+        )
+    } else if import.starts_with("javax.jms.") {
+        (
+            "integration-boundary",
+            "jms",
+            "java.import-prefix.javax-jms",
+        )
+    } else if import.starts_with("javax.naming.") {
+        (
+            "integration-boundary",
+            "jndi",
+            "java.import-prefix.javax-naming",
+        )
+    } else if import.starts_with("javax.sql.") || import.starts_with("java.sql.") {
+        ("data-access", "jdbc", "java.import-prefix.jdbc")
+    } else if import.starts_with("javax.persistence.") || import.starts_with("org.hibernate.") {
+        (
+            "data-access",
+            "persistence",
+            "java.import-prefix.persistence",
+        )
+    } else if import.starts_with("javax.ejb.") {
+        (
+            "application-boundary",
+            "ejb",
+            "java.import-prefix.javax-ejb",
+        )
+    } else if import.starts_with("javax.transaction.") || import.starts_with("jakarta.transaction.")
+    {
+        ("transaction", "jta", "java.import-prefix.transaction")
+    } else if import.starts_with("javax.xml.ws.") || import.starts_with("jakarta.xml.ws.") {
+        (
+            "integration-boundary",
+            "jax-ws",
+            "java.import-prefix.jax-ws",
+        )
+    } else if import.starts_with("javax.xml.bind.") || import.starts_with("jakarta.xml.bind.") {
+        ("serialization", "jaxb", "java.import-prefix.jaxb")
+    } else if import.starts_with("javax.management.") {
+        ("management", "jmx", "java.import-prefix.jmx")
+    } else if import.starts_with("javax.servlet.") || import.starts_with("jakarta.servlet.") {
+        (
+            "application-boundary",
+            "servlet",
+            "java.import-prefix.servlet",
+        )
+    } else if import.starts_with("java.rmi.") {
+        ("integration-boundary", "rmi", "java.import-prefix.rmi")
+    } else if import.starts_with("org.springframework.") {
+        ("framework", "spring", "java.import-prefix.spring")
     } else {
         return None;
     };
     Some(SignalRule {
-        category: "vendor-api",
+        category,
         technology,
         rule_id,
     })

@@ -91,6 +91,53 @@ fn seam_inference_decomposes_vendor_coupling_without_claiming_a_fact() {
 }
 
 #[test]
+fn seam_inference_identifies_a_jms_boundary_and_its_migration_mode() {
+    let graph = EvidenceGraph {
+        schema_version: "modernlink.evidence/v1alpha1".to_owned(),
+        evidence: vec![Evidence {
+            id: "evidence:jms".to_owned(),
+            kind: "import".to_owned(),
+            value: "javax.jms.Queue".to_owned(),
+            source: SourceLocation {
+                path: "QueueAdapter.java".to_owned(),
+                start_byte: 0,
+                end_byte: 15,
+            },
+        }],
+        nodes: vec![
+            GraphNode {
+                id: "node:adapter".to_owned(),
+                kind: "type".to_owned(),
+                name: "com.bank.QueueAdapter".to_owned(),
+                evidence_ids: vec!["evidence:jms".to_owned()],
+            },
+            GraphNode {
+                id: "node:jms".to_owned(),
+                kind: "external-reference".to_owned(),
+                name: "javax.jms.Queue".to_owned(),
+                evidence_ids: Vec::new(),
+            },
+        ],
+        edges: vec![GraphEdge {
+            id: "edge:jms".to_owned(),
+            kind: "imports".to_owned(),
+            source_id: "node:adapter".to_owned(),
+            target_id: "node:jms".to_owned(),
+            evidence_ids: vec!["evidence:jms".to_owned()],
+        }],
+        claims: Vec::new(),
+    };
+    let seam = infer_seams(&graph).expect("JMS seam").seams.remove(0);
+    assert_eq!(seam.current_technology, "jms");
+    assert_eq!(seam.recommended_mode, "SHADOW -> MIRROR -> REDIRECT");
+    assert!(
+        seam.score_components
+            .iter()
+            .any(|component| component.factor == "messaging-boundary")
+    );
+}
+
+#[test]
 fn compatibility_assessment_links_target_reviews_to_import_evidence() {
     let graph = EvidenceGraph {
         schema_version: "modernlink.evidence/v1alpha1".to_owned(),

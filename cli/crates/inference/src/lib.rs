@@ -234,7 +234,7 @@ pub fn infer_seams(graph: &EvidenceGraph) -> Result<SeamReport, InferenceError> 
         if target.kind != "external-reference" {
             continue;
         }
-        let technology = vendor_technology(&target.name).unwrap_or("external-api");
+        let technology = boundary_technology(&target.name).unwrap_or("external-api");
         let mut score_components = vec![ScoreComponent {
             factor: "external-boundary".to_owned(),
             points: 25,
@@ -242,9 +242,9 @@ pub fn infer_seams(graph: &EvidenceGraph) -> Result<SeamReport, InferenceError> 
         }];
         if technology != "external-api" {
             score_components.push(ScoreComponent {
-                factor: "vendor-lock".to_owned(),
-                points: 45,
-                reasoning: format!("target name identifies {technology} vendor coupling"),
+                factor: boundary_factor(technology).to_owned(),
+                points: boundary_points(technology),
+                reasoning: boundary_reasoning(technology).to_owned(),
             });
         }
         let leverage_score = score_components.iter().map(|item| item.points).sum::<u8>();
@@ -256,12 +256,12 @@ pub fn infer_seams(graph: &EvidenceGraph) -> Result<SeamReport, InferenceError> 
             seam_type: "outbound-import-dependency".to_owned(),
             current_technology: technology.to_owned(),
             leverage_score,
-            migration_risk_score: if technology == "external-api" { 40 } else { 60 },
-            isolation_score: 70,
+            migration_risk_score: boundary_risk(technology),
+            isolation_score: boundary_isolation(technology),
             confidence_percent: if technology == "external-api" { 60 } else { 80 },
             score_components,
             evidence_ids: edge.evidence_ids.clone(),
-            recommended_mode: "PASSTHROUGH -> SHADOW -> REDIRECT".to_owned(),
+            recommended_mode: boundary_mode(technology).to_owned(),
         });
     }
     Ok(SeamReport {
@@ -411,15 +411,88 @@ fn context_for(name: &str) -> Option<&str> {
     (segments.len() >= 2).then(|| segments[segments.len() - 2])
 }
 
-fn vendor_technology(name: &str) -> Option<&'static str> {
+fn boundary_technology(name: &str) -> Option<&'static str> {
     if name.starts_with("weblogic.") {
         Some("weblogic")
     } else if name.starts_with("org.jboss.") {
         Some("jboss")
     } else if name.starts_with("com.ibm.websphere.") || name.starts_with("com.ibm.ws.") {
         Some("websphere")
+    } else if name.starts_with("javax.jms.") || name.starts_with("jakarta.jms.") {
+        Some("jms")
+    } else if name.starts_with("javax.naming.") {
+        Some("jndi")
+    } else if name.starts_with("javax.sql.")
+        || name.starts_with("java.sql.")
+        || name.starts_with("javax.persistence.")
+        || name.starts_with("org.hibernate.")
+    {
+        Some("database")
+    } else if name.starts_with("javax.xml.ws.") || name.starts_with("jakarta.xml.ws.") {
+        Some("soap")
     } else {
         None
+    }
+}
+
+fn boundary_factor(technology: &str) -> &'static str {
+    match technology {
+        "weblogic" | "jboss" | "websphere" => "vendor-lock",
+        "jms" => "messaging-boundary",
+        "jndi" => "naming-boundary",
+        "database" => "data-boundary",
+        "soap" => "service-contract-boundary",
+        _ => "external-boundary",
+    }
+}
+
+fn boundary_points(technology: &str) -> u8 {
+    match technology {
+        "weblogic" | "jboss" | "websphere" => 45,
+        "jms" | "database" => 35,
+        "jndi" | "soap" => 30,
+        _ => 0,
+    }
+}
+
+fn boundary_reasoning(technology: &str) -> &'static str {
+    match technology {
+        "weblogic" | "jboss" | "websphere" => {
+            "target name identifies application-server vendor coupling"
+        }
+        "jms" => "target name identifies a messaging API boundary",
+        "jndi" => "target name identifies a naming lookup boundary",
+        "database" => "target name identifies a persistence or JDBC boundary",
+        "soap" => "target name identifies a SOAP client or endpoint boundary",
+        _ => "target name identifies an external boundary",
+    }
+}
+
+fn boundary_risk(technology: &str) -> u8 {
+    match technology {
+        "database" => 70,
+        "jms" | "weblogic" | "jboss" | "websphere" => 60,
+        "jndi" | "soap" => 50,
+        _ => 40,
+    }
+}
+
+fn boundary_isolation(technology: &str) -> u8 {
+    match technology {
+        "jms" | "soap" => 75,
+        "jndi" => 70,
+        "database" => 60,
+        "weblogic" | "jboss" | "websphere" => 65,
+        _ => 70,
+    }
+}
+
+fn boundary_mode(technology: &str) -> &'static str {
+    match technology {
+        "jms" => "SHADOW -> MIRROR -> REDIRECT",
+        "database" => "PASSTHROUGH -> SHADOW -> REDIRECT",
+        "soap" => "PASSTHROUGH -> TRANSFORM -> REDIRECT",
+        _ => "PASSTHROUGH -> SHADOW -> REDIRECT",
     }
 }
 
