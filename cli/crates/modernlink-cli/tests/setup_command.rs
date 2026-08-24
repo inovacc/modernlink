@@ -40,6 +40,38 @@ fn setup_creates_only_owned_local_workspace_metadata() {
         serde_json::json!(["codex"])
     );
     assert!(repository.path().join(".modernlink/cache").is_dir());
+    assert_eq!(
+        fs::read_to_string(repository.path().join(".modernlink/.gitignore"))
+            .expect("workspace ignore"),
+        "# ModernLink local operational state\ncache/\nlocal/\nstate/\nworkspace.json\n"
+    );
+}
+
+#[test]
+fn setup_preserves_an_existing_workspace_ignore_file_that_has_required_rules() {
+    let repository = tempfile::tempdir().expect("temporary repository");
+    fs::create_dir(repository.path().join(".modernlink")).expect("workspace root");
+    fs::write(
+        repository.path().join(".modernlink/.gitignore"),
+        "workspace.json\ncache/\nlocal/\nstate/\ncustom-rule\n",
+    )
+    .expect("existing workspace ignore");
+    let output = Command::new(env!("CARGO_BIN_EXE_modernlink"))
+        .arg("setup")
+        .arg(repository.path())
+        .args(["--tools", "none"])
+        .output()
+        .expect("run setup");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        fs::read_to_string(repository.path().join(".modernlink/.gitignore"))
+            .expect("ignore")
+            .contains("custom-rule")
+    );
 }
 
 #[test]

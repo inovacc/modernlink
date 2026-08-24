@@ -744,6 +744,7 @@ fn setup_workspace(
         detected_harnesses,
         managed_paths: vec![
             ".modernlink/workspace.json",
+            ".modernlink/.gitignore",
             ".modernlink/cache/",
             ".modernlink/local/",
             ".modernlink/state/",
@@ -758,8 +759,10 @@ fn setup_workspace(
         )));
     }
     if !dry_run {
+        let workspace_root = repository.join(".modernlink");
+        ensure_workspace_ignore(&workspace_root)?;
         for path in ["cache", "local", "state"] {
-            fs::create_dir_all(repository.join(".modernlink").join(path)).map_err(|error| {
+            fs::create_dir_all(workspace_root.join(path)).map_err(|error| {
                 CommandError::io(format!(
                     "cannot create ModernLink workspace directory: {error}"
                 ))
@@ -786,6 +789,43 @@ fn setup_workspace(
         })
     );
     Ok(())
+}
+
+const WORKSPACE_IGNORE_RULES: &str =
+    "# ModernLink local operational state\ncache/\nlocal/\nstate/\nworkspace.json\n";
+
+fn ensure_workspace_ignore(workspace_root: &Path) -> Result<(), CommandError> {
+    fs::create_dir_all(workspace_root).map_err(|error| {
+        CommandError::io(format!(
+            "cannot create ModernLink workspace root {}: {error}",
+            workspace_root.display()
+        ))
+    })?;
+    let ignore_path = workspace_root.join(".gitignore");
+    if !ignore_path.exists() {
+        return fs::write(&ignore_path, WORKSPACE_IGNORE_RULES).map_err(|error| {
+            CommandError::io(format!(
+                "cannot write ModernLink workspace ignore file {}: {error}",
+                ignore_path.display()
+            ))
+        });
+    }
+    let existing = fs::read_to_string(&ignore_path).map_err(|error| {
+        CommandError::io(format!(
+            "cannot read existing ModernLink workspace ignore file {}: {error}",
+            ignore_path.display()
+        ))
+    })?;
+    if ["cache/", "local/", "state/", "workspace.json"]
+        .iter()
+        .all(|rule| existing.lines().any(|line| line.trim() == *rule))
+    {
+        return Ok(());
+    }
+    Err(CommandError::io(format!(
+        "refusing to modify existing user-owned {} because it lacks ModernLink local-state ignore rules",
+        ignore_path.display()
+    )))
 }
 
 fn select_setup_harnesses(
