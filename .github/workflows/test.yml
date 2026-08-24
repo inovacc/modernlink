@@ -281,7 +281,9 @@ jobs:
           MODERNLINK_RABBITMQ_URL: amqp://guest:guest@127.0.0.1:5672/%2f
         run: |
           set -o pipefail
-          test_binary=$(find .ci-artifacts -type f -name 'broker_backed-*' -perm -111 | head -n 1)
+          test_binary=$(find .ci-artifacts -type f -name 'broker_backed-*' | head -n 1)
+          test -n "$test_binary"
+          chmod +x "$test_binary"
           "$test_binary" --ignored --test-threads=1 2>&1 | tee broker-result.txt
       # A gate that can pass having run nothing is worse than no gate. cargo already
       # errors if the required features are missing, but this also catches a test being
@@ -345,7 +347,9 @@ jobs:
           MODERNLINK_KAFKA_BROKERS: 127.0.0.1:9092
         run: |
           set -o pipefail
-          test_binary=$(find .ci-artifacts -type f -name 'broker_backed_kafka-*' -perm -111 | head -n 1)
+          test_binary=$(find .ci-artifacts -type f -name 'broker_backed_kafka-*' | head -n 1)
+          test -n "$test_binary"
+          chmod +x "$test_binary"
           "$test_binary" --ignored --test-threads=1 2>&1 | tee kafka-result.txt
           grep -q 'test result: ok. 1 passed' kafka-result.txt || {
             echo "::error::the Kafka broker-backed test did not run"; exit 1; }
@@ -354,7 +358,9 @@ jobs:
           MODERNLINK_PULSAR_URL: pulsar://127.0.0.1:6650
         run: |
           set -o pipefail
-          test_binary=$(find .ci-artifacts -type f -name 'broker_backed_pulsar-*' -perm -111 | head -n 1)
+          test_binary=$(find .ci-artifacts -type f -name 'broker_backed_pulsar-*' | head -n 1)
+          test -n "$test_binary"
+          chmod +x "$test_binary"
           "$test_binary" --ignored --test-threads=1 2>&1 | tee pulsar-result.txt
           grep -q 'test result: ok. 1 passed' pulsar-result.txt || {
             echo "::error::the Pulsar broker-backed test did not run"; exit 1; }
