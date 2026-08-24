@@ -224,6 +224,13 @@ static PLUGIN_COMMANDS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../plugin
 static PLUGIN_HARNESSES: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../plugin/harnesses");
 static PLUGIN_CODEX: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../plugin/.codex-plugin");
 static PLUGIN_CLAUDE: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../plugin/.claude-plugin");
+// Explicit file dependencies make Cargo rebuild the embedded directory when canonical bundle
+// contracts are added; `include_dir!` alone cannot reliably express newly created descendants.
+const PLUGIN_ARCHITECTURE_COMMAND: &[u8] =
+    include_bytes!("../../../plugin/commands/architecture.md");
+const PLUGIN_BOUNDARIES_COMMAND: &[u8] = include_bytes!("../../../plugin/commands/boundaries.md");
+const PLUGIN_ARCHITECTURE_SKILL: &[u8] =
+    include_bytes!("../../../plugin/skills/modernlink-architecture/SKILL.md");
 
 #[derive(Debug, Subcommand)]
 enum HarnessCommand {
@@ -1320,6 +1327,11 @@ fn bind_plugin(
 }
 
 fn install_plugin(destination: PathBuf, format: OutputFormat) -> Result<(), CommandError> {
+    let _embedded_contracts = (
+        PLUGIN_ARCHITECTURE_COMMAND,
+        PLUGIN_BOUNDARIES_COMMAND,
+        PLUGIN_ARCHITECTURE_SKILL,
+    );
     if destination.exists() {
         return Err(CommandError::io(format!(
             "refusing to install into existing path {}; choose a new explicit destination",
