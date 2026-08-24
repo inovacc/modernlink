@@ -244,6 +244,50 @@ fn derives_legacy_infrastructure_signals_from_import_evidence() {
 }
 
 #[test]
+fn derives_wildfly_and_tomcat_signals_only_from_explicit_vendor_evidence() {
+    let repository = tempfile::tempdir().expect("temporary repository");
+    let meta_inf = repository.path().join("app/META-INF");
+    let java_dir = repository.path().join("src/main/java/com/acme/server");
+    fs::create_dir_all(&meta_inf).expect("META-INF");
+    fs::create_dir_all(&java_dir).expect("Java package");
+    fs::write(meta_inf.join("wildfly-config.xml"), "<configuration/>").expect("WildFly descriptor");
+    fs::write(meta_inf.join("context.xml"), "<Context/>").expect("Tomcat descriptor");
+    fs::write(
+        java_dir.join("ServerApi.java"),
+        "package com.acme.server; import org.wildfly.security.auth.server.SecurityDomain; import org.apache.catalina.Context; public class ServerApi {}",
+    )
+    .expect("Java fixture");
+
+    let report = analyze_repository(repository.path()).expect("analysis");
+    for (technology, rule_id, path) in [
+        (
+            "wildfly",
+            "descriptor.path.wildfly-config-xml",
+            "app/META-INF/wildfly-config.xml",
+        ),
+        (
+            "tomcat",
+            "descriptor.path.tomcat-context-xml",
+            "app/META-INF/context.xml",
+        ),
+    ] {
+        assert_signal(&report, "application-server", technology, rule_id, path);
+    }
+    for (technology, rule_id) in [
+        ("wildfly", "java.import-prefix.org-wildfly"),
+        ("tomcat", "java.import-prefix.apache-catalina"),
+    ] {
+        assert_signal(
+            &report,
+            "vendor-api",
+            technology,
+            rule_id,
+            "src/main/java/com/acme/server/ServerApi.java",
+        );
+    }
+}
+
+#[test]
 fn derives_classfile_version_evidence_without_executing_bytecode() {
     let repository = tempfile::tempdir().expect("temporary repository");
     let classes = repository.path().join("target/classes/com/acme");

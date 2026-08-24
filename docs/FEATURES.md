@@ -1,5 +1,5 @@
 # Features
-<!-- rev:018 (RFC 3339) 2026-08-24T00:00:00Z -->
+<!-- rev:019 (RFC 3339) 2026-08-24T00:00:00Z -->
 
 What exists in the current tree, and what is proposed. "Implemented" means the code is present;
 it does **not** mean the behavior satisfies the intended runtime contract. See
@@ -69,6 +69,7 @@ host product remains outside every recorded run. See [ISSUES.md](ISSUES.md) I-01
 | Static boundary report | `modernlink boundaries` | Lists annotation-backed transaction, messaging-consumer, SOAP, HTTP, and batch candidates with source locations and limitations; it does not establish runtime activation or transaction resources. |
 | Decomposed modernization seam report | `modernlink seams` | Scores observed vendor, JMS, JNDI, JDBC/persistence, and SOAP import boundaries with evidence-linked components; call/data-flow-specific seam families are pending. |
 | Legacy infrastructure inventory | `modernlink inspect` | Emits deterministic import-derived signals for JMS, JNDI, JDBC/persistence, EJB, JTA, JAX-WS, JAXB, JMX, Servlet, RMI, Spring, and server APIs; imports do not prove runtime use. |
+| Application-server detector | `modernlink inspect` | Detects explicit WebLogic, JBoss, WildFly, WebSphere, and Tomcat descriptors/API prefixes. Generic `web.xml`, Servlet APIs, and JBoss deployment descriptors are not misrepresented as proof of a specific newer server. |
 | Declared Java build levels | `modernlink inspect` | Cites literal Maven `maven.compiler.{source,target,release}` properties and Gradle `sourceCompatibility`/`targetCompatibility` assignments. It does not resolve properties, inheritance, toolchains, plugins, or execute builds. |
 | Deployment-descriptor boundary references | `modernlink inspect` | Streams recognized repository XML descriptors and bounded recognized XML entries inside JAR/WAR/EAR archives to cite JNDI/data-source, JMS queue/topic, and declarative-transaction values. Malformed XML contributes no partial content facts. It does not traverse archives nested inside an EAR/WAR. |
 | Static boundary annotations | `modernlink inspect` | Emits cited, derived signals for recognized transaction, messaging-consumer, SOAP, HTTP, and scheduled-batch annotations; annotation use does not prove an active runtime entry point. |

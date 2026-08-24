@@ -1486,6 +1486,11 @@ fn descriptor_rule(path: &str) -> Option<SignalRule> {
             technology: "jboss",
             rule_id: "descriptor.path.jboss-deployment",
         }),
+        ("wildfly-config.xml", Some("meta-inf")) => Some(SignalRule {
+            category: "application-server",
+            technology: "wildfly",
+            rule_id: "descriptor.path.wildfly-config-xml",
+        }),
         ("weblogic.xml", Some("web-inf")) => Some(SignalRule {
             category: "application-server",
             technology: "weblogic",
@@ -1511,6 +1516,11 @@ fn descriptor_rule(path: &str) -> Option<SignalRule> {
             category: "deployment-model",
             technology: "java-ee-web",
             rule_id: "descriptor.path.web-xml",
+        }),
+        ("context.xml", Some("meta-inf")) => Some(SignalRule {
+            category: "application-server",
+            technology: "tomcat",
+            rule_id: "descriptor.path.tomcat-context-xml",
         }),
         ("application.xml", Some("meta-inf")) => Some(SignalRule {
             category: "deployment-model",
@@ -1539,8 +1549,12 @@ fn descriptor_language(path: &str) -> &'static str {
 fn import_rule(import: &str) -> Option<SignalRule> {
     let (category, technology, rule_id) = if import.starts_with("weblogic.") {
         ("vendor-api", "weblogic", "java.import-prefix.weblogic")
+    } else if import.starts_with("org.wildfly.") {
+        ("vendor-api", "wildfly", "java.import-prefix.org-wildfly")
     } else if import.starts_with("org.jboss.") {
         ("vendor-api", "jboss", "java.import-prefix.org-jboss")
+    } else if import.starts_with("org.apache.catalina.") {
+        ("vendor-api", "tomcat", "java.import-prefix.apache-catalina")
     } else if import.starts_with("com.ibm.websphere.") || import.starts_with("com.ibm.ws.") {
         (
             "vendor-api",
