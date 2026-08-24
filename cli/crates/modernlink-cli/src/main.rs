@@ -29,6 +29,15 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// List annotation-backed static boundary candidates from a shared evidence graph.
+    Boundaries {
+        /// Shared evidence graph JSON path.
+        #[arg(long)]
+        evidence: PathBuf,
+        /// Boundary report JSON output path.
+        #[arg(long, short)]
+        output: PathBuf,
+    },
     /// Derive an evidence-linked evolution x-ray from a local Git history artifact.
     Evolution {
         /// ModernLink Git history JSON path.
@@ -239,6 +248,25 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<(), CommandError> {
     match cli.command {
+        Command::Boundaries { evidence, output } => {
+            let graph = read_evidence_graph(&evidence)?;
+            let report = inference::infer_boundaries(&graph)
+                .map_err(|error| CommandError::internal(error.to_string()))?;
+            let json = report
+                .canonical_json()
+                .map_err(|error| CommandError::internal(error.to_string()))?;
+            ensure_report_absent(&output)?;
+            write_report(&output, json)?;
+            println!(
+                "{}",
+                serde_json::json!({
+                    "report": output,
+                    "schema_version": report.schema_version,
+                    "summary": { "boundaries": report.boundaries.len() },
+                })
+            );
+            Ok(())
+        }
         Command::Evolution { history, output } => {
             let history = read_json::<git::GitHistorySnapshot>(&history, "Git history artifact")?;
             let report = git::xray_history(&history);

@@ -121,6 +121,38 @@ pub struct CompatibilityReport {
 }
 
 pub const MIGRATION_PLAN_SCHEMA_VERSION: &str = "modernlink.migration-plan/v1alpha1";
+pub const BOUNDARIES_SCHEMA_VERSION: &str = "modernlink.boundaries/v1alpha1";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BoundaryReport {
+    pub schema_version: String,
+    pub boundaries: Vec<StaticBoundary>,
+    pub limitations: Vec<String>,
+}
+
+impl BoundaryReport {
+    pub fn canonical_json(&self) -> Result<String, InferenceError> {
+        let mut normalized = self.clone();
+        normalized
+            .boundaries
+            .sort_by(|left, right| left.id.cmp(&right.id));
+        normalized.limitations.sort();
+        let mut json = serde_json::to_string_pretty(&normalized)?;
+        json.push('\n');
+        Ok(json)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StaticBoundary {
+    pub id: String,
+    pub state: ClaimState,
+    pub kind: String,
+    pub annotation: String,
+    pub source_path: String,
+    pub evidence_ids: Vec<String>,
+    pub reasoning: String,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MigrationPlan {
@@ -390,6 +422,33 @@ pub fn plan_migration(seams: &SeamReport, compatibility: &CompatibilityReport) -
     }
 }
 
+pub fn infer_boundaries(graph: &EvidenceGraph) -> Result<BoundaryReport, InferenceError> {
+    graph.validate()?;
+    let mut boundaries = Vec::new();
+    for evidence in &graph.evidence {
+        if evidence.kind != "annotation" {
+            continue;
+        }
+        let Some((kind, reasoning)) = annotation_boundary(&evidence.value) else {
+            continue;
+        };
+        boundaries.push(StaticBoundary {
+            id: model::stable_id("static-boundary", [kind, evidence.id.as_str()]),
+            state: ClaimState::Inference,
+            kind: kind.to_owned(),
+            annotation: evidence.value.clone(),
+            source_path: evidence.source.path.clone(),
+            evidence_ids: vec![evidence.id.clone()],
+            reasoning: reasoning.to_owned(),
+        });
+    }
+    Ok(BoundaryReport {
+        schema_version: BOUNDARIES_SCHEMA_VERSION.to_owned(),
+        boundaries,
+        limitations: vec!["Annotation presence is source evidence only; this report does not establish runtime activation, entry ownership, transaction resources, or message destinations.".to_owned()],
+    })
+}
+
 fn layer_for(name: &str) -> Option<&'static str> {
     let lower = name.to_ascii_lowercase();
     if lower.ends_with("controller") || lower.ends_with("resource") {
@@ -409,6 +468,29 @@ fn layer_for(name: &str) -> Option<&'static str> {
 fn context_for(name: &str) -> Option<&str> {
     let segments = name.split('.').collect::<Vec<_>>();
     (segments.len() >= 2).then(|| segments[segments.len() - 2])
+}
+
+fn annotation_boundary(annotation: &str) -> Option<(&'static str, &'static str)> {
+    match annotation.rsplit('.').next().unwrap_or(annotation) {
+        "Transactional" | "TransactionAttribute" => Some((
+            "transaction",
+            "inferred from a recognized transaction annotation",
+        )),
+        "MessageDriven" | "JmsListener" => Some((
+            "messaging-consumer",
+            "inferred from a recognized message-consumer annotation",
+        )),
+        "WebService" | "WebMethod" => Some(("soap", "inferred from a recognized SOAP annotation")),
+        "Path" | "RequestMapping" => Some((
+            "http",
+            "inferred from a recognized HTTP endpoint annotation",
+        )),
+        "Scheduled" => Some((
+            "batch",
+            "inferred from a recognized scheduled-task annotation",
+        )),
+        _ => None,
+    }
 }
 
 fn boundary_technology(name: &str) -> Option<&'static str> {
