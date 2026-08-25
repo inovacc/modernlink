@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/analyzer",
+    "crates/aihost",
     "crates/git",
     "crates/harness",
     "crates/inference",
