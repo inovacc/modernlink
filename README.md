@@ -1,8 +1,9 @@
 # ModernLink
-<!-- rev:011 (RFC 3339) 2026-08-21T20:41:35Z -->
+<!-- rev:012 (RFC 3339) 2026-08-22T03:15:42Z -->
 
 [![Dependabot Updates](https://github.com/inovacc/modernlink/actions/workflows/dependabot/dependabot-updates/badge.svg)](https://github.com/inovacc/modernlink/actions/workflows/dependabot/dependabot-updates)
 [![CI](https://github.com/inovacc/modernlink/actions/workflows/test.yml/badge.svg)](https://github.com/inovacc/modernlink/actions/workflows/test.yml)
+[![Release JAR validation](https://github.com/inovacc/modernlink/actions/workflows/release-jar-test.yml/badge.svg)](https://github.com/inovacc/modernlink/actions/workflows/release-jar-test.yml)
 
 ⚠️ Still actively under development ⚠️
 
@@ -117,12 +118,16 @@ recorded revisions, not a verdict that the integration satisfies the vendor cont
 The CI workflow is staged as **Rust → Java 6 → Rust coverage → broker/native/audit checks →
 release readiness**. Each stage is gated by the preceding stage, and the final release-readiness
 job requires every preceding result to be `success`; GitHub Actions skips it when any required
-gate is unsuccessful. The tag-based release publisher remains a separate publishing action.
+gate is unsuccessful. Published tags are checked separately by the release-JAR validation
+workflow, which downloads the release asset before building its Docker test image.
 
 - **Recorded on a real Java 6 JVM** (`1.6.0_38`, `linux-x86_64`, packaged JAR, CI run [31781200582](https://github.com/inovacc/modernlink/actions/runs/31781200582)): native loading, live TLSv1_3 HTTPS, the JMS-shaped facade, and routing probes executed.
 - **Executed on a modern JVM** (Windows, JVM 21): the same native path on **windows-x86_64**, `status=200` with a 4-certificate chain, and a send → receive → acknowledge round trip against **live NATS, NATS JetStream and RabbitMQ**.
 - CI run [32386474212](https://github.com/inovacc/modernlink/actions/runs/32386474212) at `3b64484` recorded the configured broker tests for all five providers and a linux-aarch64 native load on JVM 21.
-- CI run [32523731422](https://github.com/inovacc/modernlink/actions/runs/32523731422) at `686adaa` recorded `success` conclusions for all seven jobs. Its reports recorded Rust behavior-crate line coverage at **1,496/1,650 (90.67%)**, full Rust production-source coverage at **2,814/3,075 (91.51%)**, and Java production-class coverage at **802/889 (90.21%)**.
+- CI run [32534452508](https://github.com/inovacc/modernlink/actions/runs/32534452508) at `72c055c` recorded `success` conclusions for the staged jobs. Its reports recorded Rust behavior-crate line coverage at **1,495/1,648 (90.72%)**, full Rust production-source coverage at **2,813/3,073 (91.54%)**, and Java production-class coverage at **802/889 (90.21%)**.
+- Release validation run [32544239585](https://github.com/inovacc/modernlink/actions/runs/32544239585) downloaded the published `v0.1.0` JAR, ran the Docker Java 6 probes, native smoke, HTTPS, JMS/JMX, routing, and NATS round trip; the job returned conclusion `success`.
+- Local Windows Docker execution used the same published `v0.1.0` JAR and Java `1.6.0_38`; the container exited `0` after `release-jar-tests=complete`.
+- Direct Windows JVM 21 execution of the published JAR remains open: 13 of 18 probes returned `UnsatisfiedLinkError` because the embedded Windows DLL exposed no `Java_com_modernlink_*` JNI exports. See [BUGS.md](docs/BUGS.md) B-012.
 - **Not executed:** the vendor host product and its JMS implementation. Durability across restart, reconnect, ordering under load, concurrency, failure recovery, rollback, redelivery, and dead-letter behavior remain unexercised for every provider.
 
 The integration approach itself is no longer open: embedded JNI was chosen over an external sidecar process, recorded in [`docs/adr/0001-jni-boundary-over-sidecar.md`](docs/adr/0001-jni-boundary-over-sidecar.md) (Status: Accepted). The section below is retained as the rationale behind that decision, not as an open question.
@@ -263,3 +268,14 @@ docker run --rm modernlink-java6-https
 ```
 
 The image compiles the Java facade and test sources with `-source 1.6 -target 1.6`, packages the platform-selected native libraries into `/workspace/modernlink.jar`, and reports the container's Java version. The same JAR can be used to exercise the Java-to-Rust HTTPS and messaging paths.
+
+To test the published release asset instead of rebuilding a JAR from source:
+
+```text
+gh release download v0.1.0 --pattern modernlink.jar --dir .release-test
+docker build -f docker/java6/ReleaseTest.Dockerfile -t modernlink-release-jar-test .
+docker run --rm --network host modernlink-release-jar-test
+```
+
+That image compiles only the external JMX fixture; the JAR and native libraries come from the
+release asset. The workflow equivalent is [`release-jar-test.yml`](.github/workflows/release-jar-test.yml).

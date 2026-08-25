@@ -1,5 +1,5 @@
 # ModernLink Messaging Compatibility Backlog
-<!-- rev:027 (RFC 3339) 2026-08-21T22:45:19Z -->
+<!-- rev:028 (RFC 3339) 2026-08-22T03:15:42Z -->
 
 ## Objective
 
@@ -411,8 +411,9 @@ round trip and no shutdown/reconnect probe. Deferred deliberately rather than fo
 
 The workflow audit is now a blocking release-readiness job. The broker-client upgrades in
 `f991820` remove the B-009 dependency set, and local `cargo audit --deny warnings` exits 0.
-The post-change GitHub run remains the machine record required before a release-readiness
-conclusion can be recorded. `/project:harden` H-09.
+Run [32534452508](https://github.com/inovacc/modernlink/actions/runs/32534452508) recorded the
+blocking audit and release-readiness conclusions. Published release assets are subsequently
+exercised by `release-jar-test.yml`. `/project:harden` H-09.
 
 ### P3 — two panic sites that are correct today and fragile tomorrow
 
