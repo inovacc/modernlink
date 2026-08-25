@@ -1,6 +1,4 @@
-//! Implementation of `pkg/aihost/gemini` — the modernlink plugin host for Rustogle's Gemini
-//! CLI. Registered explicitly (Rust uses `init()`) via [`register`] from the
-//! `all` barrel.
+//! Gemini host adapter, registered explicitly by the host registry.
 
 mod doctor;
 mod host;

@@ -47,6 +47,24 @@ pub const TEMPLATE_DELIMS_END: &str = "%>";
 /// Default `created:` marker date.
 pub const DEFAULT_CREATED: &str = "2026-05-24";
 
+/// Return the current UTC date without requiring a date/time dependency.
+pub fn current_date() -> String {
+    let days = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs() / 86_400) as i64;
+    let z = days + 719_468;
+    let era = (if z >= 0 { z } else { z - 146_096 }) / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = mp + if mp < 10 { 3 } else { -9 };
+    let year = year + if month <= 2 { 1 } else { 0 };
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
 /// Feeds [`Asset::render`] at install time so author-side `<%.Name%>`
 /// placeholders resolve to the host's published values.
 #[derive(Debug, Clone, Default)]
@@ -79,6 +97,29 @@ pub struct Asset {
 }
 
 impl Asset {
+    /// Parse a Markdown asset from the source-controlled plugin bundle.
+    pub fn from_markdown(path: &str, bytes: &[u8]) -> Self {
+        let text = String::from_utf8_lossy(bytes);
+        if let Some(rest) = text.strip_prefix("---\n") {
+            if let Some(end) = rest.find("\n---\n") {
+                return Self {
+                    kind: Kind::Unknown,
+                    path: path.to_string(),
+                    frontmatter: rest[..end].to_string(),
+                    body: rest[end + 5..].to_string(),
+                    created: String::new(),
+                };
+            }
+        }
+        Self {
+            kind: Kind::Unknown,
+            path: path.to_string(),
+            frontmatter: String::new(),
+            body: text.into_owned(),
+            created: String::new(),
+        }
+    }
+
     fn created(&self) -> String {
         if self.created.is_empty() {
             DEFAULT_CREATED.to_string()

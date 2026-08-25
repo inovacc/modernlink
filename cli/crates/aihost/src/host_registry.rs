@@ -1,8 +1,7 @@
 //! (`factory` / `Register` / `All` / `ByName`).
 //!
 //! Rust wires hosts lazily via a factory func to avoid a circular import and
-//! registers them from each host package's `init()`. Rust has no package-init
-//! side effects, so [`register_host`] is called explicitly from the top-level
+//! registers them from each host package. Registration is called explicitly from the top-level
 //! `all` barrel. Also holds the small OS-compat helpers every host needs
 //! (`user_home_dir`, `look_path`) that Rust gets from its stdlib.
 

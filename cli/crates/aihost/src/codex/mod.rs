@@ -1,6 +1,4 @@
-//! Implementation of `pkg/aihost/codex` — the modernlink plugin host for OpenAI's Codex CLI.
-//! Registered explicitly (Rust uses `init()`) via [`register`] from the `all`
-//! barrel.
+//! Codex host adapter, registered explicitly by the host registry.
 
 mod doctor;
 mod host;

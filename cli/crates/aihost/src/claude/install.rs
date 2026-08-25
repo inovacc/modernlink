@@ -1,8 +1,8 @@
 //! rendered asset tree, patch `marketplace.json` + `settings.json`, clean legacy
 //! state, and register the local marketplace via the `claude` CLI.
 
+use super::host::Host;
 use super::manifest::{DESCRIPTION, NAME, VERSION, marshal_indent};
-use super::{host::Host, mcpagents};
 use crate::error::{Error, Result};
 use crate::host_registry::{run_cli, user_home_dir};
 use crate::write_tree::write_tree_atomic;
@@ -20,8 +20,12 @@ pub fn install(target: &str) -> Result<i32> {
     if target.is_empty() {
         return Err(Error::Io("target must not be empty".to_string()));
     }
-    let n = write_tree_atomic(&Host, target, &["commands", "agents", "skills"])
-        .map_err(|e| Error::Io(format!("write assets: {e}")))?;
+    let n = write_tree_atomic(
+        &Host,
+        target,
+        &["commands", "agents", "skills", "harnesses", "config"],
+    )
+    .map_err(|e| Error::Io(format!("write assets: {e}")))?;
     patch_marketplace().map_err(|e| Error::Io(format!("patch marketplace.json: {e}")))?;
     patch_settings().map_err(|e| Error::Io(format!("patch settings.json: {e}")))?;
     if unpatch_mcp_servers().is_ok() {
@@ -31,18 +35,6 @@ pub fn install(target: &str) -> Result<i32> {
     }
     migrate_legacy_local_plugin();
     register_local_marketplace(target);
-    match user_home_dir() {
-        Ok(home) => match mcpagents::write_mcp_scoped_agents(&home) {
-            Ok(paths) => {
-                eprintln!("[install] wrote {} flow-scoped MCP agents:", paths.len());
-                for p in paths {
-                    eprintln!("  {}", p.display());
-                }
-            }
-            Err(e) => eprintln!("[install] mcp-scoped agents: {e} (continuing)"),
-        },
-        Err(e) => eprintln!("[install] home dir: {e} (continuing)"),
-    }
     Ok(n)
 }
 
@@ -54,11 +46,6 @@ pub fn uninstall(target: &str) -> Result<()> {
     if let Err(e) = unpatch_mcp_servers() {
         eprintln!("[uninstall] mcpServers: {e} (continuing)");
     }
-    if let Ok(home) = user_home_dir() {
-        if let Err(e) = mcpagents::remove_mcp_scoped_agents(&home) {
-            eprintln!("[uninstall] mcp-scoped agents: {e} (continuing)");
-        }
-    }
     std::fs::remove_dir_all(target).map_err(|e| Error::Io(format!("remove {target}: {e}")))?;
     eprintln!("[uninstall] removed {target}");
     Ok(())
@@ -69,7 +56,7 @@ pub fn patch_marketplace() -> Result<()> {
     let path = marketplace_json_path()?;
     let doc = json!({
         "name": PLUGIN_MARKETPLACE,
-        "description": "modernlink — JS module enrichment plugin (private marketplace).",
+        "description": DESCRIPTION,
         "owner": { "name": "modernlink" },
         "plugins": [{
             "name": NAME,

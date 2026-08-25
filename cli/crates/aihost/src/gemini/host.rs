@@ -2,21 +2,19 @@
 //! `GEMINI.md` context + `skills/<name>/SKILL.md`; installs to
 //! `~/.gemini/extensions/<name>/`.
 
-use crate::claude;
+use crate::assets::{self, bundle::Harness};
 use crate::error::{Error, Result};
 use crate::host::{Doctor, DoctorReport, Host as HostTrait, Installer, Status};
 use crate::host_registry::{run_cli, user_home_dir};
 use crate::write_tree::{TreeWriter, write_tree_atomic};
-use crate::{Kind, TemplateData, asset_by_path, portable_library_skills};
-use serde::Serialize;
-use serde_json::json;
+use crate::{TemplateData, all_assets};
 use std::io::Write;
 use std::path::Path;
 
-pub const NAME: &str = "modernlink";
-pub const VERSION: &str = claude::VERSION;
-pub const DESCRIPTION: &str = claude::DESCRIPTION;
-pub const MCP_COMMAND: &str = claude::MCP_COMMAND;
+pub const NAME: &str = crate::PLUGIN_NAME;
+pub const VERSION: &str = crate::PLUGIN_VERSION;
+pub const DESCRIPTION: &str = crate::PLUGIN_DESCRIPTION;
+pub const MCP_COMMAND: &str = crate::PLUGIN_MCP_COMMAND;
 
 /// The Gemini CLI host.
 #[derive(Debug, Default, Clone, Copy)]
@@ -28,7 +26,7 @@ fn template_data() -> TemplateData {
         version: VERSION.to_string(),
         description: DESCRIPTION.to_string(),
         mcp_command: MCP_COMMAND.to_string(),
-        created: String::new(),
+        created: crate::current_date(),
     }
 }
 
@@ -39,26 +37,6 @@ pub(crate) fn install_target() -> Result<String> {
         .join(NAME)
         .to_string_lossy()
         .into_owned())
-}
-
-fn marshal_indent<T: Serialize>(v: &T) -> Result<Vec<u8>> {
-    let s = serde_json::to_string_pretty(v).map_err(|e| Error::Io(format!("marshal: {e}")))?;
-    Ok(format!("{s}\n").into_bytes())
-}
-
-fn extension_json() -> Result<Vec<u8>> {
-    marshal_indent(&json!({
-        "name": NAME,
-        "version": VERSION,
-        "description": DESCRIPTION,
-        "contextFileName": "GEMINI.md",
-        "mcpServers": { NAME: { "command": MCP_COMMAND, "args": ["mcp"] } },
-    }))
-}
-
-/// The GEMINI.md context file body, sourced from the shared registry.
-fn gemini_context() -> String {
-    "# modernlink\n\nModernLink host integration context.".to_string()
 }
 
 /// Shell out `gemini extensions install <target>` so the CLI indexes our
@@ -80,23 +58,14 @@ fn register_via_cli(target: &str) {
 impl TreeWriter for Host {
     fn walk(&self, f: &mut dyn FnMut(&str, &[u8]) -> Result<()>) -> Result<()> {
         let td = template_data();
-        let skill = asset_by_path(Kind::Skill, "skills/enrich/SKILL.md").ok_or_else(|| {
-            Error::Io("gemini: missing source skill enrich/SKILL.md in shared registry".to_string())
-        })?;
-        let body = skill.render(td.clone())?;
-        f("skills/enrich/SKILL.md", &body)?;
-        for lib in portable_library_skills() {
-            let lb = lib.render(td.clone())?;
-            f(&lib.path, &lb)?;
+        for asset in all_assets() {
+            f(&asset.path, &asset.render(td.clone())?)?;
         }
         Ok(())
     }
 
     fn manifest_files(&self) -> Result<Vec<(String, Vec<u8>)>> {
-        Ok(vec![
-            ("gemini-extension.json".to_string(), extension_json()?),
-            ("GEMINI.md".to_string(), gemini_context().into_bytes()),
-        ])
+        Ok(assets::static_files(Harness::Gemini))
     }
 }
 

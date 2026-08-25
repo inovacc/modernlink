@@ -1,6 +1,7 @@
 //! contract for Anthropic's Claude Code, plus the asset-walk helpers.
 
 use super::manifest::{DESCRIPTION, MCP_COMMAND, NAME, VERSION};
+use crate::assets::{self, bundle::Harness};
 use crate::error::Result;
 use crate::host::{Doctor, DoctorReport, Host as HostTrait, Installer, Status};
 use crate::host_registry::user_home_dir;
@@ -20,7 +21,7 @@ pub(crate) fn template_data() -> TemplateData {
         version: VERSION.to_string(),
         description: DESCRIPTION.to_string(),
         mcp_command: MCP_COMMAND.to_string(),
-        created: String::new(),
+        created: crate::current_date(),
     }
 }
 
@@ -85,7 +86,7 @@ impl TreeWriter for Host {
     }
 
     fn manifest_files(&self) -> Result<Vec<(String, Vec<u8>)>> {
-        super::manifest::manifest_files()
+        Ok(assets::static_files(Harness::Claude))
     }
 }
 

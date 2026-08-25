@@ -5,11 +5,13 @@ use std::{
     process::ExitCode,
 };
 
+use aihost::{
+    PLUGIN_DESCRIPTION, PLUGIN_MCP_COMMAND, PLUGIN_NAME, TemplateData, current_date, render_plugin,
+};
 use clap::{Parser, Subcommand, ValueEnum};
 use dialoguer::MultiSelect;
 use git::{HistoryOptions, MailmapMode, RefScope, collect_history_cached};
 use harness::HarnessRegistry;
-use include_dir::{Dir, DirEntry, include_dir};
 use modernlink_analyzer::analyze_repository;
 use sha2::{Digest, Sha256};
 
@@ -237,30 +239,6 @@ enum PluginCommand {
     },
 }
 
-static PLUGIN_SKILLS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../plugin/skills");
-static PLUGIN_AGENTS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../plugin/agents");
-static PLUGIN_COMMANDS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../plugin/commands");
-static PLUGIN_HARNESSES: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../plugin/harnesses");
-static PLUGIN_CODEX: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../plugin/.codex-plugin");
-static PLUGIN_CLAUDE: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../plugin/.claude-plugin");
-// Explicit file dependencies make Cargo rebuild the embedded directory when canonical bundle
-// contracts are added; `include_dir!` alone cannot reliably express newly created descendants.
-const PLUGIN_ARCHITECTURE_COMMAND: &[u8] =
-    include_bytes!("../../../plugin/commands/architecture.md");
-const PLUGIN_BOUNDARIES_COMMAND: &[u8] = include_bytes!("../../../plugin/commands/boundaries.md");
-const PLUGIN_DOMAINS_COMMAND: &[u8] = include_bytes!("../../../plugin/commands/domains.md");
-const PLUGIN_ASSESS_COMMAND: &[u8] = include_bytes!("../../../plugin/commands/assess.md");
-const PLUGIN_PREPARE_COMMAND: &[u8] = include_bytes!("../../../plugin/commands/prepare.md");
-const PLUGIN_MIGRATE_COMMAND: &[u8] = include_bytes!("../../../plugin/commands/migrate.md");
-const PLUGIN_ARCHITECTURE_SKILL: &[u8] =
-    include_bytes!("../../../plugin/skills/modernlink-architecture/SKILL.md");
-const PLUGIN_DOMAINS_SKILL: &[u8] =
-    include_bytes!("../../../plugin/skills/modernlink-domains/SKILL.md");
-const PLUGIN_ASSESS_SKILL: &[u8] =
-    include_bytes!("../../../plugin/skills/modernlink-assess/SKILL.md");
-const PLUGIN_PREPARE_SKILL: &[u8] =
-    include_bytes!("../../../plugin/skills/modernlink-prepare/SKILL.md");
-
 #[derive(Debug, Subcommand)]
 enum HarnessCommand {
     /// List bundled harness descriptors as structured JSON.
@@ -448,13 +426,13 @@ fn run(cli: Cli) -> Result<(), CommandError> {
         } => status_lifecycle(journal, repository, run_id, format),
         Command::Lifecycle {
             command:
-                LifecycleCommand::Advance {
-                    journal,
-                    repository,
-                    run_id,
-                    approve,
-                    artifact_hashes,
-                },
+            LifecycleCommand::Advance {
+                journal,
+                repository,
+                run_id,
+                approve,
+                artifact_hashes,
+            },
         } => advance_lifecycle(
             journal,
             repository,
@@ -465,11 +443,11 @@ fn run(cli: Cli) -> Result<(), CommandError> {
         ),
         Command::Migration {
             command:
-                MigrationCommand::Create {
-                    repository,
-                    id,
-                    plan,
-                },
+            MigrationCommand::Create {
+                repository,
+                id,
+                plan,
+            },
         } => create_migration_record(repository, id, plan, format),
         Command::Migration {
             command: MigrationCommand::Status { repository, id },
@@ -691,10 +669,10 @@ fn run(cli: Cli) -> Result<(), CommandError> {
         } => install_plugin(destination, format),
         Command::Plugin {
             command:
-                PluginCommand::Bind {
-                    plugin_root,
-                    binary,
-                },
+            PluginCommand::Bind {
+                plugin_root,
+                binary,
+            },
         } => bind_plugin(plugin_root, binary, format),
         Command::Harness {
             command: HarnessCommand::List,
@@ -923,8 +901,8 @@ fn validate_lifecycle_run_id(run_id: &str) -> Result<(), CommandError> {
         && run_id != "."
         && run_id != ".."
         && run_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'));
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'));
     if valid {
         Ok(())
     } else {
@@ -1085,9 +1063,9 @@ fn migration_status(
     let plan_verification = inference::verify_plan(&plan);
     let plan_valid = plan.schema_version == inference::MIGRATION_PLAN_SCHEMA_VERSION
         && plan_verification
-            .checks
-            .iter()
-            .all(|check| check.status == "OBSERVED");
+        .checks
+        .iter()
+        .all(|check| check.status == "OBSERVED");
     let mut expected_approval_task_ids = plan
         .tasks
         .iter()
@@ -1146,7 +1124,7 @@ fn migration_status(
             } else {
                 "GAP"
             }
-            .to_owned(),
+                .to_owned(),
             summary: "Recorded plan SHA-256 matches the canonical plan artifact.".to_owned(),
         },
         ReconciliationCheck {
@@ -1240,8 +1218,8 @@ fn setup_workspace(
             ".modernlink/state/".to_owned(),
         ],
         adapter_installation:
-            "not-attempted: no harness adapter has an approved ownership/install contract"
-                .to_owned(),
+        "not-attempted: no harness adapter has an approved ownership/install contract"
+            .to_owned(),
     };
     let manifest_path = repository.join(".modernlink").join("workspace.json");
     if manifest_path.exists() && !force {
@@ -1737,18 +1715,6 @@ fn bind_plugin(
 }
 
 fn install_plugin(destination: PathBuf, format: OutputFormat) -> Result<(), CommandError> {
-    let _embedded_contracts = (
-        PLUGIN_ARCHITECTURE_COMMAND,
-        PLUGIN_BOUNDARIES_COMMAND,
-        PLUGIN_DOMAINS_COMMAND,
-        PLUGIN_ASSESS_COMMAND,
-        PLUGIN_PREPARE_COMMAND,
-        PLUGIN_MIGRATE_COMMAND,
-        PLUGIN_ARCHITECTURE_SKILL,
-        PLUGIN_DOMAINS_SKILL,
-        PLUGIN_ASSESS_SKILL,
-        PLUGIN_PREPARE_SKILL,
-    );
     if destination.exists() {
         return Err(CommandError::io(format!(
             "refusing to install into existing path {}; choose a new explicit destination",
@@ -1761,32 +1727,29 @@ fn install_plugin(destination: PathBuf, format: OutputFormat) -> Result<(), Comm
             destination.display()
         ))
     })?;
-    let result = (|| {
-        copy_embedded_dir(&PLUGIN_SKILLS, &destination.join("skills"))?;
-        copy_embedded_dir(&PLUGIN_AGENTS, &destination.join("agents"))?;
-        copy_embedded_dir(&PLUGIN_COMMANDS, &destination.join("commands"))?;
-        copy_embedded_dir(&PLUGIN_HARNESSES, &destination.join("harnesses"))?;
-        copy_embedded_dir(&PLUGIN_CODEX, &destination.join(".codex-plugin"))?;
-        copy_embedded_dir(&PLUGIN_CLAUDE, &destination.join(".claude-plugin"))?;
-        let config = destination.join("config");
-        fs::create_dir_all(&config)
-            .map_err(|error| CommandError::io(format!("cannot create plugin config: {error}")))?;
-        fs::write(
-            config.join("binary-pointer.schema.json"),
-            include_bytes!("../../../plugin/config/binary-pointer.schema.json"),
-        )
-        .map_err(|error| CommandError::io(format!("cannot write pointer schema: {error}")))?;
-        fs::write(config.join(".gitignore"), "binary-pointer.json\n").map_err(|error| {
-            CommandError::io(format!("cannot write pointer ignore rule: {error}"))
+    let data = TemplateData {
+        name: PLUGIN_NAME.to_string(),
+        version: aihost::PLUGIN_VERSION.to_string(),
+        description: PLUGIN_DESCRIPTION.to_string(),
+        mcp_command: PLUGIN_MCP_COMMAND.to_string(),
+        created: current_date(),
+    };
+    for (relative, bytes) in
+        render_plugin(data).map_err(|error| CommandError::internal(error.to_string()))?
+    {
+        let output = destination.join(relative);
+        if let Some(parent) = output.parent() {
+            fs::create_dir_all(parent).map_err(|error| {
+                CommandError::io(format!("cannot create plugin file parent: {error}"))
+            })?;
+        }
+        fs::write(&output, bytes).map_err(|error| {
+            CommandError::io(format!(
+                "cannot write plugin file {}: {error}",
+                output.display()
+            ))
         })?;
-        fs::write(
-            destination.join("WORKFLOWS.md"),
-            include_bytes!("../../../plugin/WORKFLOWS.md"),
-        )
-        .map_err(|error| CommandError::io(format!("cannot write plugin workflow: {error}")))?;
-        Ok(())
-    })();
-    result?;
+    }
     emit_receipt(
         format,
         &serde_json::json!({
@@ -1796,45 +1759,6 @@ fn install_plugin(destination: PathBuf, format: OutputFormat) -> Result<(), Comm
             "harness_materialization": "not-attempted; adapter paths require an explicit harness ownership contract",
         }),
     );
-    Ok(())
-}
-
-fn copy_embedded_dir(source: &Dir<'_>, destination: &Path) -> Result<(), CommandError> {
-    fs::create_dir_all(destination).map_err(|error| {
-        CommandError::io(format!(
-            "cannot create embedded plugin directory {}: {error}",
-            destination.display()
-        ))
-    })?;
-    for entry in source.entries() {
-        match entry {
-            DirEntry::Dir(directory) => {
-                let relative = directory
-                    .path()
-                    .strip_prefix(source.path())
-                    .map_err(|error| CommandError::internal(error.to_string()))?;
-                copy_embedded_dir(directory, &destination.join(relative))?;
-            }
-            DirEntry::File(file) => {
-                let relative = file
-                    .path()
-                    .strip_prefix(source.path())
-                    .map_err(|error| CommandError::internal(error.to_string()))?;
-                let output = destination.join(relative);
-                if let Some(parent) = output.parent() {
-                    fs::create_dir_all(parent).map_err(|error| {
-                        CommandError::io(format!("cannot create plugin file parent: {error}"))
-                    })?;
-                }
-                fs::write(&output, file.contents()).map_err(|error| {
-                    CommandError::io(format!(
-                        "cannot write plugin file {}: {error}",
-                        output.display()
-                    ))
-                })?;
-            }
-        }
-    }
     Ok(())
 }
 

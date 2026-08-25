@@ -1,7 +1,0 @@
-{
-  "harness": "codex",
-  "adapter_version": "v1alpha1",
-  "canonical_resources": ["skills", "agents", "commands"],
-  "materialization": "pending-ownership-contract",
-  "safety": "Do not overwrite AGENTS.md or user-managed skills; install only files owned by a future adapter manifest."
-}

@@ -1,8 +1,8 @@
 //! additive mutation-closing tests for `kind_for_path`, the registry
 //! dedup/order semantics, `Kind` display, and `Asset::render`.
 //!
-//! subpackage `modernlink/pkg/aihost/assets/all` (the asset barrel), which is
-//! outside this root-package implementation. Without registered domain assets it asserts
+//! asset barrel, which is outside this root-package implementation. Without
+//! registered assets it asserts
 //! `len(assets) != 0` and would fail vacuously. Its parity claim ("no rendered
 //! asset leaks a secret token; every installable skill/command/agent has a
 //! non-blank frontmatter description") is left unverified here.
@@ -10,6 +10,20 @@
 use crate::registry::test_support::{REGISTRY_TEST_LOCK, reset_registry};
 use crate::*;
 use std::path::PathBuf;
+
+#[test]
+fn drawio_visualization_skill_is_embedded() {
+    let skill = crate::assets::bundle::assets()
+        .into_iter()
+        .find(|asset| asset.path == "skills/drawio-skill/SKILL.md")
+        .expect("drawio skill bundle asset");
+    let rendered = skill
+        .render(TemplateData::default())
+        .expect("drawio skill renders");
+    let text = String::from_utf8(rendered).expect("drawio skill is text");
+    assert!(text.contains("name: drawio-skill"));
+    assert!(text.contains("# Draw.io Diagrams"));
+}
 
 // ---- helpers ---------------------------------------------------------------
 

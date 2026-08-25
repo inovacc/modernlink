@@ -24,10 +24,15 @@ mod portable_libraries;
 mod registry;
 mod write_tree;
 
+pub const PLUGIN_NAME: &str = "modernlink";
+pub const PLUGIN_VERSION: &str = "0.1.0";
+pub const PLUGIN_DESCRIPTION: &str = "Evidence-first repository modernization preparation backed by the deterministic ModernLink Rust CLI";
+pub const PLUGIN_MCP_COMMAND: &str = "modernlink";
+
 pub use all::register_all;
 pub use asset::{
     Asset, DEFAULT_CREATED, Kind, TEMPLATE_DELIMS_END, TEMPLATE_DELIMS_START, TemplateData,
-    kind_for_path,
+    current_date, kind_for_path,
 };
 pub use error::{Error, Result};
 pub use host::{Doctor, DoctorCheck, DoctorReport, Host, Installer, Status};
@@ -37,6 +42,19 @@ pub use portable_libraries::{
 };
 pub use registry::{all_assets, asset_by_path, assets_by_kind, register_asset};
 pub use write_tree::{TreeWriter, write_tree_atomic};
+
+/// Render the complete plugin bundle into relative paths and bytes.
+pub fn render_plugin(data: TemplateData) -> Result<Vec<(String, Vec<u8>)>> {
+    let mut files = assets::bundle::assets()
+        .into_iter()
+        .map(|asset| {
+            let path = asset.path.clone();
+            asset.render(data.clone()).map(|bytes| (path, bytes))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    files.extend(assets::bundle::all_static_files());
+    Ok(files)
+}
 
 #[cfg(test)]
 mod tests;

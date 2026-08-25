@@ -1,6 +1,4 @@
-//! Rust blank-imports `assets/all` plus every concrete host package so their
-//! `init()` functions register into the global registries. Rust has no
-//! package-init side effects, so this calls each registration explicitly:
+//! This barrel registers the asset bundle and every concrete host explicitly:
 //! every asset group (via `assets::all`) and every host (claude/codex/gemini).
 
 /// Register every portable asset and every host into the global registries.

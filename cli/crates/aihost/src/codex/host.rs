@@ -1,21 +1,21 @@
-//! Layout mirrors Claude: `.codex-plugin/plugin.json` + `.mcp.json` (spec form)
+//! Layout mirrors the embedded Codex manifest and shared asset bundle.
 //! + `skills/<name>/SKILL.md`; installs to `~/.codex/plugins/<name>/`.
 
-use crate::claude;
+use crate::assets::{self, bundle::Harness};
 use crate::error::{Error, Result};
 use crate::host::{Doctor, DoctorReport, Host as HostTrait, Installer, Status};
 use crate::host_registry::user_home_dir;
 use crate::write_tree::{TreeWriter, write_tree_atomic};
-use crate::{Kind, TemplateData, asset_by_path, portable_library_skills};
+use crate::{TemplateData, all_assets};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-pub const NAME: &str = "modernlink";
-pub const VERSION: &str = claude::VERSION;
-pub const DESCRIPTION: &str = claude::DESCRIPTION;
-pub const MCP_COMMAND: &str = claude::MCP_COMMAND;
+pub const NAME: &str = crate::PLUGIN_NAME;
+pub const VERSION: &str = crate::PLUGIN_VERSION;
+pub const DESCRIPTION: &str = crate::PLUGIN_DESCRIPTION;
+pub const MCP_COMMAND: &str = crate::PLUGIN_MCP_COMMAND;
 
 /// The Codex CLI host.
 #[derive(Debug, Default, Clone, Copy)]
@@ -27,7 +27,7 @@ fn template_data() -> TemplateData {
         version: VERSION.to_string(),
         description: DESCRIPTION.to_string(),
         mcp_command: MCP_COMMAND.to_string(),
-        created: String::new(),
+        created: crate::current_date(),
     }
 }
 
@@ -43,24 +43,6 @@ pub(crate) fn install_target() -> Result<String> {
 fn marshal_indent<T: Serialize>(v: &T) -> Result<Vec<u8>> {
     let s = serde_json::to_string_pretty(v).map_err(|e| Error::Io(format!("marshal: {e}")))?;
     Ok(format!("{s}\n").into_bytes())
-}
-
-fn plugin_json() -> Result<Vec<u8>> {
-    marshal_indent(&json!({
-        "name": NAME,
-        "version": VERSION,
-        "description": DESCRIPTION,
-        "author": { "name": "Security Research" },
-        "license": "BSD-3-Clause",
-        "skills": "skills",
-        "mcpServers": ".mcp.json",
-    }))
-}
-
-fn mcp_json() -> Result<Vec<u8>> {
-    marshal_indent(&json!({
-        "mcpServers": { NAME: { "command": MCP_COMMAND, "args": ["mcp"] } },
-    }))
 }
 
 /// Patch `~/.agents/plugins/marketplace.json` with a "local" source pointing at
@@ -109,25 +91,14 @@ pub(crate) fn patch_marketplace(target: &str) -> Result<()> {
 impl TreeWriter for Host {
     fn walk(&self, f: &mut dyn FnMut(&str, &[u8]) -> Result<()>) -> Result<()> {
         let td = template_data();
-        let skill = asset_by_path(Kind::Skill, "skills/enrich/SKILL.md").ok_or_else(|| {
-            Error::Io("codex: missing source skill enrich/SKILL.md in shared registry".to_string())
-        })?;
-        let body = skill.render(td.clone())?;
-        f("skills/enrich/SKILL.md", &body)?;
-        // Portable command/agent libraries keep commands+agents discoverable on
-        // a skills-only host.
-        for lib in portable_library_skills() {
-            let lb = lib.render(td.clone())?;
-            f(&lib.path, &lb)?;
+        for asset in all_assets() {
+            f(&asset.path, &asset.render(td.clone())?)?;
         }
         Ok(())
     }
 
     fn manifest_files(&self) -> Result<Vec<(String, Vec<u8>)>> {
-        Ok(vec![
-            (".codex-plugin/plugin.json".to_string(), plugin_json()?),
-            (".mcp.json".to_string(), mcp_json()?),
-        ])
+        Ok(assets::static_files(Harness::Codex))
     }
 }
 
@@ -184,7 +155,7 @@ impl Status for Host {
         writeln!(w, "host          : codex")?;
         writeln!(w, "install target: {target}")?;
         writeln!(w, "target exists : {exists}")?;
-        writeln!(w, "manifest      : .codex-plugin/plugin.json + .mcp.json")?;
+        writeln!(w, "manifest      : .codex-plugin/plugin.json")?;
         writeln!(
             w,
             "marketplace   : manual — add to ~/.agents/plugins/marketplace.json"
