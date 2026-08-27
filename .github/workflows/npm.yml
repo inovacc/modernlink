@@ -45,7 +45,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with: { persist-credentials: false }
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with: { node-version: 22 }
       - run: node scripts/release_version.mjs check
       - id: version
@@ -56,7 +56,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with: { persist-credentials: false }
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with: { node-version: 22 }
       - run: node --check npm/modernlink/bin/modernlink.js
       - working-directory: npm/modernlink
@@ -89,7 +89,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with: { persist-credentials: false }
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with: { node-version: 22 }
       - name: Build Rust CLI
         working-directory: cli
@@ -111,7 +111,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with: { persist-credentials: false }
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           registry-url: https://npm.pkg.github.com
